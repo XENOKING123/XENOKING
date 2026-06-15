@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <title>XENO TOOL — ALL-IN-ONE</title>
+    <style>
+      /* ====================================================================
+         XENO launch splash — an EXACT port of the old desktop splash.py:
+         a 720x560 dark energy panel, goku logo, glowing "XENOKING" wordmark
+         (blue aura pulsing 18->60), "XENO TOOL · V3.0 · ALL-IN-ONE" subtitle,
+         a 120-dot starfield, and a 4-second energy bar. Fade in 500ms, hold
+         4000ms, fade out 350ms. Painted before React loads (no flash).
+         ==================================================================== */
+      #xeno-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #02040a; /* black backdrop behind the panel */
+        opacity: 0;
+        animation: xeno-fadein 0.5s ease forwards;
+        transition: opacity 0.35s ease, visibility 0.35s ease;
+      }
+      #xeno-splash.xeno-hide { opacity: 0; visibility: hidden; }
+      #xeno-panel {
+        position: relative;
+        width: 720px;
+        height: 560px;
+        border-radius: 18px;
+        /* top->bottom dark gradient: rgb(8,14,30) -> rgb(2,4,10) + blue core */
+        background:
+          radial-gradient(circle at 50% 50%, rgba(40, 120, 230, 0.47) 0%, rgba(0, 0, 0, 0) 60%),
+          linear-gradient(180deg, rgb(8, 14, 30) 0%, rgb(2, 4, 10) 100%);
+        border: 1.5px solid rgba(50, 110, 200, 0.7);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        font-family: "Segoe UI", system-ui, sans-serif;
+      }
+      #xeno-stars {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+      #xeno-stars i {
+        position: absolute;
+        width: 2.2px;
+        height: 2.2px;
+        border-radius: 50%;
+        background: rgb(200, 220, 255);
+      }
+      #xeno-panel img.goku {
+        height: 190px;
+        margin-bottom: 6px;
+        filter: drop-shadow(0 0 18px rgba(70, 170, 255, 0.45));
+      }
+      #xeno-panel .word {
+        color: #eaf4ff;
+        font-family: "Arial Black", "Segoe UI", sans-serif;
+        font-size: 76px;
+        font-weight: 900;
+        letter-spacing: 6px;
+        line-height: 1;
+        animation: xeno-glow 0.9s ease-in-out infinite alternate;
+      }
+      #xeno-panel .sub {
+        color: #7fb3e8;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 3px;
+        margin-top: 8px;
+      }
+      /* energy progress bar — bottom, 60px insets, fills over 4000ms */
+      #xeno-panel .bar {
+        position: absolute;
+        left: 60px;
+        right: 60px;
+        bottom: 57px;
+        height: 6px;
+        border-radius: 3px;
+        background: rgb(30, 44, 80);
+        overflow: hidden;
+      }
+      #xeno-panel .bar > i {
+        display: block;
+        height: 100%;
+        width: 0;
+        border-radius: 3px;
+        background: linear-gradient(90deg, rgb(70, 170, 255), rgb(120, 220, 255));
+        animation: xeno-energy 4s linear forwards;
+      }
+      @keyframes xeno-fadein { to { opacity: 1; } }
+      @keyframes xeno-energy { to { width: 100%; } }
+      @keyframes xeno-glow {
+        from {
+          text-shadow:
+            0 0 18px rgba(70, 170, 255, 0.9),
+            0 0 28px rgba(70, 170, 255, 0.5);
+        }
+        to {
+          text-shadow:
+            0 0 60px rgba(70, 170, 255, 1),
+            0 0 90px rgba(70, 170, 255, 0.7);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="xeno-splash">
+      <div id="xeno-panel">
+        <div id="xeno-stars"></div>
+        <img class="goku" src="/goku.jpg" alt="" onerror="this.style.display='none'" />
+        <div class="word">XENOKING</div>
+        <div class="sub">XENO TOOL&nbsp; ·&nbsp; V3.0&nbsp; ·&nbsp; ALL-IN-ONE</div>
+        <div class="bar"><i></i></div>
+      </div>
+    </div>
+    <script>
+      (function () {
+        // 120-dot starfield (matches splash.py's random star scatter).
+        var box = document.getElementById("xeno-stars");
+        if (box) {
+          for (var i = 0; i < 120; i++) {
+            var dot = document.createElement("i");
+            dot.style.left = (Math.random() * 100).toFixed(2) + "%";
+            dot.style.top = (Math.random() * 100).toFixed(2) + "%";
+            dot.style.opacity = (0.47 + Math.random() * 0.53).toFixed(2);
+            box.appendChild(dot);
+          }
+        }
+        // power-up sound (best-effort; the app webview allows audio)
+        try {
+          var au = new Audio("/intro.wav");
+          au.volume = 0.6;
+          au.play().catch(function () {});
+        } catch (e) {}
+        // hold 4000ms (energy bar fill), fade out 350ms, then remove.
+        var splash = document.getElementById("xeno-splash");
+        setTimeout(function () {
+          if (splash) splash.classList.add("xeno-hide");
+        }, 4000);
+        setTimeout(function () {
+          if (splash) splash.remove();
+        }, 4400);
+      })();
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

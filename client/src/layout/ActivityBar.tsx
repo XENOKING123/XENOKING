@@ -1,0 +1,187 @@
+import { useEffect, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
+import { Loader2, ChevronUp, ChevronDown } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+
+import {
+  useActivityHistoryStore,
+  type ActivityEntry,
+} from "../state/activityHistory";
+import { formatBytes, formatDuration } from "../lib/format";
+import { useTr } from "../state/lang";
+import { ConsoleChip } from "../components";
+import { profileNameForAddr, useRosterStore } from "../state/roster";
+
+/**
+ * Persistent footer bar that surfaces in-flight activity across
+ * every screen. Without it, a user who starts a copy on the
+ * FileSystem screen and navigates to Library has no global signal
+ * that work is still happening — the per-screen banner disappears
+ * with the screen.
+ *
+ * Collapsed: a single line with the live activity count + a
+ * click-through to the Activity tab. Expanded: per-item summary
+ * with elapsed + progress numbers + speed.
+ *
+ * Renders nothing when nothing's in flight, so the chrome stays
+ * out of the way during idle.
+ *
+ * 2.12.0: renamed from OperationBar -> ActivityBar. The
+ * conceptual-model audit flagged "operation" as a term used only
+ * here while the rest of the app says "activity" (the screen, the
+ * history store, the i18n keys). Two names for the same idea was
+ * gratuitous; "ActivityBar" pairs with the Activity screen so the
+ * user can guess where the bar's "View Activity" link goes.
+ */
+export default function ActivityBar() {
+  const tr = useTr();
+  const navigate = useNavigate();
+  // Subscribe to cheap derived values only — running count plus the
+  // first running entry's label/addr. The store stamps progress bytes
+  // into `entries` ~2× per second during uploads, and a raw `entries`
+  // subscription here re-rendered the bar (and this collapsed line)
+  // on every tick even though nothing visible changed. The shallow
+  // tuple only differs when an activity starts/finishes or the lead
+  // entry's headline changes, so progress ticks no longer touch the
+  // collapsed bar. Live byte counters live in RunningList below.
+  const [runningCount, firstLabel, firstAddr] = useActivityHistoryStore(
+    useShallow((s) => {
+      let count = 0;
+      let label = "";
+      let addr: string | undefined;
+      for (const e of s.entries) {
+        if (e.outcome === "running") {
+          if (count === 0) {
+            label = e.label;
+            addr = e.addr;
+          }
+          count++;
+        }
+      }
+      return [count, label, addr] as const;
+    }),
+  );
+  const [expanded, setExpanded] = useState(false);
+  const profiles = useRosterStore((s) => s.profiles);
+
+  if (runningCount === 0) return null;
+
+  // Collapsed one-liner: with several consoles working at once, prefix
+  // the first entry with its console so a glance at the footer answers
+  // "who is doing that?" without expanding the bar.
+  const firstConsole =
+    profiles.length > 1 && firstAddr
+      ? profileNameForAddr(firstAddr, profiles)
+      : null;
+
+  return (
+    <div className="border-t border-[var(--color-border)] bg-[var(--color-surface-2)]">
+      <div className="flex w-full items-center gap-2 px-4 py-1.5 text-xs">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="flex flex-1 items-center gap-2 truncate hover:opacity-80"
+          aria-expanded={expanded}
+          aria-label={tr(
+            "activity_bar_toggle",
+            undefined,
+            "Toggle activity panel",
+          )}
+        >
+          <Loader2
+            size={12}
+            className="animate-spin text-[var(--color-accent)]"
+          />
+          <span className="font-medium">
+            {tr(
+              "activity_bar_in_flight",
+              { count: runningCount },
+              `${runningCount} activity item${runningCount === 1 ? "" : "s"} running`,
+            )}
+          </span>
+          <span className="ml-2 truncate text-[var(--color-muted)]">
+            {firstConsole ? `[${firstConsole}] ` : ""}
+            {firstLabel}
+            {runningCount > 1 && ` · +${runningCount - 1} more`}
+          </span>
+          {expanded ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate("/activity")}
+          className="rounded-md border border-[var(--color-border)] px-2 py-0.5 text-xs text-[var(--color-muted)] hover:bg-[var(--color-surface-3)] hover:text-[var(--color-text)]"
+        >
+          {tr("activity_bar_open", undefined, "View Activity")}
+        </button>
+      </div>
+
+      {expanded && <RunningList />}
+    </div>
+  );
+}
+
+/** Expanded row list, split into its own component so the full
+ *  `entries` subscription only exists while the bar is expanded
+ *  (conditional render = the hook isn't mounted otherwise). These
+ *  rows show live byte counters, so re-rendering on every progress
+ *  tick is the point here — the split keeps that cost opt-in. */
+function RunningList() {
+  const entries = useActivityHistoryStore((s) => s.entries);
+  const running = entries.filter((e) => e.outcome === "running");
+  return (
+    <div className="border-t border-[var(--color-border)] px-4 py-2">
+      <ul className="space-y-1.5 text-xs">
+        {running.map((entry) => (
+          <RunningRow key={entry.id} entry={entry} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function RunningRow({ entry }: { entry: ActivityEntry }) {
+  const [now, setNow] = useState(() => Date.now());
+  // 1 s tick: balances responsive updates against not re-rendering
+  // every screen 4× per second from the global bar.
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  const elapsedMs = Math.max(0, now - entry.startedAtMs);
+  const speed =
+    entry.bytes && entry.bytes > 0 && elapsedMs > 0
+      ? (entry.bytes * 1000) / elapsedMs
+      : 0;
+  const pct =
+    entry.totalBytes && entry.totalBytes > 0 && entry.bytes
+      ? Math.min(100, (entry.bytes / entry.totalBytes) * 100)
+      : null;
+
+  return (
+    <li className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+      <ConsoleChip addr={entry.addr} />
+      <span className="font-medium text-[var(--color-text)]">
+        {entry.label}
+      </span>
+      <span className="text-[var(--color-muted)]">
+        {formatDuration(elapsedMs / 1000)}
+        {entry.bytes !== undefined && entry.bytes > 0 && (
+          <>
+            {" · "}
+            {formatBytes(entry.bytes)}
+            {entry.totalBytes !== undefined && entry.totalBytes > 0 && (
+              <> / {formatBytes(entry.totalBytes)}</>
+            )}
+            {pct !== null && ` (${pct.toFixed(0)}%)`}
+          </>
+        )}
+        {speed > 0 && ` · ${formatBytes(speed)}/s`}
+      </span>
+      {entry.detail && (
+        <span className="text-xs text-[var(--color-muted)]">
+          {entry.detail}
+        </span>
+      )}
+    </li>
+  );
+}
