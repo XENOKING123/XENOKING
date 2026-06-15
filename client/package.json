@@ -1,0 +1,61 @@
+{
+  "name": "ps5upload-client",
+  "private": true,
+  "version": "3.2.4",
+  "description": "The all-in-one PS5 companion app.",
+  "homepage": "https://github.com/phantomptr/ps5upload",
+  "author": "PhantomPtr <phantomptr@gmail.com>",
+  "scripts": {
+    "dev": "tauri dev",
+    "dev:vite": "vite",
+    "build:vite": "vite build",
+    "build": "tauri build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "tauri": "tauri",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "dist": "tauri build",
+    "dist:win": "tauri build --target x86_64-pc-windows-msvc",
+    "dist:win-arm": "tauri build --target aarch64-pc-windows-msvc",
+    "dist:mac": "tauri build --target aarch64-apple-darwin",
+    "dist:mac-x64": "tauri build --target x86_64-apple-darwin",
+    "dist:linux": "tauri build --target x86_64-unknown-linux-gnu",
+    "dist:linux-arm": "tauri build --target aarch64-unknown-linux-gnu"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.0",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@tauri-apps/plugin-fs": "^2.5.1",
+    "@tauri-apps/plugin-notification": "^2.3.1",
+    "@tauri-apps/plugin-shell": "^2.3.5",
+    "clsx": "^2.1.1",
+    "html-to-image": "^1.11.13",
+    "lucide-react": "^1.17.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.17.0",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@tailwindcss/vite": "^4.3.0",
+    "@tauri-apps/cli": "^2.11.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "@vitest/coverage-v8": "^4.1.8",
+    "eslint": "^10.4.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.60.1",
+    "vite": "^8.0.16",
+    "vitest": "^4.1.4"
+  },
+  "overrides": {
+    "tar": "7.5.7"
+  }
+}
