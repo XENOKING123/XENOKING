@@ -73,6 +73,49 @@ export async function scrapePage(
   return [];
 }
 
+// dlpsgame is WordPress — its public REST API lists the WHOLE catalog (with
+// covers) far faster + more completely than scraping category pages. Category
+// ids from /wp-json/wp/v2/categories.
+const WP_API = "https://dlpsgame.com/wp-json/wp/v2/posts";
+const CAT_ID: Record<"PS5" | "PS4", number> = { PS5: 63019, PS4: 4370 };
+
+function decodeEntities(s: string): string {
+  return (s || "")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&apos;/g, "'")
+    .replace(/&nbsp;/g, " ");
+}
+
+/** Turn a WP REST `posts` JSON page into game entries (name + page url +
+ *  cover from the first content image). */
+function postsFromApi(json: string, platform: "PS5" | "PS4"): GameEntry[] {
+  let arr: unknown;
+  try {
+    arr = JSON.parse(json);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(arr)) return [];
+  const out: GameEntry[] = [];
+  for (const post of arr as Array<Record<string, unknown>>) {
+    const pageUrl = typeof post?.link === "string" ? post.link : "";
+    const title = (post?.title as { rendered?: string })?.rendered ?? "";
+    const name = decodeEntities(title).trim();
+    if (!pageUrl || !name) continue;
+    const content = (post?.content as { rendered?: string })?.rendered ?? "";
+    const m = content.match(
+      /<img[^>]+src="(https:\/\/dlpsgame\.com\/wp-content\/uploads\/[^"]+\.(?:jpg|jpeg|png|webp))"/i,
+    );
+    out.push({ name, platform, coverUrl: m ? m[1] : "", pageUrl });
+  }
+  return out;
+}
+
 export async function scrapeCatalog(
   platform: "PS5" | "PS4",
   pages: number,
@@ -80,28 +123,37 @@ export async function scrapeCatalog(
   existing?: GameEntry[],
   onBatch?: (all: GameEntry[]) => void,
 ): Promise<GameEntry[]> {
-  // Walk the WHOLE category, merging with what we already have. dlpsgame has
-  // 30+ pages per platform; each page already retries via the jina proxy, so we
-  // only conclude we hit the real end after FOUR consecutive empty pages (not
-  // 2 — that quit early on a single transient block and left ~60 games). A
-  // jittered delay keeps the site from rate-limiting. `onBatch` lets the caller
-  // persist progress so a long scrape survives interruption.
+  // Pull the WHOLE catalog from dlpsgame's WordPress REST API (≈667 PS5 /
+  // ≈6,386 PS4 games, covers included, no Cloudflare gate). Falls back to the
+  // rendered category page for any page the API can't serve. `onBatch`
+  // persists progress live so a long pull survives interruption.
+  const cat = CAT_ID[platform];
   const byUrl = new Map<string, GameEntry>();
   for (const g of existing ?? []) byUrl.set(g.pageUrl, g);
   let emptyStreak = 0;
   for (let p = 1; p <= pages; p++) {
-    onProgress?.(`Scraping ${platform} page ${p}… (${byUrl.size} games so far)`);
-    const rows = await scrapePage(platform, p);
+    onProgress?.(`Loading ${platform} catalog… (${byUrl.size} games)`);
+    let rows: GameEntry[] = [];
+    try {
+      const json = await httpGet(
+        `${WP_API}?categories=${cat}&per_page=100&page=${p}&_fields=link,title,content`,
+      );
+      rows = postsFromApi(json, platform);
+    } catch {
+      rows = [];
+    }
+    // API hiccup → best-effort fall back to the rendered category page.
+    if (rows.length === 0) rows = await scrapePage(platform, p);
     if (rows.length === 0) {
-      emptyStreak += 1;
-      if (emptyStreak >= 4) break;
+      if (++emptyStreak >= 2) break;
     } else {
       emptyStreak = 0;
       const before = byUrl.size;
       for (const g of rows) byUrl.set(g.pageUrl, g);
       if (byUrl.size !== before) onBatch?.([...byUrl.values()]);
+      if (rows.length < 100) break; // last API page (full pages are 100)
     }
-    await new Promise((r) => setTimeout(r, 500 + Math.floor(Math.random() * 500)));
+    await new Promise((r) => setTimeout(r, 250));
   }
   return [...byUrl.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
