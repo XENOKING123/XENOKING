@@ -210,16 +210,57 @@ function anchors(html: string): Array<[string, string]> {
   return out;
 }
 
+// dlpsgame hides the real links in a base64 `data-payload` attr that its JS
+// decodes client-side. The WP API content carries it verbatim, so we decode it
+// directly (reliable) instead of hoping the proxy renders the JS accordion.
+function slugFromUrl(u: string): string {
+  try {
+    return new URL(u).pathname.replace(/\/+$/, "").split("/").pop() || "";
+  } catch {
+    return "";
+  }
+}
+// "Guide Download" / "Tool Download" help links sit on every game page — they're
+// monetization/help pages, never the actual download. Drop them.
+const EXCLUDE_URL_RE = /guide-download-game|guide-download|tool-download/i;
+const EXCLUDE_LABEL_RE = /guide\s*download|tool\s*download|jdownload/i;
+
+async function linksHtmlFor(pageUrl: string): Promise<string> {
+  // 1) WP API content's base64 `data-payload` (reliable — always present).
+  const slug = slugFromUrl(pageUrl);
+  if (slug) {
+    try {
+      const json = await httpGet(
+        `https://dlpsgame.com/wp-json/wp/v2/posts?slug=${slug}&_fields=content`,
+      );
+      const arr = JSON.parse(json) as Array<{ content?: { rendered?: string } }>;
+      const content = arr?.[0]?.content?.rendered ?? "";
+      const m = content.match(/data-payload="([A-Za-z0-9+/=]+)"/);
+      if (m) {
+        try {
+          return atob(m[1]);
+        } catch {
+          /* not valid base64 — fall through */
+        }
+      }
+    } catch {
+      /* API miss — fall through to the rendered page */
+    }
+  }
+  // 2) fallback: render the page through the proxy.
+  try {
+    return await httpGet(pageUrl, true);
+  } catch {
+    return "";
+  }
+}
+
 export async function fetchDownloadLinks(
   pageUrl: string,
   deep = true,
 ): Promise<DownloadLink[]> {
-  let html = "";
-  try {
-    html = await httpGet(pageUrl, true); // via jina proxy (JS render + CF)
-  } catch {
-    return [];
-  }
+  const html = await linksHtmlFor(pageUrl);
+  if (!html) return [];
   const seen = new Set<string>();
   const out: DownloadLink[] = [];
   const landing: Array<[string, string]> = [];
@@ -232,6 +273,8 @@ export async function fetchDownloadLinks(
   };
 
   for (let [label, url] of anchors(html)) {
+    // Skip the per-game "Guide Download" / "Tool Download" help links.
+    if (EXCLUDE_URL_RE.test(url) || EXCLUDE_LABEL_RE.test(label)) continue;
     let host = hostOf(url);
     // Decode a gateway-embedded real URL from ANY anchor — link shorteners pack
     // the real destination as a base64 `url=`/`u=`/`link=` param, so we never
