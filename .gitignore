@@ -109,12 +109,9 @@ fixtures_out/
 temp/
 tmp/
 
-# ─── AI-assistant + agent artefacts ──────────────────────────────────────
-.claude/
-.codex/
-.anthropic/
-AGENTS.md
-CLAUDE.local.md
+# ─── Editor / tooling scratch dirs ───────────────────────────────────────
+.cache/
+*.local.md
 
 # ─── Per-platform packaging outputs ──────────────────────────────────────
 # .app / .dmg / .msi / .exe / .deb / .AppImage / .rpm all live under
