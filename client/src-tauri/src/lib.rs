@@ -431,6 +431,7 @@ pub fn run() {
             commands::cheat_apply,
             commands::title_resolve,
             commands::nanodns_probe,
+            commands::trainer_cover_path,
             // ── Local filesystem browse + Android all-files access ──
             // Backs the in-app file/folder picker used on Android (where
             // native dialogs return content:// URIs the engine can't

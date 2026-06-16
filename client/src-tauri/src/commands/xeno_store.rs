@@ -308,7 +308,8 @@ fn extract_zip(bytes: &[u8], root: &std::path::Path) -> Result<u32, String> {
 // --------------------------------------------------------------------------- //
 const TRAINER_SEED_ZIP: &[u8] = include_bytes!("../../resources/trainers-seed.zip");
 const TITLES_SEED_ZIP: &[u8] = include_bytes!("../../resources/titles-seed.zip");
-const SEED_VERSION: &str = "v2";
+const COVERS_SEED_ZIP: &[u8] = include_bytes!("../../resources/covers-seed.zip");
+const SEED_VERSION: &str = "v3";
 
 /// Best-effort, called once at startup. Never panics — a seed hiccup just means
 /// the user syncs from the repos as before.
@@ -319,6 +320,73 @@ pub fn seed_on_startup(app: &AppHandle) {
     if let Err(e) = seed_titles(app) {
         eprintln!("[seed] titles: {e}");
     }
+    if let Err(e) = seed_covers(app) {
+        eprintln!("[seed] covers: {e}");
+    }
+}
+
+/// Extract the bundled game covers (CUSA#####.jpg / PPSA#####.jpg) into the app
+/// data dir's covers/ folder so trainer cards have art for games the online
+/// covers map misses (mostly PS4).
+fn seed_covers(app: &AppHandle) -> Result<(), String> {
+    use std::io::{Cursor, Read};
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app data dir: {e}"))?
+        .join("covers");
+    let stamp = dir.join(".covers_seed");
+    if seeded(&stamp) {
+        return Ok(());
+    }
+    let _ = std::fs::create_dir_all(&dir);
+    let mut zip =
+        zip::ZipArchive::new(Cursor::new(COVERS_SEED_ZIP)).map_err(|e| format!("covers zip: {e}"))?;
+    let mut n = 0u32;
+    for i in 0..zip.len() {
+        let mut f = match zip.by_index(i) {
+            Ok(f) => f,
+            Err(_) => continue,
+        };
+        if f.is_dir() {
+            continue;
+        }
+        let name = f.name().rsplit('/').next().unwrap_or("").to_string();
+        if name.is_empty() {
+            continue;
+        }
+        let mut buf = Vec::new();
+        if f.read_to_end(&mut buf).is_err() {
+            continue;
+        }
+        if std::fs::write(dir.join(&name), &buf).is_ok() {
+            n += 1;
+        }
+    }
+    let _ = std::fs::write(&stamp, SEED_VERSION);
+    eprintln!("[seed] unpacked {n} covers");
+    Ok(())
+}
+
+/// Absolute path to a bundled cover for a title id (e.g. CUSA12345), or "" if
+/// none. The renderer turns it into an asset URL via convertFileSrc.
+#[tauri::command]
+pub async fn trainer_cover_path(app: AppHandle, title_id: String) -> Result<String, String> {
+    let id = title_id.split('_').next().unwrap_or(&title_id).trim().to_uppercase();
+    if id.is_empty() {
+        return Ok(String::new());
+    }
+    let p = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app data dir: {e}"))?
+        .join("covers")
+        .join(format!("{id}.jpg"));
+    Ok(if p.exists() {
+        p.to_string_lossy().to_string()
+    } else {
+        String::new()
+    })
 }
 
 fn seeded(stamp: &std::path::Path) -> bool {

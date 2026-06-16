@@ -3,7 +3,27 @@
 // games, works offline/no console). Fallback: CheatRunner's /appdb/icon for
 // installed games. Final fallback handled by the caller (letter tile).
 import { useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { gameIcon } from "./cheatRunner";
+
+/** Local bundled cover for a title id (the ~937 CUSA/PPSA jpgs we ship), as an
+ *  asset URL the <img> can load, or null. Offline + broad for PS4. */
+const coverByIdCache = new Map<string, string | null>();
+export async function coverByTitleId(titleId: string): Promise<string | null> {
+  const id = (titleId || "").split("_")[0].toUpperCase();
+  if (!id) return null;
+  if (coverByIdCache.has(id)) return coverByIdCache.get(id) ?? null;
+  let result: string | null = null;
+  try {
+    const path = await invoke<string>("trainer_cover_path", { titleId: id });
+    if (path) result = convertFileSrc(path);
+  } catch {
+    result = null;
+  }
+  coverByIdCache.set(id, result);
+  return result;
+}
 
 let cache: Record<string, string> | null = null;
 let loading: Promise<Record<string, string>> | null = null;
@@ -62,6 +82,13 @@ export function useGameCover(host: string, titleId: string, gameName: string): s
       if (cancelled) return;
       if (byName) {
         setCover(byName);
+        return;
+      }
+      // bundled local cover by title id (offline, ~937 games — fills PS4 gaps)
+      const byId = await coverByTitleId(titleId);
+      if (cancelled) return;
+      if (byId) {
+        setCover(byId);
         return;
       }
       if (host?.trim() && titleId) {
