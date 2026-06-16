@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import {
   Heart,
   Coffee,
-  Mail,
   Zap,
   HardDrive,
   Radio,
@@ -15,7 +14,9 @@ import { getVersion } from "@tauri-apps/api/app";
 import { useTr } from "../../state/lang";
 import { Button, Card } from "../../components";
 
-const XENO_REPO = "https://github.com/XENOKING/XENO-TOOL";
+const XENO_REPO = "https://github.com/XENOKING123/XENOKING";
+/** XENOKING's Discord username (note the trailing dot — it's part of the name). */
+const DISCORD_NAME = "XENOKING123.";
 
 const URLS = {
   github: XENO_REPO,
@@ -177,15 +178,20 @@ export default function AboutScreen() {
                   "See LICENSE and the project README for credits to the open-source projects XENO TOOL builds on.",
                 )}
               </p>
+              <div className="mt-3 flex items-center gap-2 text-xs">
+                <span className="rounded-md bg-[var(--color-surface-3)] px-2 py-1 font-medium text-[var(--color-accent)]">
+                  Discord: {DISCORD_NAME}
+                </span>
+              </div>
             </div>
             <Button
               variant="secondary"
               size="sm"
-              leftIcon={<Mail size={12} />}
-              onClick={() => openExternal(URLS.email)}
+              leftIcon={<GithubIcon />}
+              onClick={() => openExternal(URLS.github)}
               className="shrink-0"
             >
-              github.com/XENOKING
+              github.com/XENOKING123
             </Button>
           </div>
         </Card>

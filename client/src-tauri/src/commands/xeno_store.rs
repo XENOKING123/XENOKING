@@ -308,7 +308,7 @@ fn extract_zip(bytes: &[u8], root: &std::path::Path) -> Result<u32, String> {
 // --------------------------------------------------------------------------- //
 const TRAINER_SEED_ZIP: &[u8] = include_bytes!("../../resources/trainers-seed.zip");
 const TITLES_SEED_ZIP: &[u8] = include_bytes!("../../resources/titles-seed.zip");
-const SEED_VERSION: &str = "v1";
+const SEED_VERSION: &str = "v2";
 
 /// Best-effort, called once at startup. Never panics — a seed hiccup just means
 /// the user syncs from the repos as before.
@@ -350,26 +350,34 @@ fn seed_titles(app: &AppHandle) -> Result<(), String> {
         .path()
         .app_data_dir()
         .map_err(|e| format!("app data dir: {e}"))?;
-    let dest = dir.join("All_Titles.json");
     let stamp = dir.join(".titles_seed");
-    if seeded(&stamp) && dest.exists() {
+    if seeded(&stamp) && dir.join("All_Titles.json").exists() {
         return Ok(());
     }
     let _ = std::fs::create_dir_all(&dir);
     let mut zip =
         zip::ZipArchive::new(Cursor::new(TITLES_SEED_ZIP)).map_err(|e| format!("titles zip: {e}"))?;
+    // Extract BOTH name indexes: All_Titles.json (general PS catalog) and
+    // cheatslist.json (cheat-repo names — newer, covers games the general
+    // catalog lacks, e.g. Saros / PPSA07631).
+    let mut wrote = 0u32;
     for i in 0..zip.len() {
         let mut f = zip.by_index(i).map_err(|e| format!("zip entry: {e}"))?;
-        if f.name().ends_with("All_Titles.json") {
+        let name = f.name().rsplit('/').next().unwrap_or("").to_string();
+        if name == "All_Titles.json" || name == "cheatslist.json" {
             let mut buf = Vec::new();
-            f.read_to_end(&mut buf).map_err(|e| format!("read titles: {e}"))?;
-            std::fs::write(&dest, &buf).map_err(|e| format!("write titles: {e}"))?;
-            let _ = std::fs::write(&stamp, SEED_VERSION);
-            eprintln!("[seed] wrote title catalog ({} bytes)", buf.len());
-            return Ok(());
+            f.read_to_end(&mut buf).map_err(|e| format!("read {name}: {e}"))?;
+            std::fs::write(dir.join(&name), &buf).map_err(|e| format!("write {name}: {e}"))?;
+            wrote += 1;
         }
     }
-    Err("All_Titles.json not found in seed".into())
+    if wrote > 0 {
+        let _ = std::fs::write(&stamp, SEED_VERSION);
+        eprintln!("[seed] wrote {wrote} title-index file(s)");
+        Ok(())
+    } else {
+        Err("no title index found in seed".into())
+    }
 }
 
 // --------------------------------------------------------------------------- //
@@ -389,6 +397,21 @@ fn title_index(app: &AppHandle) -> &'static std::collections::HashMap<String, St
                         if let (Some(id), Some(name)) = (t["titleId"].as_str(), t["name"].as_str()) {
                             let key = id.split('_').next().unwrap_or(id).to_uppercase();
                             m.entry(key).or_insert_with(|| name.to_string());
+                        }
+                    }
+                }
+            }
+            // cheatslist.json — `{ "entries": [ { "id": "PPSA07631",
+            // "title": "SAROS", ... } ] }`. Cheat-repo names take precedence
+            // (newer + cover games the general catalog doesn't have).
+            if let Ok(txt) = std::fs::read_to_string(dir.join("cheatslist.json")) {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt) {
+                    if let Some(entries) = v["entries"].as_array() {
+                        for e in entries {
+                            if let (Some(id), Some(title)) = (e["id"].as_str(), e["title"].as_str()) {
+                                let key = id.split('_').next().unwrap_or(id).to_uppercase();
+                                m.insert(key, title.to_string());
+                            }
                         }
                     }
                 }
@@ -665,10 +688,51 @@ fn cheat_texts(xml: &str) -> Vec<String> {
     out
 }
 
+/// Pull a CUSA/PPSA title id (4 letters + 5 digits) out of a filename.
+fn id_from_name(name: &str) -> String {
+    name.split(|c: char| !c.is_ascii_alphanumeric())
+        .find(|t| {
+            t.len() == 9
+                && t.as_bytes()[..4].iter().all(u8::is_ascii_alphabetic)
+                && t.as_bytes()[4..].iter().all(u8::is_ascii_digit)
+        })
+        .map(|t| t.to_uppercase())
+        .unwrap_or_default()
+}
+
+/// Best-effort version token (e.g. `01.000.000`) from a trainer filename.
+fn version_from_name(name: &str) -> String {
+    name.split('_')
+        .map(|t| {
+            t.trim_end_matches(".mc4")
+                .trim_end_matches(".shn")
+                .trim_end_matches(".json")
+        })
+        .find(|t| {
+            t.contains('.')
+                && t.starts_with(|c: char| c.is_ascii_digit())
+                && t.chars().all(|c| c.is_ascii_digit() || c == '.')
+        })
+        .unwrap_or("")
+        .to_string()
+}
+
 /// Scan the local trainer library into lightweight rows for the browse pages.
+/// Game names are resolved from the file first, then the bundled title index
+/// (cheatslist.json / All_Titles.json) — so id-named trainers (e.g. Saros) are
+/// shown with their real name and searchable. EVERY .mc4 is listed, sidecar or
+/// not, so sidecar-less blobs no longer go missing.
 #[tauri::command]
 pub async fn list_trainers(app: AppHandle) -> Result<Vec<TrainerRow>, String> {
     let root = trainers_dir(&app)?;
+    let idx = title_index(&app);
+    let resolve = |game: String, tid: &str| -> String {
+        if game.is_empty() {
+            idx.get(tid).cloned().unwrap_or_default()
+        } else {
+            game
+        }
+    };
     let mut rows: Vec<TrainerRow> = Vec::new();
 
     // JSON (GoldHEN)
@@ -697,9 +761,10 @@ pub async fn list_trainers(app: AppHandle) -> Result<Vec<TrainerRow>, String> {
                         .collect()
                 })
                 .unwrap_or_default();
+            let tid = v["id"].as_str().unwrap_or("").split('_').next().unwrap_or("").to_uppercase();
             rows.push(TrainerRow {
-                game: v["name"].as_str().unwrap_or("").to_string(),
-                title_id: v["id"].as_str().unwrap_or("").split('_').next().unwrap_or("").to_uppercase(),
+                game: resolve(v["name"].as_str().unwrap_or("").to_string(), &tid),
+                title_id: tid,
                 version: v["version"].as_str().map(String::from).unwrap_or_default(),
                 format: "JSON".into(),
                 modder: v["credits"].as_array().and_then(|a| a.first()).and_then(|c| c.as_str()).unwrap_or("").to_string(),
@@ -719,9 +784,14 @@ pub async fn list_trainers(app: AppHandle) -> Result<Vec<TrainerRow>, String> {
             if xml.is_empty() {
                 continue;
             }
+            let fname = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
+            let mut tid = attr(&xml, "Cusa").split('_').next().unwrap_or("").to_uppercase();
+            if tid.is_empty() {
+                tid = id_from_name(fname);
+            }
             rows.push(TrainerRow {
-                game: attr(&xml, "Game"),
-                title_id: attr(&xml, "Cusa").split('_').next().unwrap_or("").to_uppercase(),
+                game: resolve(attr(&xml, "Game"), &tid),
+                title_id: tid,
                 version: attr(&xml, "Version"),
                 format: "SHN".into(),
                 modder: attr(&xml, "Moder"),
@@ -730,25 +800,42 @@ pub async fn list_trainers(app: AppHandle) -> Result<Vec<TrainerRow>, String> {
             });
         }
     }
-    // MC4 — metadata from the plaintext .mc4.xml sidecar (no decrypt needed to browse)
+    // MC4 — list EVERY .mc4 blob (with or without a .mc4.xml sidecar). Name
+    // comes from the sidecar if present, else the title index by id — so
+    // id-named, sidecar-less trainers (e.g. Saros / PPSA07631) appear + search.
     if let Ok(rd) = std::fs::read_dir(root.join("mc4")) {
         for e in rd.flatten() {
             let p = e.path();
-            let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
-            if !name.ends_with(".mc4.xml") {
-                continue;
+            let fname = p.file_name().and_then(|s| s.to_str()).unwrap_or("").to_string();
+            if !fname.to_lowercase().ends_with(".mc4") {
+                continue; // skip .mc4.xml sidecars (read via their .mc4 below)
             }
-            let xml = std::fs::read_to_string(&p).unwrap_or_default();
-            if xml.is_empty() {
-                continue;
-            }
+            let tid = id_from_name(&fname);
+            let sidecar = std::path::PathBuf::from(format!("{}.xml", p.to_string_lossy()));
+            let (game, version, modder, cheats) = match std::fs::read_to_string(&sidecar) {
+                Ok(xml) if !xml.is_empty() => {
+                    let v = attr(&xml, "Version");
+                    (
+                        resolve(attr(&xml, "Game"), &tid),
+                        if v.is_empty() { version_from_name(&fname) } else { v },
+                        attr(&xml, "Moder"),
+                        cheat_texts(&xml),
+                    )
+                }
+                _ => (
+                    resolve(String::new(), &tid),
+                    version_from_name(&fname),
+                    String::new(),
+                    Vec::new(),
+                ),
+            };
             rows.push(TrainerRow {
-                game: attr(&xml, "Game"),
-                title_id: attr(&xml, "Cusa").split('_').next().unwrap_or("").to_uppercase(),
-                version: attr(&xml, "Version"),
+                game,
+                title_id: tid,
+                version,
                 format: "MC4".into(),
-                modder: attr(&xml, "Moder"),
-                cheats: cheat_texts(&xml),
+                modder,
+                cheats,
                 path: p.to_string_lossy().to_string(),
             });
         }

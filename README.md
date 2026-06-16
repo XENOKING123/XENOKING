@@ -23,6 +23,8 @@
 [![downloads](https://img.shields.io/github/downloads/XENOKING123/XENOKING/total?style=for-the-badge&color=eb5757&label=downloads)](../../releases)
 [![stars](https://img.shields.io/github/stars/XENOKING123/XENOKING?style=for-the-badge&color=f7c948)](../../stargazers)
 
+![discord](https://img.shields.io/badge/Discord-XENOKING123.-5865F2?style=for-the-badge&logo=discord&logoColor=white)
+
 <br/>
 
 ### 🟢 [**⬇️  DOWNLOAD THE LATEST INSTALLER  ⬇️**](../../releases/latest)
