@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>XENOKING - Game Store</title>
+<style>
+  :root{
+    --bg0:#060b1c; --card:#10204a; --line:#22417e; --txt:#eaf1ff;
+    --dim:#9fb4e6; --gold:#ffce4a; --acc:#4aa3ff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(1200px 700px at 30% -10%,#15295e 0%,var(--bg0) 60%) fixed;
+    color:var(--txt); font-family:"Segoe UI",system-ui,Arial,sans-serif;
+  }
+  header{
+    display:flex;align-items:center;gap:16px;padding:18px 26px;
+    background:linear-gradient(180deg,rgba(12,24,56,.95),rgba(6,11,28,.4));
+    position:sticky;top:0;z-index:5;border-bottom:1px solid var(--line);
+  }
+  header img{width:54px;height:54px;border-radius:14px;border:2px solid var(--gold);object-fit:cover}
+  header .t{font-size:24px;font-weight:800;letter-spacing:.5px}
+  header .t b{color:var(--gold)}
+  header .sub{color:var(--dim);font-size:12px}
+  .bar{display:flex;gap:10px;align-items:center;padding:16px 26px;flex-wrap:wrap}
+  input[type=search]{
+    flex:1;min-width:220px;background:var(--card);border:1px solid var(--line);
+    color:var(--txt);border-radius:12px;padding:12px 16px;font-size:16px;outline:none;
+  }
+  input[type=search]:focus{border-color:var(--gold)}
+  .seg{display:flex;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .seg button{background:transparent;border:none;color:var(--dim);padding:11px 20px;font-size:15px;font-weight:700;cursor:pointer}
+  .seg button.on{background:var(--acc);color:#fff}
+  .count{color:var(--dim);padding:0 26px 6px;font-size:13px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:16px;padding:8px 26px 60px}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden;
+    cursor:pointer;transition:transform .12s,border-color .12s;outline:none;
+  }
+  .card:hover,.card:focus{transform:translateY(-4px);border-color:var(--gold)}
+  .card .cv{width:100%;aspect-ratio:3/4;background:#0a1430 center/cover no-repeat;display:block}
+  .card .nm{padding:9px 10px 12px;font-size:12.5px;font-weight:600;line-height:1.25}
+  .card .pl{display:inline-block;margin:0 0 8px 10px;font-size:10px;font-weight:800;
+    color:#bcd2ff;border:1px solid var(--line);border-radius:8px;padding:2px 7px}
+  .empty{color:var(--dim);text-align:center;padding:60px}
+  footer{color:#5d72a8;text-align:center;padding:18px;font-size:12px;border-top:1px solid var(--line)}
+</style></head>
+<body>
+  <header>
+    <img src="/logo.jpg" alt="XENOKING">
+    <div>
+      <div class="t"><b>XENOKING</b> - Game Store</div>
+      <div class="sub">Browse the full PS4 / PS5 catalog - open any game to download - served from your PC</div>
+    </div>
+  </header>
+  <div class="bar">
+    <input id="q" type="search" placeholder="Search games...">
+    <div class="seg">
+      <button data-p="PS5" class="on">PS5</button>
+      <button data-p="PS4">PS4</button>
+      <button data-p="ALL">All</button>
+    </div>
+  </div>
+  <div class="count" id="count">Loading catalog...</div>
+  <div class="grid" id="grid"></div>
+  <footer>XENOKING Game Store - data from dlpsgame.com - tap a game to open its download page</footer>
+<script>
+let ALL=[], plat="PS5", term="";
+function safeUrl(u){ return (typeof u==="string" && /^https?:\/\//.test(u)) ? u : ""; }
+function render(){
+  const g=document.getElementById('grid');
+  g.replaceChildren();
+  let rows=ALL.filter(x=>(plat==="ALL"||x.platform===plat) &&
+                         (!term || (x.name||"").toLowerCase().includes(term)));
+  document.getElementById('count').textContent=rows.length+" "+plat+" games";
+  if(!rows.length){
+    const e=document.createElement('div'); e.className="empty"; e.textContent="No games match.";
+    g.appendChild(e); return;
+  }
+  const frag=document.createDocumentFragment();
+  for(const x of rows){
+    const c=document.createElement('div'); c.className="card"; c.tabIndex=0;
+    const url=safeUrl(x.page_url);
+    c.onclick=()=>{ if(url) window.open(url,"_blank"); };
+    c.onkeydown=e=>{ if(e.key==="Enter" && url) window.open(url,"_blank"); };
+    const cv=document.createElement('div'); cv.className="cv";
+    const cover=safeUrl(x.cover_url);
+    if(cover) cv.style.backgroundImage="url('"+encodeURI(cover)+"')";
+    const pl=document.createElement('div'); pl.className="pl"; pl.textContent=x.platform||"";
+    const nm=document.createElement('div'); nm.className="nm"; nm.textContent=x.name||"";
+    c.appendChild(cv); c.appendChild(pl); c.appendChild(nm); frag.appendChild(c);
+  }
+  g.appendChild(frag);
+}
+document.getElementById('q').addEventListener('input',e=>{term=e.target.value.toLowerCase().trim();render();});
+for(const b of document.querySelectorAll('.seg button')){
+  b.onclick=()=>{plat=b.dataset.p;document.querySelectorAll('.seg button').forEach(x=>x.classList.remove('on'));b.classList.add('on');render();};
+}
+fetch('/catalog.json').then(r=>r.json()).then(d=>{ALL=Array.isArray(d)?d:[];render();})
+  .catch(()=>{document.getElementById('count').textContent="Couldn't load catalog from the PC.";});
+</script></body></html>

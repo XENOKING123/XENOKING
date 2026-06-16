@@ -1,0 +1,10 @@
+{
+  "title": "XENO Game Store",
+  "id": "XENO00001",
+  "exec": "eboot.bin",
+  "args": "",
+  "icon": "sce_sys/icon0.png",
+  "version": "1.00",
+  "author": "XENOKING",
+  "description": "Browse the XENO Game Store right on your PS5. Serves the catalog on http://127.0.0.1:9095 and opens the browser to it."
+}

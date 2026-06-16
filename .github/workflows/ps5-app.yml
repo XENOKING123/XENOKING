@@ -1,0 +1,76 @@
+name: ps5-app
+
+# Cross-compiles the XENO Game Store PS5 app in the cloud (no local toolchain
+# needed). Mirrors the official ps5-payload-dev CI: pull the prebuilt SDK
+# tarball, then `make`. Produces the payload ELF + the home-screen homebrew
+# package (with the XENO logo) and publishes them as a GitHub Release.
+
+on:
+  push:
+    paths:
+      - 'ps5-app/**'
+      - '.github/workflows/ps5-app.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ps5-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PS5 payload SDK (prospero-clang)
+        run: |
+          wget -q https://github.com/ps5-payload-dev/pacbrew-repo/releases/latest/download/ps5-payload-dev.tar.gz
+          sudo tar xf ps5-payload-dev.tar.gz -C /
+          ls /opt/ps5-payload-sdk/bin/prospero-clang
+
+      - name: Build ELFs + homebrew package
+        run: make all PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk
+
+      - name: Build experimental Sony bubble (best-effort, never fails the run)
+        run: make bubble PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk || echo "bubble build skipped (experimental)"
+
+      - name: Assemble release assets
+        run: |
+          mkdir -p ../release
+          cp xeno-store.elf          ../release/
+          cp xeno-store-browser.elf  ../release/
+          ( cd dist && zip -r ../../release/XENO-Game-Store-homebrew.zip XENO-Game-Store )
+          if [ -d dist/bubble ]; then
+            ( cd dist/bubble && zip -r ../../../release/XENO-Game-Store-bubble-EXPERIMENTAL.zip XENO00001 )
+          fi
+          ls -la ../release
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: xeno-ps5-app
+          path: release/*
+          if-no-files-found: error
+
+      - name: Publish / update the Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          TAG="ps5-app-v1.0.0"
+          NOTES=$'XENO Game Store — native PS5 app.\n\n'
+          NOTES+=$'Artifacts:\n'
+          NOTES+=$'• xeno-store.elf — the payload. Send it from XENO TOOL → Payloads (port 9021) or any ELF loader; it serves the store at http://<ps5-ip>:9095. **Supported / guaranteed path.**\n'
+          NOTES+=$'• xeno-store-browser.elf — same, but also auto-opens the PS5 browser to the store (one-tap).\n'
+          NOTES+=$'• XENO-Game-Store-homebrew.zip — home-screen homebrew app folder (XENO logo) for etaHEN / itemzflow. Drop into /data/homebrew/.\n'
+          NOTES+=$'• XENO-Game-Store-bubble-EXPERIMENTAL.zip — fake-signed app bubble. Experimental, unverified on hardware — use the ELF if it does not appear.\n\n'
+          NOTES+=$'Discord: XENOKING123.'
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release/* --clobber
+          else
+            gh release create "$TAG" release/* \
+              --title "XENO PS5 App — Game Store (ELF + homebrew)" \
+              --notes "$NOTES"
+          fi
