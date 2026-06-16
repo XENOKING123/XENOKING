@@ -121,6 +121,13 @@ export default function TrainersScreen() {
     return groupRows(filtered);
   }, [rows, term, fmt, plat]);
 
+  // Total games in the WHOLE library (ignores search/filters) — so the header
+  // count + empty-search message never make a loaded 9k library look empty.
+  const libraryCount = useMemo(
+    () => new Set(rows.map((r) => (r.titleId || r.game).toUpperCase())).size,
+    [rows],
+  );
+
   const shown = groups.slice(0, 260);
 
   const chip = (active: boolean) =>
@@ -133,7 +140,7 @@ export default function TrainersScreen() {
       <PageHeader
         icon={Target}
         title="Trainers"
-        count={groups.length}
+        count={libraryCount}
         loading={busy}
         description="The full XENO trainer library — one card per game, all versions merged. Open one to pick a version and see its cheats. Apply from My Games while the game runs."
         right={
@@ -169,7 +176,17 @@ export default function TrainersScreen() {
 
       <div className="min-h-0 flex-1 overflow-y-auto pr-1">
         {groups.length === 0 ? (
-          <EmptyState icon={Target} title={busy ? "Working…" : "No trainers"} message={busy ? "Syncing / loading…" : status || "Hit Sync now."} />
+          <EmptyState
+            icon={Target}
+            title={busy ? "Working…" : rows.length === 0 ? "No trainers yet" : "No match"}
+            message={
+              busy
+                ? "Syncing / loading…"
+                : rows.length === 0
+                  ? status || "Hit Sync now."
+                  : `No trainer for “${term || "that filter"}”. Your library has ${libraryCount.toLocaleString()} games — try another name (e.g. Elden Ring, God of War, Spider-Man).`
+            }
+          />
         ) : (
           <>
             <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}>

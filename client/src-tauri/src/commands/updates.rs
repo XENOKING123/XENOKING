@@ -54,7 +54,7 @@ use tauri::{AppHandle, Manager};
 // triggers it) — so there's no upstream nag. Once XENOKING publishes a release
 // with a `latest.json` asset, every user updates from here automatically.
 const DEFAULT_MANIFEST_URL: &str =
-    "https://github.com/XENOKING/XENO-TOOL/releases/latest/download/latest.json";
+    "https://github.com/XENOKING123/XENOKING/releases/latest/download/latest.json";
 
 /// Result of a check. Flat shape so the renderer doesn't have to
 /// pattern-match a tagged union. `download_url` is non-empty only when

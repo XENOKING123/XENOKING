@@ -29,7 +29,7 @@ const CACHE_KEY = "ps5upload.update-check-v2";
 
 /** Browser fallback when the manifest has no asset for this platform
  *  (mobile only — the user can grab the APK from the release page). */
-const RELEASES_URL = "https://github.com/XENOKING/XENO-TOOL/releases/latest";
+const RELEASES_URL = "https://github.com/XENOKING123/XENOKING/releases/latest";
 
 interface CachedCheck {
   at_ms: number;
