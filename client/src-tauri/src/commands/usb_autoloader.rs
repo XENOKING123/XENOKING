@@ -17,7 +17,7 @@
 //!   - autoload.txt generation with the catalogue's recommended
 //!     priorities + delays.
 //!
-//! Cross-platform per CLAUDE.md:
+//! Cross-platform drive enumeration:
 //!   - macOS: `/Volumes/*` minus the system disks.
 //!   - Linux: `/media/$USER/*` and `/run/media/$USER/*`.
 //!   - Windows: `GetLogicalDriveStringsW` + `GetDriveTypeW` for

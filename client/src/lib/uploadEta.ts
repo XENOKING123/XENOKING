@@ -11,8 +11,8 @@
  * a 45-minute upload at the 30-minute mark thinking it's hung.
  *
  * The full design rationale, including why we surface a two-segment
- * breakdown instead of a single number, lives at
- * `.claude/ralph-design-notes.md` §2 (gitignored).
+ * breakdown instead of a single number, lives in the internal design
+ * notes.
  */
 
 /** Defaults used when no measurement is available yet.

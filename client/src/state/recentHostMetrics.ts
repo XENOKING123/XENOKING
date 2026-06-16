@@ -20,9 +20,9 @@ import { hostOf } from "../lib/addr";
  * record() call; the typical user has 1-3 hosts, total payload size
  * a few hundred bytes, so we don't bother with per-key writes.
  *
- * See `.claude/ralph-design-notes.md` §2.5 (gitignored) for the full
- * rationale and the §R4 red-team finding that motivated tracking
- * commit-ms in addition to raw throughput.
+ * See the internal design notes for the full rationale and the review
+ * finding that motivated tracking commit-ms in addition to raw
+ * throughput.
  */
 
 const STORAGE_KEY = "ps5upload.recentHostMetrics";

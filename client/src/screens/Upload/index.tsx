@@ -2003,7 +2003,7 @@ function FolderStatsCard({
  * "(estimated)" qualifier in the banner copy so users don't read the
  * number as a promise.
  *
- * Design: `.claude/ralph-design-notes.md` §2 (gitignored).
+ * Design: see the internal design notes.
  */
 function PreflightEtaBanner({
   fileCount,
