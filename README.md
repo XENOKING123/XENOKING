@@ -14,7 +14,7 @@
 
 <br/><br/>
 
-![version](https://img.shields.io/badge/version-3.2.4-F7C948?style=for-the-badge)
+![version](https://img.shields.io/badge/version-3.2.10-F7C948?style=for-the-badge)
 ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?style=for-the-badge&logo=windows&logoColor=white)
 ![trainers](https://img.shields.io/badge/trainers-9%2C200%2B-2ea043?style=for-the-badge&logo=target&logoColor=white)
 ![license](https://img.shields.io/badge/license-GPL--3.0-4c6ef5?style=for-the-badge)
@@ -108,6 +108,30 @@
 
 > 💡 First launch unpacks the full trainer library (a few seconds) and opens on
 > the **Home** showcase. 🏠
+
+---
+
+## 🎮 Run the Game Store **on your PS5** — native app
+
+XENO TOOL now ships a tiny **on-console app** so you can browse the Game Store
+right on the PlayStation. Grab the files from **[Releases](../../releases/latest)**
+and send one from **Payloads ▸ Send file** (port 9021), or any ELF loader.
+
+**Two ELFs — what's the difference?**
+
+| File | What it does |
+|:--|:--|
+| 🟢 **`xeno-store.elf`** | The **server only**. Run it and the store is served at `http://<ps5-ip>:9095` — open that in the PS5 browser (or from any device on your network). The safe, guaranteed one. |
+| ⚡ **`xeno-store-browser.elf`** | **Server + one-tap.** Same store, but it *also* auto-opens the PS5 web browser straight to it — no typing an address. |
+
+> In short: **`xeno-store.elf` = serve it** · **`xeno-store-browser.elf` = serve it *and* open the browser for you.** Both bake the full UI + an ~800-game catalog right into the file, so they run **100% offline on the console**.
+
+**Prefer a home-screen icon with the XENO logo?**
+
+- 🏠 **`XENO-Game-Store-homebrew.zip`** — drop into `/data/homebrew/` for etaHEN / itemzflow. Shows the **XENO icon** and launches the store.
+- 🧪 **`XENO-Game-Store-bubble-EXPERIMENTAL.zip`** — a fake-signed app bubble. Experimental — use an ELF above if it doesn't show up.
+
+<sub>All of this is cross-compiled **automatically in the cloud** — source in the [`ps5-app/`](ps5-app) folder.</sub>
 
 ---
 
