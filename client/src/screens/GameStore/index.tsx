@@ -255,12 +255,28 @@ function LinksModal({
             <X size={20} />
           </button>
         </div>
-        <p className="mb-3 text-[11px] text-[var(--color-muted)]">
+        <p className="mb-2 text-[11px] text-[var(--color-muted)]">
           <b className="text-[var(--color-good)]">direct file</b> = the real download ·{" "}
           <b className="text-[var(--color-accent)]">mirror page</b> = a host list ·{" "}
-          <b className="text-[var(--color-warn)]">ad-gate</b> = needs a manual click. Some hosts
-          (mega/1fichier/rootz) still need one click on their own page.
+          <b className="text-[var(--color-warn)]">ad-gate</b> = needs a manual click. We decode the
+          ad-gate links automatically — some hosts (mega/1fichier/rootz) still need one click on
+          their own page.
         </p>
+        <div className="mb-3 flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-xs">
+          <span className="text-[var(--color-muted)]">Extract password:</span>
+          <code className="font-semibold text-[var(--color-good)]">DLPSGAME.COM</code>
+          <Button
+            variant="ghost"
+            size="sm"
+            leftIcon={<Copy size={12} />}
+            onClick={() => void navigator.clipboard.writeText("DLPSGAME.COM")}
+          >
+            Copy
+          </Button>
+          <span className="text-[10px] text-[var(--color-muted)]">
+            — the .zip/.rar archives are password-protected with this.
+          </span>
+        </div>
 
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
           {busy && <div className="py-8 text-center text-sm text-[var(--color-muted)]">Resolving…</div>}

@@ -181,12 +181,14 @@ export async function fetchDownloadLinks(
 
   for (let [label, url] of anchors(html)) {
     let host = hostOf(url);
-    if (B64_GATEWAYS.some((g) => host.includes(g))) {
-      const dest = decodeGateway(url);
-      if (dest) {
-        url = dest;
-        host = hostOf(url);
-      }
+    // Decode a gateway-embedded real URL from ANY anchor — link shorteners pack
+    // the real destination as a base64 `url=`/`u=`/`link=` param, so we never
+    // have to sit through their ad-gate. Works for gateways NOT in our known
+    // list too, so new shorteners resolve automatically.
+    const dest = decodeGateway(url);
+    if (dest) {
+      url = dest;
+      host = hostOf(url);
     }
     if (TERMINAL_HOSTS.some((t) => host.includes(t))) add(label, url, "terminal");
     else if (LANDING_HOSTS.some((l) => host.includes(l))) {
