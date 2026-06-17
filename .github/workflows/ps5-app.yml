@@ -54,7 +54,7 @@ jobs:
         run: |
           cd "$GITHUB_WORKSPACE"
           # Always target the single consolidated release — keeps all XENO tools together.
-          TAG="all-in-one-v3.2.10"
+          TAG="all-in-one-v3.2.11"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" release/* --clobber
             echo "Updated $TAG with new PS5 app artifacts."
