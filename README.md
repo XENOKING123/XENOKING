@@ -111,26 +111,37 @@
 
 ---
 
-## ⚡ P2JB TURBO — faster jailbreak for FW 12.40+ (6-core)
+## ⚡ P2JB TURBO — faster jailbreak for FW 9.00–12.40
 
-**`jailbreak/p2jb_turbo.js`** is a tuned variant of the P2JB kernel exploit.
+**`jailbreak/p2jb_turbo.js`** is a tuned variant of the P2JB kernel exploit, branded and optimized by **XENOKING**.
 
 | | Original `p2jb.js` | **`p2jb_turbo.js`** |
 |:--|:--|:--|
 | Firmware | 9.00 – 12.40 | 9.00 – 12.40 |
 | Avg time | ~50 min | **~33 min** |
+| UI while waiting | plain text log | **XENOKING HUD** — animated overlay, live timer, stage progress |
 
-### Deploy via FileZilla (one step)
+### What you see while it runs
 
-1. Open **FileZilla** → connect to your PS5: `Host: 192.168.4.44` · `Port: 21`
-2. Navigate to:
+The YouTube app's page is replaced with a full-screen **XENOKING HUD**:
+- 🟣 Animated gradient background with scan-line effect
+- ⏱️ Live **MM:SS** timer counting from the moment it starts
+- 📊 **Progress bar** that fills across the ~33 minutes
+- 🔷 Stage label updates as the exploit moves through each phase (Leak → Stage 1/7 → ... → Jailbroken)
+- 💚 Green **JAILBROKEN** flash screen when it's done
+
+### Deploy via FileZilla
+
+1. Download **`p2jb_turbo.js`** from [Releases](../../releases/latest)
+2. Open **FileZilla** → connect to your PS5: `Host: 192.168.4.44` · `Port: 21`
+3. Navigate to:
    ```
    /mnt/sandbox/PPSA01650_000/download0/cache/splash_screen/aHR0cHM6Ly93d3cueW91dHViZS5jb20vdHY=/
    ```
-3. Drag **`p2jb_turbo.js`** from your PC into that folder and rename it **`p2jb.js`** (overwrite the existing file).
-4. Launch the **YouTube app** on PS5 — the turbo exploit runs automatically.
+4. Drag `p2jb_turbo.js` into that folder and rename it **`p2jb.js`** (overwrite the existing file)
+5. Launch the **YouTube app** on your PS5 — the XENOKING HUD appears and the exploit runs automatically
 
-> 💡 Al-Azif DNS (`165.227.83.145` / `192.241.221.79`) keeps your internet on while blocking PS5 update servers — set it under PS5 **Settings ▸ Network ▸ Set Up Internet Connection ▸ Advanced Settings**.
+> 💡 **Keep WiFi on while jailbreaking:** set PS5 DNS to `165.227.83.145` (primary) / `192.241.221.79` (secondary) under **Settings ▸ Network ▸ Set Up Internet Connection ▸ Advanced Settings**. This blocks Sony update servers but keeps all other internet working — you can still browse and the store still loads.
 
 ---
 
