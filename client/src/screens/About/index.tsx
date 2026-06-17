@@ -178,6 +178,12 @@ export default function AboutScreen() {
                   "See LICENSE and the project README for credits to the open-source projects XENO TOOL builds on.",
                 )}
               </p>
+              <div className="mt-3 rounded-md bg-[var(--color-surface-3)] px-3 py-2 text-xs leading-relaxed text-[var(--color-muted)]">
+                <span className="font-semibold text-[var(--color-text)]">CheatRunner</span>{" "}
+                — the on-console cheat engine powering My Games / Cheats — is made by{" "}
+                <span className="font-medium text-[var(--color-accent)]">maj0r</span>{" "}
+                (Discord: callmemaj0r). XENO TOOL is a frontend for it; huge thanks for the tool.
+              </div>
               <div className="mt-3 flex items-center gap-2 text-xs">
                 <span className="rounded-md bg-[var(--color-surface-3)] px-2 py-1 font-medium text-[var(--color-accent)]">
                   Discord: {DISCORD_NAME}

@@ -216,6 +216,14 @@ The game must be <b>running</b> on the PS5, and you must hit <b>Attach</b> first
 
 ---
 
+## 🏆 Credits
+
+| Project | Author | Why we owe them one |
+|:--|:--|:--|
+| **CheatRunner** | **maj0r** (Discord: `callmemaj0r`) | The on-console cheat engine that powers the My Games / Cheats screen. XENO TOOL is a frontend for it — without CheatRunner there's no live cheat toggling. Grab it from the [CheatRunner Discord](https://discord.gg/E4g6fEqp46). |
+
+---
+
 <div align="center">
 
 ## ⚖️ License
