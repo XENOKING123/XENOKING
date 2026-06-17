@@ -9,7 +9,7 @@
  *   - Y2JB userland framework: Gezine (https://github.com/Gezine/Y2JB)
  *   - elfldr_1320 ELF loader binary: Gezine
  *   - notmaj0r remote_lua_loader p2jb port (secondary reference)
- *   - TURBO edition (6-core pinning, tighter timings): XENOKING
+ *   - TURBO edition (7-core pinning, tighter timings): XENOKING
  *   - CheatRunner on-console cheat engine: maj0r (callmemaj0r)
  *
  * Usage: see README.md.
@@ -100,7 +100,7 @@
         var barW = el('div', 'xhud-bar-wrap');
         var bar  = el('div', 'xhud-bar');
         var pct  = el('div', 'xhud-pct',    '0%');
-        var stat = el('div', 'xhud-status', 'Starting up. Average runtime ~33 min — sit back.');
+        var stat = el('div', 'xhud-status', 'Starting up. Leak phase 30-120 min — do NOT close this tab.');
         var eta  = el('div', 'xhud-eta');
 
         var done     = el('div', 'xhud-done');
@@ -166,7 +166,7 @@ function xenoDone(fw) {
 
 (async function () {
     try {
-        const p2jb_version = "P2JB TURBO 1.0 (6-core, XENOKING)";
+        const p2jb_version = "P2JB TURBO 1.0 (7-core, XENOKING)";
 
         const PAGE_SIZE = 0x4000;
 
@@ -1018,7 +1018,7 @@ function xenoDone(fw) {
             const leak_start = Date.now();
             let last_report = leak_start;
             let last_pct = 0;
-            xenoUI('LEAK PHASE — Calibrating', NW + ' cores active. Sit back — 30-40 min.', 3, 35);
+            xenoUI('LEAK PHASE — Calibrating', NW + ' cores active. Long phase — do NOT close this tab.', 3, null);
             send_notification(p2jb_version + "\nLeak phase started\n" + NW + " cores active");
 
             let all_fed = false;
@@ -1058,12 +1058,36 @@ function xenoDone(fw) {
                 await js_sleep(200);
             }
 
-            for (const lw of lws) {
-                while (true) {
-                    write64(lw.finished, 0n);
-                    await js_sleep(1500);
-                    if (read64(lw.finished) === 0n) break;
+            const drain_start = Date.now();
+            const drained = new Array(NW).fill(false);
+            let drain_count = 0;
+            xenoUI('LEAK — EXECUTING', NW + ' cores burning syscalls. Stay on this tab!', 68, null);
+            send_notification(p2jb_version + "\nDrain phase — " + NW + " cores running");
+            while (drain_count < NW) {
+                for (let wi = 0; wi < NW; wi++) {
+                    if (!drained[wi]) write64(lws[wi].finished, 0n);
                 }
+                await js_sleep(1500);
+                for (let wi = 0; wi < NW; wi++) {
+                    if (!drained[wi] && read64(lws[wi].finished) === 0n) {
+                        drained[wi] = true;
+                        drain_count++;
+                        send_notification(p2jb_version + "\nCore " + LEAK_CORES[wi] + " drained (" + drain_count + "/" + NW + ")");
+                    }
+                }
+                const drain_elapsed_m = Math.floor((Date.now() - drain_start) / 60000);
+                const leak_elapsed_m  = Math.floor((Date.now() - leak_start) / 60000);
+                const eta_m = drain_count > 0
+                    ? Math.max(1, Math.round(drain_elapsed_m * (NW - drain_count) / drain_count))
+                    : null;
+                xenoUI(
+                    'LEAK — ' + drain_count + '/' + NW + ' cores done',
+                    drain_count < NW
+                        ? (leak_elapsed_m + 'm elapsed' + (eta_m ? ' | ~' + eta_m + 'm left' : ' | estimating...'))
+                        : 'All cores drained.',
+                    68 + Math.round(drain_count / NW * 2),
+                    drain_count < NW ? eta_m : 0
+                );
             }
 
             for (const lw of lws) {
