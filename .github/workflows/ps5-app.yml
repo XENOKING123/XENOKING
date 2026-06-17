@@ -1,9 +1,7 @@
 name: ps5-app
 
-# Cross-compiles the XENO Game Store PS5 app in the cloud (no local toolchain
-# needed). Mirrors the official ps5-payload-dev CI: pull the prebuilt SDK
-# tarball, then `make`. Uploads the built artifacts directly into the
-# consolidated all-in-one release so every release always has everything.
+# Builds the XENO Game Store PS5 ELFs and uploads them into the consolidated
+# all-in-one release. Only fires when ps5-app source or this workflow changes.
 
 on:
   push:
@@ -18,16 +16,34 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: ps5-app
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install PS5 payload SDK (prospero-clang)
+      # Cache the SDK tarball so subsequent runs skip the large download.
+      # Bump the cache key suffix (e.g. v1→v2) to force a fresh SDK fetch.
+      - name: Cache PS5 payload SDK
+        uses: actions/cache@v4
+        id: sdk-cache
+        with:
+          path: ${{ runner.temp }}/ps5-sdk.tar.gz
+          key: ps5-pacbrew-sdk-v1
+
+      - name: Download PS5 payload SDK
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         run: |
-          wget -q https://github.com/ps5-payload-dev/pacbrew-repo/releases/latest/download/ps5-payload-dev.tar.gz
-          sudo tar xf ps5-payload-dev.tar.gz -C /
+          wget --tries=3 --retry-connrefused -q \
+            -O "$RUNNER_TEMP/ps5-sdk.tar.gz" \
+            https://github.com/ps5-payload-dev/pacbrew-repo/releases/latest/download/ps5-payload-dev.tar.gz
+          echo "SDK downloaded: $(du -sh "$RUNNER_TEMP/ps5-sdk.tar.gz" | cut -f1)"
+
+      - name: Extract SDK
+        run: |
+          sudo tar xf "$RUNNER_TEMP/ps5-sdk.tar.gz" -C /
           ls /opt/ps5-payload-sdk/bin/prospero-clang
 
       - name: Build ELFs + homebrew package
@@ -53,7 +69,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd "$GITHUB_WORKSPACE"
-          # Always target the single consolidated release — keeps all XENO tools together.
           TAG="all-in-one-v3.2.12"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" release/* --clobber
