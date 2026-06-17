@@ -9,9 +9,160 @@
  *   - Y2JB userland framework: Gezine (https://github.com/Gezine/Y2JB)
  *   - elfldr_1320 ELF loader binary: Gezine
  *   - notmaj0r remote_lua_loader p2jb port (secondary reference)
+ *   - TURBO edition (6-core pinning, tighter timings): XENOKING
+ *   - CheatRunner on-console cheat engine: maj0r (callmemaj0r)
  *
  * Usage: see README.md.
  */
+
+// ── XENOKING HUD ─────────────────────────────────────────────────────────────
+(function () {
+    try {
+        var st = document.createElement('style');
+        st.textContent = [
+            '* { box-sizing:border-box; margin:0; padding:0; }',
+            'body { background:#000; overflow:hidden; }',
+            '#xhud { position:fixed; inset:0; z-index:999999; display:flex; flex-direction:column;',
+            '  align-items:center; justify-content:center;',
+            '  background:radial-gradient(ellipse at 50% 40%,#0d001a 0%,#000 70%);',
+            '  font-family:"Courier New",monospace; color:#fff; overflow:hidden; }',
+            '#xhud-scan { position:absolute; left:0; width:100%; height:2px; pointer-events:none;',
+            '  background:linear-gradient(90deg,transparent 0%,#7b00ff 30%,#00d4ff 50%,#7b00ff 70%,transparent 100%);',
+            '  animation:xScan 5s linear infinite; opacity:.5; }',
+            '@keyframes xScan { from{top:-2px} to{top:100%} }',
+            '#xhud-grid { position:absolute; inset:0; pointer-events:none; opacity:.04;',
+            '  background-image:linear-gradient(#7b00ff 1px,transparent 1px),linear-gradient(90deg,#7b00ff 1px,transparent 1px);',
+            '  background-size:60px 60px; }',
+            '#xhud-glow { position:absolute; width:600px; height:600px; border-radius:50%; pointer-events:none;',
+            '  background:radial-gradient(circle,rgba(123,0,255,.18) 0%,transparent 65%);',
+            '  top:50%; left:50%; transform:translate(-50%,-55%);',
+            '  animation:xPulse 3.5s ease-in-out infinite; }',
+            '@keyframes xPulse {',
+            '  0%,100%{opacity:.5;transform:translate(-50%,-55%) scale(1)}',
+            '  50%{opacity:1;transform:translate(-50%,-55%) scale(1.12)} }',
+            '#xhud-title { font-size:3.6em; font-weight:900; letter-spacing:.3em;',
+            '  background:linear-gradient(90deg,#7b00ff,#00d4ff,#f7c948,#00d4ff,#7b00ff);',
+            '  background-size:300% 100%; -webkit-background-clip:text; -webkit-text-fill-color:transparent;',
+            '  animation:xShine 4s linear infinite; text-transform:uppercase; margin-bottom:.1em; }',
+            '@keyframes xShine { from{background-position:0%} to{background-position:300%} }',
+            '#xhud-sub { color:#7b00ff; letter-spacing:.5em; font-size:.85em;',
+            '  margin-bottom:2.2em; text-transform:uppercase; }',
+            '#xhud-timer { font-size:2.8em; font-weight:700; letter-spacing:.1em;',
+            '  color:#00d4ff; font-variant-numeric:tabular-nums;',
+            '  text-shadow:0 0 24px #00d4ff,0 0 50px rgba(0,212,255,.3); margin-bottom:.3em; }',
+            '#xhud-stage { font-size:.8em; letter-spacing:.12em; color:#888;',
+            '  text-transform:uppercase; min-height:1.4em; margin-bottom:.8em; }',
+            '#xhud-bar-wrap { width:58vw; max-width:680px; height:10px;',
+            '  background:#111; border-radius:5px; overflow:hidden;',
+            '  border:1px solid #222; margin-bottom:.5em; }',
+            '#xhud-bar { height:100%; width:0%; border-radius:5px;',
+            '  background:linear-gradient(90deg,#7b00ff,#00d4ff);',
+            '  box-shadow:0 0 12px #00d4ff;',
+            '  transition:width 1.2s cubic-bezier(.4,0,.2,1); }',
+            '#xhud-pct { color:#444; font-size:.72em; margin-bottom:1.8em; }',
+            '#xhud-status { font-size:.78em; color:#777; letter-spacing:.06em;',
+            '  max-width:65vw; text-align:center; min-height:2.2em; line-height:1.6; }',
+            '#xhud-eta { color:#555; font-size:.68em; margin-top:.6em; }',
+            '#xhud-footer { position:absolute; bottom:1.8em; width:100%; text-align:center;',
+            '  font-size:.6em; letter-spacing:.25em; text-transform:uppercase; color:#2a2a2a; }',
+            '#xhud-footer .hi { color:#444; }',
+            '#xhud-done { display:none; position:absolute; inset:0;',
+            '  align-items:center; justify-content:center; flex-direction:column;',
+            '  background:radial-gradient(ellipse at center,#001a00 0%,#000 70%); }',
+            '#xhud-done.show { display:flex; }',
+            '#xhud-done-text { font-size:4em; font-weight:900; letter-spacing:.2em;',
+            '  color:#00ff88; text-shadow:0 0 30px #00ff88,0 0 80px rgba(0,255,136,.4);',
+            '  animation:xPop .5s ease-out; }',
+            '@keyframes xPop { from{transform:scale(.7);opacity:0} to{transform:scale(1);opacity:1} }',
+            '#xhud-done-sub { color:#555; font-size:.9em; letter-spacing:.2em; margin-top:.5em; }',
+        ].join('\n');
+        document.head.appendChild(st);
+
+        document.body.textContent = '';
+        document.body.style.cssText = 'margin:0;padding:0;background:#000';
+
+        function el(tag, id, text, cls) {
+            var d = document.createElement(tag);
+            if (id)   d.id = id;
+            if (text) d.textContent = text;
+            if (cls)  d.className = cls;
+            return d;
+        }
+
+        var hud  = el('div', 'xhud');
+        var scan = el('div', 'xhud-scan');
+        var grid = el('div', 'xhud-grid');
+        var glow = el('div', 'xhud-glow');
+        var titl = el('div', 'xhud-title',  'P2JB TURBO');
+        var sub  = el('div', 'xhud-sub',    'XENOKING EDITION');
+        var timr = el('div', 'xhud-timer',  '00:00');
+        var stag = el('div', 'xhud-stage',  'Initializing...');
+        var barW = el('div', 'xhud-bar-wrap');
+        var bar  = el('div', 'xhud-bar');
+        var pct  = el('div', 'xhud-pct',    '0%');
+        var stat = el('div', 'xhud-status', 'Starting up. Average runtime ~33 min — sit back.');
+        var eta  = el('div', 'xhud-eta');
+
+        var done     = el('div', 'xhud-done');
+        var doneTxt  = el('div', 'xhud-done-text', 'JAILBROKEN');
+        var doneSub  = el('div', 'xhud-done-sub',  'P2JB TURBO BY XENOKING');
+        done.appendChild(doneTxt);
+        done.appendChild(doneSub);
+
+        var foot = el('div', 'xhud-footer');
+        var f1 = document.createElement('span'); f1.textContent = 'P2JB TURBO  ·  ';
+        var f2 = document.createElement('span'); f2.className = 'hi'; f2.textContent = 'XENOKING';
+        var f3 = document.createTextNode('    |    CheatRunner by ');
+        var f4 = document.createElement('span'); f4.className = 'hi'; f4.textContent = 'maj0r';
+        var f5 = document.createTextNode('    |    Exploit by ');
+        var f6 = document.createElement('span'); f6.className = 'hi'; f6.textContent = 'Gezine / cheburek3000';
+        foot.appendChild(f1); foot.appendChild(f2); foot.appendChild(f3);
+        foot.appendChild(f4); foot.appendChild(f5); foot.appendChild(f6);
+
+        barW.appendChild(bar);
+        [grid, glow, scan, titl, sub, timr, stag, barW, pct, stat, eta, done, foot]
+            .forEach(function(c){ hud.appendChild(c); });
+        document.body.appendChild(hud);
+    } catch (_) {}
+})();
+
+var _XHUD_START = Date.now();
+setInterval(function () {
+    try {
+        var el = document.getElementById('xhud-timer');
+        if (!el) return;
+        var s = Math.floor((Date.now() - _XHUD_START) / 1000);
+        var m = Math.floor(s / 60);
+        el.textContent = (m < 10 ? '0' : '') + m + ':' + ((s % 60) < 10 ? '0' : '') + (s % 60);
+    } catch (_) {}
+}, 500);
+
+function xenoUI(label, detail, pct, etaMin) {
+    try {
+        var barEl  = document.getElementById('xhud-bar');
+        var pctEl  = document.getElementById('xhud-pct');
+        var stagEl = document.getElementById('xhud-stage');
+        var statEl = document.getElementById('xhud-status');
+        var etaEl  = document.getElementById('xhud-eta');
+        var p = pct != null ? Math.min(Math.max(pct, 0), 100) : 0;
+        if (barEl)  barEl.style.width = p + '%';
+        if (pctEl)  pctEl.textContent = Math.round(p) + '%';
+        if (stagEl) stagEl.textContent = label  || '';
+        if (statEl) statEl.textContent = detail || '';
+        if (etaEl)  etaEl.textContent  = etaMin != null && etaMin > 0
+            ? '~' + etaMin + ' min remaining' : '';
+    } catch (_) {}
+}
+
+function xenoDone(fw) {
+    try {
+        var done = document.getElementById('xhud-done');
+        var sub  = document.getElementById('xhud-done-sub');
+        if (done) done.classList.add('show');
+        if (sub && fw) sub.textContent = 'FW ' + fw + '  ·  P2JB TURBO BY XENOKING';
+    } catch (_) {}
+}
+// ── END XENOKING HUD ──────────────────────────────────────────────────────────
 
 (async function () {
     try {
@@ -867,8 +1018,8 @@
             const leak_start = Date.now();
             let last_report = leak_start;
             let last_pct = 0;
-            send_notification(p2jb_version + "\nLeak phase started\n" +
-                NW + " cores active\nCalibrating...");
+            xenoUI('LEAK PHASE — Calibrating', NW + ' cores active. This is the long part (~30 min).', 3, 30);
+            send_notification(p2jb_version + "\nLeak phase started\n" + NW + " cores active");
 
             let all_fed = false;
             while (!all_fed) {
@@ -899,9 +1050,8 @@
                         const elapsed_m = Math.floor(elapsed_s / 60);
                         await ulog("LEAK: " + pct + "% fed | " +
                             elapsed_m + "m elapsed | ~" + eta_m + "m remaining");
-                        send_notification(p2jb_version + "\n" +
-                            pct + "% | ~" + eta_m + "m left\n" +
-                            NW + " cores active");
+                        xenoUI('LEAK PHASE — ' + pct + '%', 'Feeding ' + NW + ' cores. Hang tight.', pct * 0.68, eta_m);
+                        send_notification(p2jb_version + "\n" + pct + "% | ~" + eta_m + "m left");
                     }
                 }
 
@@ -932,6 +1082,7 @@
             const leak_elapsed_m = Math.floor((Date.now() - leak_start) / 60000);
             await ulog("LEAK COMPLETE: " + leak_elapsed_m + " minutes (" +
                 NW + " cores)");
+            xenoUI('LEAK COMPLETE', 'Done in ' + leak_elapsed_m + 'm — exploit stages starting.', 70, 0);
             send_notification(p2jb_version + "\nLeak done in " +
                 leak_elapsed_m + "m!\nStarting exploit stages...");
 
@@ -1013,6 +1164,7 @@
         }
 
         async function stage0(S) {
+            xenoUI('STAGE 1 / 7 — Triple-free race', 'Racing the kernel.', 72);
             send_notification("Stage 0\nTriple-free race");
 
             if (failcheck_path) {
@@ -1241,6 +1393,7 @@
         }
 
         async function stage1(S) {
+            xenoUI('STAGE 2 / 7 — Kqueue reclaim', 'Claiming the freed kernel slot.', 78);
             send_notification("Stage 1\nKqueue reclaim");
             rthdr_free_idx(S, S.triplets[1]);
 
@@ -1265,6 +1418,7 @@
         }
 
         async function stage2(S) {
+            xenoUI('STAGE 3 / 7 — Leak pipe pointers', 'Reading kernel addresses.', 83);
             send_notification("Stage 2\nLeak pipe data pointers");
             await ulog("stage2: leaking pipe pointers...");
 
@@ -1297,6 +1451,7 @@
         }
 
         async function stage3(S) {
+            xenoUI('STAGE 4 / 7 — Pipe corruption', 'Establishing kernel read/write.', 88);
             send_notification("Stage 3\nPipe corruption -> fast kernel R/W");
             await ulog("stage3: corrupting pipe buffer...");
 
@@ -1462,6 +1617,7 @@
         }
 
         async function stage4(S) {
+            xenoUI('STAGE 5 / 7 — Find rootvnode', 'Walking the process list.', 91);
             send_notification("Stage 4\nFind rootvnode");
 
             if (!S.curproc || !S.proc_ucred || !S.proc_fd)
@@ -1494,6 +1650,7 @@
         }
 
         async function stage5(S) {
+            xenoUI('STAGE 6 / 7 — Jailbreak', 'Patching credentials and security flags.', 94);
             send_notification("Stage 5\nJailbreak");
 
             S.kwrite32(S.proc_ucred + S.OFF.UCRED_CR_UID, 0);
@@ -1521,6 +1678,7 @@
         }
 
         async function stage6(S) {
+            xenoUI('STAGE 7 / 7 — Kernel symbols', 'Resolving data_base address.', 97);
             send_notification("Stage 6\nResolve kernel data_base");
 
             const KDATA_MASK = 0xffff804000000000n;
@@ -1561,6 +1719,7 @@
         }
 
         async function stage7(S) {
+            xenoUI('STAGE 7 / 7 — Finalizing', 'Patching dynlib restrictions.', 99);
             send_notification("Stage 7\nFinalize: dynlib restrictions");
 
             const is_kptr = (v) =>
@@ -1594,6 +1753,7 @@
                 toHex(p_dynlib) + ")");
 
             await ulog("stage7: dynlib maximized; jailbreak fully finalized");
+            xenoDone(FW_VERSION);
             send_notification(p2jb_version + "\nFW=" + FW_VERSION + "\nJailbroken");
 
             await ulog("stage7: 'Jailbroken' notification sent -> stage_load_elf");
@@ -2337,6 +2497,7 @@
 
         try {
             if (typeof is_jailbroken === "function" && is_jailbroken()) {
+                xenoUI('ALREADY JAILBROKEN', 'Console is already jailbroken this boot.', 100);
                 send_notification("p2jb: already jailbroken");
                 return;
             }
@@ -2540,6 +2701,6 @@
 
     } catch (e) {
         try { await log("p2jb FATAL: " + e.message); } catch (_) { }
-        try { send_notification("p2jb FAILED: " + e.message); } catch (_) { }
+        try { xenoUI('FAILED', e.message, 0); send_notification("p2jb FAILED: " + e.message); } catch (_) { }
     }
 })();
