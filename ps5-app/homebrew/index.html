@@ -6,7 +6,7 @@
 <style>
   :root{
     --bg0:#060b1c; --card:#10204a; --line:#22417e; --txt:#eaf1ff;
-    --dim:#9fb4e6; --gold:#ffce4a; --acc:#4aa3ff;
+    --dim:#9fb4e6; --gold:#ffce4a; --acc:#4aa3ff; --good:#4aff8a; --warn:#ff9a4a;
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
@@ -32,6 +32,10 @@
   .seg{display:flex;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
   .seg button{background:transparent;border:none;color:var(--dim);padding:11px 20px;font-size:15px;font-weight:700;cursor:pointer}
   .seg button.on{background:var(--acc);color:#fff}
+  .rbtn{background:var(--card);border:1px solid var(--line);color:var(--acc);padding:10px 16px;
+    border-radius:12px;font-size:14px;font-weight:700;cursor:pointer}
+  .rbtn:hover{background:var(--acc);color:#fff}
+  .rbtn:disabled{opacity:.4;cursor:default}
   .count{color:var(--dim);padding:0 26px 6px;font-size:13px}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:16px;padding:8px 26px 60px}
   .card{
@@ -45,13 +49,43 @@
     color:#bcd2ff;border:1px solid var(--line);border-radius:8px;padding:2px 7px}
   .empty{color:var(--dim);text-align:center;padding:60px}
   footer{color:#5d72a8;text-align:center;padding:18px;font-size:12px;border-top:1px solid var(--line)}
+
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10;display:flex;
+    align-items:center;justify-content:center;padding:20px}
+  .modal{background:var(--bg0);border:1px solid var(--line);border-radius:20px;
+    max-width:640px;width:100%;max-height:80vh;display:flex;flex-direction:column;overflow:hidden}
+  .mhead{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;
+    border-bottom:1px solid var(--line)}
+  .mhead .mt{font-size:18px;font-weight:800;flex:1;margin-right:12px}
+  .mhead .mp{font-size:11px;font-weight:800;color:#bcd2ff;border:1px solid var(--line);
+    border-radius:8px;padding:2px 8px;margin-right:12px}
+  .mclose{background:none;border:none;color:var(--dim);font-size:22px;cursor:pointer;padding:4px 8px}
+  .mclose:hover{color:var(--txt)}
+  .mbody{flex:1;overflow-y:auto;padding:16px 22px}
+  .mfoot{display:flex;gap:10px;align-items:center;padding:14px 22px;border-top:1px solid var(--line);flex-wrap:wrap}
+  .pwd{font-size:12px;color:var(--dim)}
+  .pwd code{color:var(--good);font-weight:700;font-size:13px}
+  .mstatus{color:var(--dim);font-size:14px;padding:20px 0;text-align:center}
+  .link-row{display:flex;align-items:center;gap:10px;padding:10px 14px;
+    background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:8px}
+  .kind{font-size:10px;font-weight:800;padding:3px 8px;border-radius:6px;text-transform:uppercase;flex-shrink:0}
+  .kind-direct{color:#000;background:var(--good)}
+  .kind-mirror{color:#000;background:var(--acc)}
+  .kind-gateway{color:#000;background:var(--warn)}
+  .link-host{font-weight:700;font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .link-open{background:var(--acc);color:#fff;border:none;padding:8px 16px;border-radius:10px;
+    font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0;text-decoration:none;display:inline-block}
+  .link-open:hover{background:#6bb8ff}
+  .no-links{color:var(--dim);text-align:center;padding:30px 0;font-size:14px}
+  .legend{font-size:11px;color:var(--dim);padding:0 0 12px;line-height:1.6}
+  .legend b.d{color:var(--good)} .legend b.m{color:var(--acc)} .legend b.g{color:var(--warn)}
 </style></head>
 <body>
   <header>
     <img src="/logo.jpg" alt="XENOKING">
     <div>
       <div class="t"><b>XENOKING</b> - Game Store</div>
-      <div class="sub">Browse the full PS4 / PS5 catalog - open any game to download - served from your PC</div>
+      <div class="sub">Browse PS4 / PS5 games - tap to get direct download links</div>
     </div>
   </header>
   <div class="bar">
@@ -61,42 +95,281 @@
       <button data-p="PS4">PS4</button>
       <button data-p="ALL">All</button>
     </div>
+    <button class="rbtn" id="refreshBtn">Refresh</button>
   </div>
   <div class="count" id="count">Loading catalog...</div>
   <div class="grid" id="grid"></div>
-  <footer>XENOKING Game Store - data from dlpsgame.com - tap a game to open its download page</footer>
+
+  <div class="overlay" id="modal" style="display:none">
+    <div class="modal">
+      <div class="mhead">
+        <span class="mp" id="mplat"></span>
+        <div class="mt" id="mtitle"></div>
+        <button class="mclose" id="mcloseTop">&times;</button>
+      </div>
+      <div class="mbody">
+        <div class="legend">
+          <b class="d">direct</b> = real download file &middot;
+          <b class="m">mirror</b> = host list page &middot;
+          <b class="g">gateway</b> = needs manual click
+        </div>
+        <div class="mstatus" id="mstatus">Resolving download links...</div>
+        <div id="mlinks"></div>
+      </div>
+      <div class="mfoot">
+        <div class="pwd">Extract password: <code>DLPSGAME.COM</code></div>
+        <div style="flex:1"></div>
+        <button class="rbtn" id="mpageBtn">Open game page</button>
+        <button class="rbtn" id="mcloseBottom">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>XENOKING Game Store - tap a game to get direct download links</footer>
 <script>
-let ALL=[], plat="PS5", term="";
+var ALL=[], filteredRows=[], plat="PS5", term="", curGame=null;
+
 function safeUrl(u){ return (typeof u==="string" && /^https?:\/\//.test(u)) ? u : ""; }
+
 function render(){
-  const g=document.getElementById('grid');
-  g.replaceChildren();
-  let rows=ALL.filter(x=>(plat==="ALL"||x.platform===plat) &&
-                         (!term || (x.name||"").toLowerCase().includes(term)));
-  document.getElementById('count').textContent=rows.length+" "+plat+" games";
-  if(!rows.length){
-    const e=document.createElement('div'); e.className="empty"; e.textContent="No games match.";
-    g.appendChild(e); return;
+  var g=document.getElementById("grid");
+  g.innerHTML="";
+  filteredRows=ALL.filter(function(x){
+    return (plat==="ALL"||x.platform===plat) && (!term || (x.name||"").toLowerCase().indexOf(term)!==-1);
+  });
+  document.getElementById("count").textContent=filteredRows.length+" "+plat+" games";
+  if(!filteredRows.length){
+    g.innerHTML='<div class="empty">No games match.</div>';
+    return;
   }
-  const frag=document.createDocumentFragment();
-  for(const x of rows){
-    const c=document.createElement('div'); c.className="card"; c.tabIndex=0;
-    const url=safeUrl(x.page_url);
-    c.onclick=()=>{ if(url) window.open(url,"_blank"); };
-    c.onkeydown=e=>{ if(e.key==="Enter" && url) window.open(url,"_blank"); };
-    const cv=document.createElement('div'); cv.className="cv";
-    const cover=safeUrl(x.cover_url);
-    if(cover) cv.style.backgroundImage="url('"+encodeURI(cover)+"')";
-    const pl=document.createElement('div'); pl.className="pl"; pl.textContent=x.platform||"";
-    const nm=document.createElement('div'); nm.className="nm"; nm.textContent=x.name||"";
-    c.appendChild(cv); c.appendChild(pl); c.appendChild(nm); frag.appendChild(c);
+  var html="";
+  for(var i=0;i<filteredRows.length;i++){
+    var x=filteredRows[i];
+    var cover=safeUrl(x.cover_url||x.coverUrl||"");
+    var style=cover ? 'style="background-image:url(\''+encodeURI(cover)+'\')"' : "";
+    html+='<div class="card" tabindex="0" data-idx="'+i+'">'
+      +'<div class="cv" '+style+'></div>'
+      +'<div class="pl">'+(x.platform||"").replace(/</g,"&lt;")+'</div>'
+      +'<div class="nm">'+(x.name||"").replace(/</g,"&lt;")+'</div></div>';
   }
-  g.appendChild(frag);
+  g.innerHTML=html;
 }
-document.getElementById('q').addEventListener('input',e=>{term=e.target.value.toLowerCase().trim();render();});
-for(const b of document.querySelectorAll('.seg button')){
-  b.onclick=()=>{plat=b.dataset.p;document.querySelectorAll('.seg button').forEach(x=>x.classList.remove('on'));b.classList.add('on');render();};
+
+document.getElementById("q").addEventListener("input",function(e){term=e.target.value.toLowerCase().trim();render();});
+
+var segBtns=document.querySelectorAll(".seg button");
+for(var b=0;b<segBtns.length;b++){
+  segBtns[b].addEventListener("click",function(){
+    plat=this.getAttribute("data-p");
+    for(var j=0;j<segBtns.length;j++) segBtns[j].className="";
+    this.className="on";
+    render();
+  });
 }
-fetch('/catalog.json').then(r=>r.json()).then(d=>{ALL=Array.isArray(d)?d:[];render();})
-  .catch(()=>{document.getElementById('count').textContent="Couldn't load catalog from the PC.";});
+
+document.getElementById("grid").addEventListener("click",function(e){
+  var card=e.target.closest(".card");
+  if(!card) return;
+  var idx=parseInt(card.getAttribute("data-idx"),10);
+  if(filteredRows[idx]) showModal(filteredRows[idx]);
+});
+
+/* ---- Download link resolver (ported from xenoStore.ts) ---- */
+var TERMINAL=["1fichier","mediafire","mega.nz","mega.co","mega.io","akirabox",
+  "pixeldrain","gofile","buzzheavier","rootz","datanodes","qiwi","send.cm",
+  "rocketfile","fireload","krakenfiles","1cloudfile","userscloud","drive.google",
+  "clicknupload","vikingfile","filecrypt"];
+var LANDING=["downloadgameps3.net","downloadgameps4.net"];
+var GATEWAY=["shrinkearn","shrinkme","shrink","ouo.io","gplinks","rocketlink","clk.sh","link1s"];
+var SKIP=/guide-download|tool-download/i;
+
+function hostOf(u){
+  try{return new URL(u).hostname.toLowerCase().replace(/^www\./,"");}catch(e){return "";}
+}
+
+function decodeGW(u){
+  try{
+    var sp=new URL(u).searchParams;
+    var keys=["url","u","link","id"];
+    for(var k=0;k<keys.length;k++){
+      var raw=sp.get(keys[k]);
+      if(!raw) continue;
+      if(raw.indexOf("http")===0) return raw;
+      try{
+        var pad="=".repeat((4-(raw.length%4))%4);
+        var dec=atob(raw.replace(/-/g,"+").replace(/_/g,"/")+pad);
+        if(dec.indexOf("http")===0) return dec;
+      }catch(e){}
+    }
+  }catch(e){}
+  return null;
+}
+
+function parseAnchors(html){
+  var out=[];
+  var re=/href="(https?:\/\/[^"#]+)"[^>]*>([^<]{0,80})/gi, m;
+  while((m=re.exec(html))!==null) out.push({label:m[2].trim(),url:m[1]});
+  return out;
+}
+
+function slugOf(u){
+  try{return new URL(u).pathname.replace(/\/+$/,"").split("/").pop()||"";}catch(e){return "";}
+}
+
+function classify(host){
+  var i;
+  for(i=0;i<TERMINAL.length;i++) if(host.indexOf(TERMINAL[i])!==-1) return "direct";
+  for(i=0;i<LANDING.length;i++) if(host.indexOf(LANDING[i])!==-1) return "mirror";
+  for(i=0;i<GATEWAY.length;i++) if(host.indexOf(GATEWAY[i])!==-1) return "gateway";
+  return "";
+}
+
+function resolveLinks(pageUrl){
+  var slug=slugOf(pageUrl);
+  if(!slug) return Promise.resolve([]);
+  var apiUrl="https://dlpsgame.com/wp-json/wp/v2/posts?slug="+encodeURIComponent(slug)+"&_fields=content";
+  return fetch(apiUrl)
+    .then(function(r){return r.json();})
+    .then(function(arr){
+      var content=(arr&&arr[0]&&arr[0].content&&arr[0].content.rendered)||"";
+      var html="";
+      var m=content.match(/data-payload="([A-Za-z0-9+\/=]+)"/);
+      if(m){try{html=atob(m[1]);}catch(e){}}
+      if(!html) html=content;
+      var anchors=parseAnchors(html);
+      var seen={}, out=[];
+      for(var i=0;i<anchors.length;i++){
+        var a=anchors[i], url=a.url, label=a.label;
+        if(SKIP.test(url)||SKIP.test(label)) continue;
+        var dest=decodeGW(url);
+        if(dest) url=dest;
+        if(seen[url]) continue;
+        seen[url]=1;
+        var host=hostOf(url);
+        var kind=classify(host);
+        if(!kind) continue;
+        out.push({label:label||host,url:url,host:host,kind:kind});
+      }
+      var order={direct:0,mirror:1,gateway:2};
+      out.sort(function(a,b){return (order[a.kind]||3)-(order[b.kind]||3);});
+      return out;
+    })
+    .catch(function(){return [];});
+}
+
+/* ---- Modal ---- */
+function showModal(game){
+  curGame=game;
+  document.getElementById("mtitle").textContent=game.name;
+  document.getElementById("mplat").textContent=game.platform;
+  document.getElementById("mstatus").textContent="Resolving download links...";
+  document.getElementById("mstatus").style.display="";
+  document.getElementById("mlinks").innerHTML="";
+  document.getElementById("modal").style.display="flex";
+
+  resolveLinks(game.page_url||game.pageUrl||"").then(function(links){
+    document.getElementById("mstatus").style.display="none";
+    var c=document.getElementById("mlinks");
+    if(!links.length){
+      c.innerHTML='<div class="no-links">Couldn\'t resolve links automatically.<br>Tap "Open game page" below.</div>';
+      return;
+    }
+    var html="";
+    for(var i=0;i<links.length;i++){
+      var lk=links[i];
+      var kcls=lk.kind==="direct"?"kind-direct":lk.kind==="mirror"?"kind-mirror":"kind-gateway";
+      html+='<div class="link-row">'
+        +'<span class="kind '+kcls+'">'+lk.kind+'</span>'
+        +'<span class="link-host">'+lk.host.replace(/</g,"&lt;")+'</span>'
+        +'<a href="'+encodeURI(lk.url)+'" target="_blank" class="link-open">Open</a>'
+        +'</div>';
+    }
+    c.innerHTML=html;
+  });
+}
+
+function closeModal(){
+  document.getElementById("modal").style.display="none";
+  curGame=null;
+}
+
+function openPage(){
+  if(curGame){
+    var url=safeUrl(curGame.page_url||curGame.pageUrl||"");
+    if(url) window.open(url,"_blank");
+  }
+}
+
+document.getElementById("modal").addEventListener("click",function(e){
+  if(e.target===this) closeModal();
+});
+document.getElementById("mcloseTop").addEventListener("click",closeModal);
+document.getElementById("mcloseBottom").addEventListener("click",closeModal);
+document.getElementById("mpageBtn").addEventListener("click",openPage);
+
+/* ---- Dynamic catalog refresh from WP API ---- */
+var WP_API="https://dlpsgame.com/wp-json/wp/v2/posts";
+var CAT_ID={PS5:63019,PS4:4370};
+
+function decEnt(s){
+  return (s||"").replace(/&#(\d+);/g,function(_,n){return String.fromCharCode(+n);})
+    .replace(/&#x([0-9a-f]+);/gi,function(_,h){return String.fromCharCode(parseInt(h,16));})
+    .replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">")
+    .replace(/&quot;/g,'"').replace(/&#0?39;|&apos;/g,"'").replace(/&nbsp;/g," ");
+}
+
+function refreshCatalog(){
+  var btn=document.getElementById("refreshBtn");
+  btn.disabled=true;
+  btn.textContent="Loading...";
+  var p=plat==="ALL"?"PS5":plat;
+  var catId=CAT_ID[p];
+  if(!catId){btn.disabled=false;btn.textContent="Refresh";return;}
+  var byUrl={};
+  for(var i=0;i<ALL.length;i++){
+    var key=ALL[i].page_url||ALL[i].pageUrl;
+    if(key) byUrl[key]=ALL[i];
+  }
+  var page=1, empty=0;
+
+  function next(){
+    if(page>150||empty>=2){
+      ALL=[];
+      for(var k in byUrl) if(byUrl.hasOwnProperty(k)) ALL.push(byUrl[k]);
+      ALL.sort(function(a,b){return (a.name||"").localeCompare(b.name||"");});
+      render();
+      btn.disabled=false;
+      btn.textContent="Refresh";
+      return;
+    }
+    document.getElementById("count").textContent="Refreshing "+p+"... page "+page+" ("+Object.keys(byUrl).length+" games)";
+    fetch(WP_API+"?categories="+catId+"&per_page=100&page="+page+"&_fields=link,title,content")
+      .then(function(r){return r.json();})
+      .then(function(arr){
+        if(!Array.isArray(arr)||!arr.length){empty++;page++;setTimeout(next,300);return;}
+        empty=0;
+        for(var i=0;i<arr.length;i++){
+          var post=arr[i];
+          var pageUrl=(post&&post.link)||"";
+          var title=(post&&post.title&&post.title.rendered)||"";
+          var name=decEnt(title).trim();
+          if(!pageUrl||!name) continue;
+          var content=(post&&post.content&&post.content.rendered)||"";
+          var m=content.match(/<img[^>]+src="(https:\/\/dlpsgame\.com\/wp-content\/uploads\/[^"]+\.(?:jpg|jpeg|png|webp))"/i);
+          byUrl[pageUrl]={name:name,platform:p,cover_url:m?m[1]:"",page_url:pageUrl};
+        }
+        if(arr.length<100) empty=99;
+        page++;
+        setTimeout(next,300);
+      })
+      .catch(function(){empty++;page++;setTimeout(next,300);});
+  }
+  next();
+}
+
+document.getElementById("refreshBtn").addEventListener("click",refreshCatalog);
+
+/* ---- Load embedded catalog, then render ---- */
+fetch("/catalog.json").then(function(r){return r.json();}).then(function(d){ALL=Array.isArray(d)?d:[];render();})
+  .catch(function(){document.getElementById("count").textContent="Couldn't load catalog.";});
 </script></body></html>

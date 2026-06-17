@@ -33,18 +33,12 @@ jobs:
       - name: Build ELFs + homebrew package
         run: make all PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk
 
-      - name: Build experimental Sony bubble (best-effort, never fails the run)
-        run: make bubble PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk || echo "bubble build skipped (experimental)"
-
       - name: Assemble release assets
         run: |
           mkdir -p ../release
           cp xeno-store.elf          ../release/
           cp xeno-store-browser.elf  ../release/
-          ( cd dist && zip -r ../../release/XENO-Game-Store-homebrew.zip XENO-Game-Store )
-          if [ -d dist/bubble ]; then
-            ( cd dist/bubble && zip -r ../../../release/XENO-Game-Store-bubble-EXPERIMENTAL.zip XENO00001 )
-          fi
+          ( cd dist && zip -r ../../release/XENO-Game-Store.zip XENO-Game-Store )
           ls -la ../release
 
       - name: Upload build artifacts
@@ -59,13 +53,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd "$GITHUB_WORKSPACE"
-          TAG="ps5-app-v1.0.0"
-          NOTES=$'XENO Game Store — native PS5 app.\n\n'
+          TAG="ps5-app-v1.1.0"
+          NOTES=$'XENO Game Store v1.1 — native PS5 app.\n\n'
+          NOTES+=$'**New:** Tap any game to get direct download links (resolves mirrors automatically). Refresh button pulls latest catalog from dlpsgame.com.\n\n'
           NOTES+=$'Artifacts:\n'
-          NOTES+=$'• xeno-store.elf — the payload. Send it from XENO TOOL → Payloads (port 9021) or any ELF loader; it serves the store at http://<ps5-ip>:9095. **Supported / guaranteed path.**\n'
-          NOTES+=$'• xeno-store-browser.elf — same, but also auto-opens the PS5 browser to the store (one-tap).\n'
-          NOTES+=$'• XENO-Game-Store-homebrew.zip — home-screen homebrew app folder (XENO logo) for etaHEN / itemzflow. Drop into /data/homebrew/.\n'
-          NOTES+=$'• XENO-Game-Store-bubble-EXPERIMENTAL.zip — fake-signed app bubble. Experimental, unverified on hardware — use the ELF if it does not appear.\n\n'
+          NOTES+=$'• xeno-store.elf — send via XENO TOOL → Payloads (port 9021); serves the store at http://<ps5-ip>:9095.\n'
+          NOTES+=$'• xeno-store-browser.elf — same + auto-opens PS5 browser (one-tap).\n'
+          NOTES+=$'• XENO-Game-Store.zip — home-screen homebrew app (eboot.bin + icon) for etaHEN / itemzflow. Drop into /data/homebrew/.\n\n'
           NOTES+=$'Discord: XENOKING123.'
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" release/* --clobber
