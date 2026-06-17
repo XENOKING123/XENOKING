@@ -756,6 +756,47 @@ fn cheat_texts(xml: &str) -> Vec<String> {
     out
 }
 
+/// Extract all <ID>...</ID> values from an Orbis-style patch XML <TitleID> block.
+fn orbis_title_ids(xml: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = xml;
+    while let Some(p) = rest.find("<ID>") {
+        let s = p + 4;
+        if let Some(end) = rest[s..].find("</ID>") {
+            let tid = rest[s..s + end].trim().to_uppercase();
+            if !tid.is_empty() && !out.contains(&tid) {
+                out.push(tid);
+            }
+            rest = &rest[s + end + 5..];
+        } else {
+            break;
+        }
+    }
+    out
+}
+
+/// Extract all Name="..." attribute values from <Metadata ...> tags in an Orbis patch XML.
+fn orbis_cheats(xml: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = xml;
+    while let Some(meta_pos) = rest.find("<Metadata") {
+        let after = &rest[meta_pos + 9..];
+        let tag_end = after.find('>').unwrap_or(after.len());
+        let tag = &after[..tag_end];
+        if let Some(np) = tag.find("Name=\"") {
+            let vs = np + 6;
+            if let Some(ve) = tag[vs..].find('"') {
+                let name = tag[vs..vs + ve].trim().to_string();
+                if !name.is_empty() {
+                    out.push(name);
+                }
+            }
+        }
+        rest = &after[tag_end.min(after.len())..];
+    }
+    out
+}
+
 /// Pull a CUSA/PPSA title id (4 letters + 5 digits) out of a filename.
 fn id_from_name(name: &str) -> String {
     name.split(|c: char| !c.is_ascii_alphanumeric())
@@ -906,6 +947,48 @@ pub async fn list_trainers(app: AppHandle) -> Result<Vec<TrainerRow>, String> {
                 cheats,
                 path: p.to_string_lossy().to_string(),
             });
+        }
+    }
+
+    // Orbis/GoldHEN patch XMLs — standalone .xml files in the mc4 dir that use
+    // <Metadata Name="cheat"> entries. Each file may cover multiple title IDs;
+    // we emit one TrainerRow per ID so covers + search work per-region.
+    if let Ok(rd) = std::fs::read_dir(root.join("mc4")) {
+        for e in rd.flatten() {
+            let p = e.path();
+            let fname_lower = p
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            // standalone .xml only — skip .mc4 binaries and .mc4.xml sidecars
+            if !fname_lower.ends_with(".xml") || fname_lower.ends_with(".mc4.xml") {
+                continue;
+            }
+            let xml = match std::fs::read_to_string(&p) {
+                Ok(s) if !s.is_empty() => s,
+                _ => continue,
+            };
+            let tids = orbis_title_ids(&xml);
+            if tids.is_empty() {
+                continue;
+            }
+            let cheats = orbis_cheats(&xml);
+            let game_name = attr(&xml, "Title");
+            let modder = attr(&xml, "Author");
+            let version = attr(&xml, "AppVer");
+            let path_str = p.to_string_lossy().to_string();
+            for tid in tids {
+                rows.push(TrainerRow {
+                    game: resolve(game_name.clone(), &tid),
+                    title_id: tid,
+                    version: version.clone(),
+                    format: "XML".into(),
+                    modder: modder.clone(),
+                    cheats: cheats.clone(),
+                    path: path_str.clone(),
+                });
+            }
         }
     }
 

@@ -23,7 +23,7 @@ function playSfx(name: "on" | "off") {
  * merged into a single showcase card; open it and pick the version on the side.
  * Covers via covers.json. Apply from My Games while the game runs (ps5debug soon).
  */
-type Fmt = "ALL" | "JSON" | "SHN" | "MC4";
+type Fmt = "ALL" | "JSON" | "SHN" | "MC4" | "XML";
 type Plat = "ALL" | "PS5" | "PS4";
 
 interface Group {
@@ -75,6 +75,7 @@ export default function TrainersScreen() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [open, setOpen] = useState<Group | null>(null);
+  const [showCount, setShowCount] = useState(500);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -110,6 +111,7 @@ export default function TrainersScreen() {
   }, []);
 
   const groups = useMemo(() => {
+    setShowCount(500);
     const t = term.trim().toLowerCase();
     const filtered = rows.filter((r) => {
       if (fmt !== "ALL" && r.format !== fmt) return false;
@@ -128,7 +130,7 @@ export default function TrainersScreen() {
     [rows],
   );
 
-  const shown = groups.slice(0, 260);
+  const shown = groups.slice(0, showCount);
 
   const chip = (active: boolean) =>
     `rounded-md px-2.5 py-1 text-xs font-semibold ${
@@ -166,7 +168,7 @@ export default function TrainersScreen() {
           ))}
         </div>
         <div className="flex items-center gap-1">
-          {(["ALL", "JSON", "SHN", "MC4"] as Fmt[]).map((f) => (
+          {(["ALL", "JSON", "SHN", "MC4", "XML"] as Fmt[]).map((f) => (
             <button key={f} className={chip(fmt === f)} onClick={() => setFmt(f)}>{f}</button>
           ))}
         </div>
@@ -195,8 +197,16 @@ export default function TrainersScreen() {
               ))}
             </div>
             {groups.length > shown.length && (
-              <div className="py-3 text-center text-xs text-[var(--color-muted)]">
-                Showing {shown.length} of {groups.length} games — filter/search to narrow.
+              <div className="flex flex-col items-center gap-2 py-4">
+                <button
+                  onClick={() => setShowCount((c) => c + 500)}
+                  className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-4 py-2 text-sm font-semibold hover:border-[var(--color-gold)] hover:text-[var(--color-gold)]"
+                >
+                  Load more ({Math.min(500, groups.length - shown.length)} more)
+                </button>
+                <span className="text-xs text-[var(--color-muted)]">
+                  Showing {shown.length.toLocaleString()} of {groups.length.toLocaleString()} — search to jump to a specific game
+                </span>
               </div>
             )}
           </>
@@ -461,7 +471,11 @@ function CheatModal({ host, group, onClose }: { host: string; group: Group; onCl
                 );
               })}
               {variant.cheats.length === 0 && (
-                <div className="py-6 text-center text-sm text-[var(--color-muted)]">No cheat names in this file.</div>
+                <div className="py-6 text-center text-sm text-[var(--color-muted)]">
+                  {variant.format === "MC4"
+                    ? "Cheat names are embedded in the encrypted MC4 binary — your PS5's CheatRunner reads them directly."
+                    : "No cheat names in this file."}
+                </div>
               )}
             </div>
           </div>

@@ -182,16 +182,22 @@ export default function GameStoreScreen() {
                 key={g.pageUrl}
                 className="flex flex-col overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]"
               >
-                <img
-                  src={g.coverUrl}
-                  alt={g.name}
-                  loading="lazy"
-                  className="aspect-[3/4] w-full cursor-pointer object-cover"
-                  onClick={() => void openExternal(g.pageUrl)}
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.visibility = "hidden";
-                  }}
-                />
+                <div className="relative aspect-[3/4] w-full bg-[var(--color-surface-3)]">
+                  <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[var(--color-surface-3)] to-[var(--color-surface)] text-3xl font-black text-[var(--color-accent)]">
+                    {(g.name || "?").slice(0, 1).toUpperCase()}
+                  </div>
+                  {g.coverUrl && (
+                    <img
+                      src={g.coverUrl}
+                      alt={g.name}
+                      loading="lazy"
+                      className="absolute inset-0 h-full w-full object-cover"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = "none";
+                      }}
+                    />
+                  )}
+                </div>
                 <div className="flex flex-1 flex-col gap-2 p-2">
                   <div className="line-clamp-2 text-xs font-semibold">{g.name}</div>
                   <Button
