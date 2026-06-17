@@ -2,6 +2,11 @@ name: ps5-app
 
 # Builds the XENO Game Store PS5 ELFs and uploads them into the consolidated
 # all-in-one release. Only fires when ps5-app source or this workflow changes.
+#
+# SDK: ps5-payload-dev/pacbrew-repo v0.36 (321 MB, self-contained — includes
+# the real prospero-clang binary, not just shell wrappers). Pin to a specific
+# tag so the build is reproducible and doesn't drift when upstream releases.
+# Bump the tag here + the cache key suffix together when upgrading the SDK.
 
 on:
   push:
@@ -15,37 +20,33 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
+
     defaults:
       run:
         working-directory: ps5-app
 
+    env:
+      SDK_TAG: v0.36
+      PS5_PAYLOAD_SDK: /opt/ps5-payload-sdk
+
     steps:
       - uses: actions/checkout@v4
 
-      # Cache the SDK tarball so subsequent runs skip the large download.
-      # Bump the cache key suffix (e.g. v1→v2) to force a fresh SDK fetch.
-      - name: Cache PS5 payload SDK
-        uses: actions/cache@v4
-        id: sdk-cache
-        with:
-          path: ${{ runner.temp }}/ps5-sdk.tar.gz
-          key: ps5-pacbrew-sdk-v1
-
-      - name: Download PS5 payload SDK
-        if: steps.sdk-cache.outputs.cache-hit != 'true'
+      # Stream the 321 MB pacbrew tarball straight into tar — no temp file,
+      # parallel download+extract, done in ~30-60 s on GHA runners.
+      # curl flags: -f=fail on HTTP errors, -s=silent, -S=show errors, -L=follow redirects.
+      - name: Install PS5 payload SDK (${{ env.SDK_TAG }})
         run: |
-          wget --tries=3 --retry-connrefused -q \
-            -O "$RUNNER_TEMP/ps5-sdk.tar.gz" \
-            https://github.com/ps5-payload-dev/pacbrew-repo/releases/latest/download/ps5-payload-dev.tar.gz
-          echo "SDK downloaded: $(du -sh "$RUNNER_TEMP/ps5-sdk.tar.gz" | cut -f1)"
+          curl -fsSL \
+            "https://github.com/ps5-payload-dev/pacbrew-repo/releases/download/${{ env.SDK_TAG }}/ps5-payload-dev.tar.gz" \
+            | sudo tar -xzf - -C /
+          echo "--- prospero-clang ok ---"
+          /opt/ps5-payload-sdk/bin/prospero-clang --version
 
-      - name: Extract SDK
-        run: |
-          sudo tar xf "$RUNNER_TEMP/ps5-sdk.tar.gz" -C /
-          ls /opt/ps5-payload-sdk/bin/prospero-clang
-
+      # gen_assets.py embeds index.html + catalog.json + logo.jpg as C arrays.
+      # prospero-clang compiles main.c twice: server-only and server+browser.
       - name: Build ELFs + homebrew package
         run: make all PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk
 
@@ -55,7 +56,8 @@ jobs:
           cp xeno-store.elf          ../release/
           cp xeno-store-browser.elf  ../release/
           ( cd dist && zip -r ../../release/XENO-Game-Store.zip XENO-Game-Store )
-          ls -la ../release
+          echo "--- built assets ---"
+          ls -lh ../release
 
       - name: Upload build artifacts (archive)
         uses: actions/upload-artifact@v4
@@ -72,8 +74,7 @@ jobs:
           TAG="all-in-one-v3.2.12"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" release/* --clobber
-            echo "Updated $TAG with new PS5 app artifacts."
+            echo "Uploaded to $TAG"
           else
-            echo "WARNING: consolidated release $TAG not found — skipping upload."
-            echo "Create the release manually and re-run this workflow."
+            echo "WARNING: release $TAG not found — skipping upload."
           fi
