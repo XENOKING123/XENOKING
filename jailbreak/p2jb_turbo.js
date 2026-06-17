@@ -1058,36 +1058,12 @@ function xenoDone(fw) {
                 await js_sleep(200);
             }
 
-            const drain_start = Date.now();
-            const drained = new Array(NW).fill(false);
-            let drain_count = 0;
-            xenoUI('LEAK — EXECUTING', NW + ' cores burning syscalls. Stay on this tab!', 68, null);
-            send_notification(p2jb_version + "\nDrain phase — " + NW + " cores running");
-            while (drain_count < NW) {
-                for (let wi = 0; wi < NW; wi++) {
-                    if (!drained[wi]) write64(lws[wi].finished, 0n);
+            for (const lw of lws) {
+                while (true) {
+                    write64(lw.finished, 0n);
+                    await js_sleep(1500);
+                    if (read64(lw.finished) === 0n) break;
                 }
-                await js_sleep(1500);
-                for (let wi = 0; wi < NW; wi++) {
-                    if (!drained[wi] && read64(lws[wi].finished) === 0n) {
-                        drained[wi] = true;
-                        drain_count++;
-                        send_notification(p2jb_version + "\nCore " + LEAK_CORES[wi] + " drained (" + drain_count + "/" + NW + ")");
-                    }
-                }
-                const drain_elapsed_m = Math.floor((Date.now() - drain_start) / 60000);
-                const leak_elapsed_m  = Math.floor((Date.now() - leak_start) / 60000);
-                const eta_m = drain_count > 0
-                    ? Math.max(1, Math.round(drain_elapsed_m * (NW - drain_count) / drain_count))
-                    : null;
-                xenoUI(
-                    'LEAK — ' + drain_count + '/' + NW + ' cores done',
-                    drain_count < NW
-                        ? (leak_elapsed_m + 'm elapsed' + (eta_m ? ' | ~' + eta_m + 'm left' : ' | estimating...'))
-                        : 'All cores drained.',
-                    68 + Math.round(drain_count / NW * 2),
-                    drain_count < NW ? eta_m : 0
-                );
             }
 
             for (const lw of lws) {
