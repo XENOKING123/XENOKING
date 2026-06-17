@@ -206,7 +206,7 @@ function xenoDone(fw) {
         const MAIN_CORE = 4;
         const MAIN_RTPRIO = 256;
 
-        const LEAK_CORES = [0, 1, 2, 3, 5, 6];
+        const LEAK_CORES = [0, 1, 2, 3, 5, 6, 7];
 
         const SYSCALL_EXTRA = {
             recvmsg: 0x1bn,
@@ -968,7 +968,7 @@ function xenoDone(fw) {
 
             syscall(SYSCALL.setuid, 1n);
 
-            await js_sleep(10000);
+            await js_sleep(3000);
 
             const TOTAL_SYSCALLS = 0x100000001n - BigInt(free_fds_num);
 
@@ -1018,7 +1018,7 @@ function xenoDone(fw) {
             const leak_start = Date.now();
             let last_report = leak_start;
             let last_pct = 0;
-            xenoUI('LEAK PHASE — Calibrating', NW + ' cores active. This is the long part (~30 min).', 3, 30);
+            xenoUI('LEAK PHASE — Calibrating', NW + ' cores active. Sit back — 30-40 min.', 3, 35);
             send_notification(p2jb_version + "\nLeak phase started\n" + NW + " cores active");
 
             let all_fed = false;
@@ -1093,7 +1093,7 @@ function xenoDone(fw) {
             }
             syscall(SYSCALL.setuid, 1n);
 
-            await js_sleep(10000);
+            await js_sleep(5000);
         }
 
         function free_one_fd(S) {
