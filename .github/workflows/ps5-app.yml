@@ -2,8 +2,8 @@ name: ps5-app
 
 # Cross-compiles the XENO Game Store PS5 app in the cloud (no local toolchain
 # needed). Mirrors the official ps5-payload-dev CI: pull the prebuilt SDK
-# tarball, then `make`. Produces the payload ELF + the home-screen homebrew
-# package (with the XENO logo) and publishes them as a GitHub Release.
+# tarball, then `make`. Uploads the built artifacts directly into the
+# consolidated all-in-one release so every release always has everything.
 
 on:
   push:
@@ -41,30 +41,24 @@ jobs:
           ( cd dist && zip -r ../../release/XENO-Game-Store.zip XENO-Game-Store )
           ls -la ../release
 
-      - name: Upload build artifacts
+      - name: Upload build artifacts (archive)
         uses: actions/upload-artifact@v4
         with:
           name: xeno-ps5-app
           path: release/*
           if-no-files-found: error
 
-      - name: Publish / update the Release
+      - name: Push new ELFs into the consolidated release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd "$GITHUB_WORKSPACE"
-          TAG="ps5-app-v1.1.0"
-          NOTES=$'XENO Game Store v1.1 — native PS5 app.\n\n'
-          NOTES+=$'**New:** Tap any game to get direct download links (resolves mirrors automatically). Refresh button pulls latest catalog from dlpsgame.com.\n\n'
-          NOTES+=$'Artifacts:\n'
-          NOTES+=$'• xeno-store.elf — send via XENO TOOL → Payloads (port 9021); serves the store at http://<ps5-ip>:9095.\n'
-          NOTES+=$'• xeno-store-browser.elf — same + auto-opens PS5 browser (one-tap).\n'
-          NOTES+=$'• XENO-Game-Store.zip — home-screen homebrew app (eboot.bin + icon) for etaHEN / itemzflow. Drop into /data/homebrew/.\n\n'
-          NOTES+=$'Discord: XENOKING123.'
+          # Always target the single consolidated release — keeps all XENO tools together.
+          TAG="all-in-one-v3.2.10"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" release/* --clobber
+            echo "Updated $TAG with new PS5 app artifacts."
           else
-            gh release create "$TAG" release/* \
-              --title "XENO PS5 App — Game Store (ELF + homebrew)" \
-              --notes "$NOTES"
+            echo "WARNING: consolidated release $TAG not found — skipping upload."
+            echo "Create the release manually and re-run this workflow."
           fi

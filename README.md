@@ -218,9 +218,26 @@ The game must be <b>running</b> on the PS5, and you must hit <b>Attach</b> first
 
 ## 🏆 Credits
 
-| Project | Author | Why we owe them one |
-|:--|:--|:--|
-| **CheatRunner** | **maj0r** (Discord: `callmemaj0r`) | The on-console cheat engine that powers the My Games / Cheats screen. XENO TOOL is a frontend for it — without CheatRunner there's no live cheat toggling. Grab it from the [CheatRunner Discord](https://discord.gg/E4g6fEqp46). |
+<div align="center">
+
+### CheatRunner — by maj0r
+
+<img src="https://raw.githubusercontent.com/XENOKING123/XENOKING/main/ps5-app/sce_sys/icon0.png" width="0" height="0" alt=""/>
+
+**[CheatRunner](https://discord.gg/E4g6fEqp46)** is the on-console cheat engine that makes the **My Games / Cheats** tab in XENO TOOL possible.
+Without CheatRunner there is no live cheat toggling, no game list, no trainer apply — it is the backbone.
+
+Made entirely by **maj0r** (Discord: `callmemaj0r`).
+It is free, open-source, and constantly improving — the v0.14 update fixed freezing on some games
+and brought major PS5 browser performance upgrades.
+
+[![Support maj0r on Ko-fi](https://www.ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/maj0r)
+&nbsp;&nbsp;
+[![Join the CheatRunner Discord](https://img.shields.io/badge/Discord-CheatRunner-5865F2?logo=discord&logoColor=white)](https://discord.gg/E4g6fEqp46)
+
+> The latest **CheatRunner.elf** is always included in the [XENO Releases](../../releases/latest) so you can grab everything in one place.
+
+</div>
 
 ---
 
