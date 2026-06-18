@@ -254,6 +254,20 @@ and brought major PS5 browser performance upgrades.
 
 <div align="center">
 
+### hejran7 — PS Trainer Viewer
+
+**[hejran7](https://github.com/hejran7)** contributed major coding work to this project —
+building out the PS Trainer Viewer component and putting in serious hours on the tool.
+If you find XENO TOOL useful, a shoutout to him is well deserved.
+
+[![hejran7 on GitHub](https://img.shields.io/badge/GitHub-hejran7-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/hejran7)
+
+</div>
+
+---
+
+<div align="center">
+
 ## ⚖️ License
 
 Released under the **GNU GPL-3.0** — see [`LICENSE`](LICENSE) and the
