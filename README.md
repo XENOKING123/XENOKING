@@ -118,7 +118,7 @@
 | | Original `p2jb.js` | **`p2jb_turbo.js`** |
 |:--|:--|:--|
 | Firmware | 9.00 – 12.40 | 9.00 – 12.40 |
-| Avg time | ~50 min | **~24 min** |
+| Avg time | ~50 min | **~28 min** |
 | UI while waiting | plain text log | **XENOKING HUD** — animated overlay, live timer, stage progress |
 
 ### What you see while it runs

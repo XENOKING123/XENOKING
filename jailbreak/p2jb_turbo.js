@@ -9,7 +9,7 @@
  *   - Y2JB userland framework: Gezine (https://github.com/Gezine/Y2JB)
  *   - elfldr_1320 ELF loader binary: Gezine
  *   - notmaj0r remote_lua_loader p2jb port (secondary reference)
- *   - TURBO edition (8-core pinning, tighter timings): XENOKING
+ *   - TURBO edition (7-core pinning, tighter timings): XENOKING
  *   - CheatRunner on-console cheat engine: maj0r (callmemaj0r)
  *
  * Usage: see README.md.
@@ -100,7 +100,7 @@
         var barW = el('div', 'xhud-bar-wrap');
         var bar  = el('div', 'xhud-bar');
         var pct  = el('div', 'xhud-pct',    '0%');
-        var stat = el('div', 'xhud-status', 'Starting up. Leak phase 20-120 min — do NOT close this tab.');
+        var stat = el('div', 'xhud-status', 'Starting up. Leak phase 25-120 min — do NOT close this tab.');
         var eta  = el('div', 'xhud-eta');
 
         var done     = el('div', 'xhud-done');
@@ -166,7 +166,7 @@ function xenoDone(fw) {
 
 (async function () {
     try {
-        const p2jb_version = "P2JB TURBO 1.1 (8-core, XENOKING)";
+        const p2jb_version = "P2JB TURBO 1.1 (7-core, XENOKING)";
 
         const PAGE_SIZE = 0x4000;
 
@@ -206,7 +206,7 @@ function xenoDone(fw) {
         const MAIN_CORE = 4;
         const MAIN_RTPRIO = 256;
 
-        const LEAK_CORES = [0, 1, 2, 3, 4, 5, 6, 7];
+        const LEAK_CORES = [0, 1, 2, 3, 5, 6, 7];
 
         const SYSCALL_EXTRA = {
             recvmsg: 0x1bn,
