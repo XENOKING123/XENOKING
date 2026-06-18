@@ -423,6 +423,7 @@ pub fn run() {
             commands::title_meta_fetch,
             // ── XENO: Game Store + cheat/trainer HTTP fetch ──
             commands::xeno_http_get,
+            commands::xeno_image_fetch,
             commands::cheatrunner_get,
             commands::cheatrunner_icon,
             commands::cheat_sync,

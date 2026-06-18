@@ -27,6 +27,13 @@ async function httpGet(url: string, jina = false): Promise<string> {
   return await invoke<string>("xeno_http_get", { url, jina });
 }
 
+/** Fetch a cover image through the Rust proxy and return a data: URI.
+ *  Used as a fallback when the browser's direct <img> load fails due to
+ *  Cloudflare hotlink protection or a host not in CSP img-src. */
+export async function fetchCoverImage(url: string): Promise<string> {
+  return await invoke<string>("xeno_image_fetch", { url });
+}
+
 // one listing post block: title-link href + text, then the first <img src>
 const POST_RE =
   /<div class="post bar hentry">[\s\S]*?<a href="(https?:\/\/[^"]+)"[^>]*>([^<]+)<\/a>[\s\S]*?<img[^>]+src="(https?:\/\/[^"]+)"/gi;

@@ -24,8 +24,18 @@ const ALLOWED_HOSTS: &[&str] = &[
     "serialstation.com",       // PS4 (CUSA) title lookup
 ];
 
+/// Hosts allowed for the cover-image proxy. Superset of ALLOWED_HOSTS image
+/// origins — WordPress commonly serves resized thumbnails through wp.com CDN.
+const IMAGE_ALLOWED_HOSTS: &[&str] = &[
+    "dlpsgame.com",
+    "wp.com",         // i0.wp.com … i3.wp.com — WordPress Jetpack image CDN
+    "wordpress.com",
+];
+
 /// 12 MiB ceiling — the jina-rendered game pages are large but bounded.
 const MAX_BODY_BYTES: usize = 12 * 1024 * 1024;
+/// 4 MiB ceiling for cover images — more than enough for a JPEG thumbnail.
+const MAX_IMAGE_BYTES: usize = 4 * 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(45);
 
 /// A real-browser UA — dlpsgame returns 403 to non-browser agents.
@@ -106,6 +116,67 @@ pub async fn xeno_http_get(url: String, jina: Option<bool>) -> Result<String, St
         body.extend_from_slice(&chunk);
     }
     Ok(String::from_utf8_lossy(&body).into_owned())
+}
+
+/// Fetch a game cover image and return it as a `data:<mime>;base64,…` URI.
+/// Used by the Game Store as a fallback when the browser's direct `<img>` load
+/// fails (Cloudflare hotlink protection, CSP mismatch, or WordPress CDN host
+/// not in img-src). Sends no Referer header, so hotlink checks pass.
+#[tauri::command]
+pub async fn xeno_image_fetch(url: String) -> Result<String, String> {
+    let parsed = reqwest::Url::parse(&url).map_err(|e| format!("invalid url: {e}"))?;
+    let scheme = parsed.scheme();
+    if scheme != "https" && scheme != "http" {
+        return Err(format!("refusing non-http(s) url: {url}"));
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| format!("url has no host: {url}"))?;
+    if !IMAGE_ALLOWED_HOSTS
+        .iter()
+        .any(|h| host == *h || host.ends_with(&format!(".{h}")))
+    {
+        return Err(format!("host not allowed for image proxy: {host}"));
+    }
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .user_agent(BROWSER_UA)
+        .redirect(reqwest::redirect::Policy::limited(6))
+        // No Referer — bypasses Cloudflare / WordPress hotlink protection.
+        .referer(false)
+        .build()
+        .map_err(|e| format!("image client: {e}"))?;
+    let resp = client
+        .get(parsed)
+        .send()
+        .await
+        .map_err(|e| format!("image fetch: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("http {}", resp.status().as_u16()));
+    }
+    let mime = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("image/jpeg")
+        .split(';')
+        .next()
+        .unwrap_or("image/jpeg")
+        .trim()
+        .to_string();
+    use futures_util::StreamExt;
+    let mut stream = resp.bytes_stream();
+    let mut body: Vec<u8> = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("image read: {e}"))?;
+        if body.len() + chunk.len() > MAX_IMAGE_BYTES {
+            return Err("image too large".into());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&body);
+    Ok(format!("data:{mime};base64,{b64}"))
 }
 
 // --------------------------------------------------------------------------- //

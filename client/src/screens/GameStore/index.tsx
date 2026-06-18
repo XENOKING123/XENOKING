@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ShoppingCart, Search, Download, RefreshCw, X, Copy, ExternalLink } from "lucide-react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 
@@ -6,6 +6,7 @@ import { PageHeader, Button, EmptyState } from "../../components";
 import {
   scrapeCatalog,
   fetchDownloadLinks,
+  fetchCoverImage,
   type GameEntry,
   type DownloadLink,
 } from "../../lib/xenoStore";
@@ -182,22 +183,7 @@ export default function GameStoreScreen() {
                 key={g.pageUrl}
                 className="flex flex-col overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]"
               >
-                <div className="relative aspect-[3/4] w-full bg-[var(--color-surface-3)]">
-                  <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[var(--color-surface-3)] to-[var(--color-surface)] text-3xl font-black text-[var(--color-accent)]">
-                    {(g.name || "?").slice(0, 1).toUpperCase()}
-                  </div>
-                  {g.coverUrl && (
-                    <img
-                      src={g.coverUrl}
-                      alt={g.name}
-                      loading="lazy"
-                      className="absolute inset-0 h-full w-full object-cover"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = "none";
-                      }}
-                    />
-                  )}
-                </div>
+                <StoreCover name={g.name} coverUrl={g.coverUrl} />
                 <div className="flex flex-1 flex-col gap-2 p-2">
                   <div className="line-clamp-2 text-xs font-semibold">{g.name}</div>
                   <Button
@@ -222,6 +208,51 @@ export default function GameStoreScreen() {
           links={links}
           busy={linksBusy}
           onClose={() => setLinksFor(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Game cover with a two-stage load:
+ *  1. Direct <img> with referrerpolicy="no-referrer" (strips Referer, bypasses hotlink checks).
+ *  2. onError → Rust xeno_image_fetch → data: URI (handles CSP-blocked hosts & persistent 403s).
+ *  Falls back to a styled first-letter placeholder if both fail. */
+function StoreCover({ name, coverUrl }: { name: string; coverUrl: string }) {
+  const [src, setSrc] = useState(coverUrl);
+  const [failed, setFailed] = useState(false);
+  const fetching = useRef(false);
+
+  useEffect(() => {
+    setSrc(coverUrl);
+    setFailed(false);
+    fetching.current = false;
+  }, [coverUrl]);
+
+  const handleError = useCallback(async () => {
+    if (fetching.current || !coverUrl) { setFailed(true); return; }
+    fetching.current = true;
+    try {
+      const dataUrl = await fetchCoverImage(coverUrl);
+      setSrc(dataUrl);
+    } catch {
+      setFailed(true);
+    }
+  }, [coverUrl]);
+
+  return (
+    <div className="relative aspect-[3/4] w-full bg-[var(--color-surface-3)]">
+      <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[var(--color-surface-3)] to-[var(--color-surface)] text-3xl font-black text-[var(--color-accent)]">
+        {(name || "?").slice(0, 1).toUpperCase()}
+      </div>
+      {!failed && coverUrl && (
+        <img
+          src={src}
+          alt={name}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          className="absolute inset-0 h-full w-full object-cover"
+          onError={handleError}
         />
       )}
     </div>
