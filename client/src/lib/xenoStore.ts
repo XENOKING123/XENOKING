@@ -8,6 +8,7 @@ export interface GameEntry {
   platform: "PS5" | "PS4";
   coverUrl: string;
   pageUrl: string;
+  source?: "dlpsgame" | "pkggames" | "pkgzone";
 }
 
 export interface DownloadLink {
@@ -55,6 +56,17 @@ function parsePosts(html: string, platform: "PS5" | "PS4"): GameEntry[] {
     });
   }
   return out;
+}
+
+/** Normalize a game title for cross-source deduplication.
+ *  Strips punctuation, collapses whitespace, drops leading articles. */
+function normalizeTitle(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^(the|a|an) /, "");
 }
 
 export async function scrapePage(
@@ -139,7 +151,7 @@ export async function scrapeCatalog(
   for (const g of existing ?? []) byUrl.set(g.pageUrl, g);
   let emptyStreak = 0;
   for (let p = 1; p <= pages; p++) {
-    onProgress?.(`Loading ${platform} catalog… (${byUrl.size} games)`);
+    onProgress?.(`Loading catalog… (${byUrl.size} games)`);
     let rows: GameEntry[] = [];
     try {
       const json = await httpGet(
@@ -162,7 +174,115 @@ export async function scrapeCatalog(
     }
     await new Promise((r) => setTimeout(r, 250));
   }
+
+  // Build a normalized-title dedupe set so extra sources only add new games.
+  const seenNorm = new Set<string>();
+  for (const g of byUrl.values()) seenNorm.add(normalizeTitle(g.name));
+
+  if (platform === "PS5") {
+    const addExtra = (entries: GameEntry[]) => {
+      const before = byUrl.size;
+      for (const g of entries) {
+        const norm = normalizeTitle(g.name);
+        if (seenNorm.has(norm)) continue;
+        seenNorm.add(norm);
+        byUrl.set(g.pageUrl, g);
+      }
+      if (byUrl.size !== before) onBatch?.([...byUrl.values()]);
+    };
+
+    onProgress?.(`Adding extra sources… (${byUrl.size} games)`);
+    const [pgResult, pzResult] = await Promise.allSettled([
+      scrapeFromPkgGames(),
+      scrapeFromPkgZone(),
+    ]);
+    if (pgResult.status === "fulfilled") addExtra(pgResult.value);
+    if (pzResult.status === "fulfilled") addExtra(pzResult.value);
+  }
+
   return [...byUrl.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// --- pkg.games PS5 catalog ------------------------------------------------ //
+// Single static-HTML page lists ~500 PS5 games as a plain <ul>.
+// No cover art on the list page; the StoreCover component shows the title
+// initial until the user opens a game and a WP cover loads from the detail page.
+async function scrapeFromPkgGames(): Promise<GameEntry[]> {
+  const LIST_URL = "https://pkg.games/ps5-game-list/";
+  let html = "";
+  for (const useJina of [false, true]) {
+    try {
+      html = await httpGet(LIST_URL, useJina);
+      if (html.length > 500) break;
+    } catch {
+      continue;
+    }
+  }
+  if (!html) return [];
+
+  const out: GameEntry[] = [];
+  const seen = new Set<string>();
+  // Pattern: href="https://pkg.games/ps5/[slug]/" followed by link text.
+  const ENTRY_RE = /href="(https:\/\/pkg\.games\/ps5\/[a-z0-9\-\/]+?\/)"[^>]*>\s*([^<]+)/gi;
+  for (const m of html.matchAll(ENTRY_RE)) {
+    const pageUrl = m[1];
+    const name = m[2].trim();
+    if (!name || seen.has(pageUrl)) continue;
+    seen.add(pageUrl);
+    out.push({ name, platform: "PS5", coverUrl: "", pageUrl, source: "pkggames" });
+  }
+  return out;
+}
+
+// --- pkg-zone.com PS5/PS4 catalog ----------------------------------------- //
+// Alpine.js SPA — game grid only renders after JS runs. Jina renders the page
+// JS before returning HTML so we can parse the cover <img> tags.
+// Cover images: /images/{APPID}/cover.png served directly from pkg-zone.com.
+async function scrapeFromPkgZone(): Promise<GameEntry[]> {
+  const BASE_PZ = "https://pkg-zone.com";
+  const out: GameEntry[] = [];
+  const seen = new Set<string>();
+
+  for (let page = 1; page <= 10; page++) {
+    const listUrl =
+      page === 1
+        ? `${BASE_PZ}?category=Game&console=ps5`
+        : `${BASE_PZ}?category=Game&console=ps5&page=${page}`;
+    let html = "";
+    try {
+      html = await httpGet(listUrl, true);
+    } catch {
+      break;
+    }
+
+    const beforeSize = seen.size;
+    // Each Alpine-rendered game card has <img src="/images/{APPID}/cover.png" alt="Title">.
+    // Parse every <img> tag and extract APPID + title from src/alt attributes.
+    const IMG_TAG_RE = /<img\b[^>]*>/gi;
+    const SRC_RE = /\bsrc="\/images\/([A-Z0-9]{4,9})\/cover\.png"/i;
+    const ALT_RE = /\balt="([^"]+)"/;
+    for (const imgTagMatch of html.matchAll(IMG_TAG_RE)) {
+      const tag = imgTagMatch[0];
+      const srcM = SRC_RE.exec(tag);
+      if (!srcM) continue;
+      const appId = srcM[1].toUpperCase();
+      if (seen.has(appId)) continue;
+      seen.add(appId);
+      const altM = ALT_RE.exec(tag);
+      const name = altM ? altM[1].trim() : appId;
+      out.push({
+        name,
+        platform: appId.startsWith("PPSA") ? "PS5" : "PS4",
+        coverUrl: `${BASE_PZ}/images/${appId}/cover.png`,
+        pageUrl: `${BASE_PZ}/details/${appId}`,
+        source: "pkgzone",
+      });
+    }
+
+    if (seen.size === beforeSize) break;
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  return out;
 }
 
 // ---- deep download-link resolver ---------------------------------------- //
@@ -176,6 +296,8 @@ const TERMINAL_HOSTS = [
   "pixeldrain", "gofile", "buzzheavier", "rootz", "datanodes", "qiwi",
   "send.cm", "rocketfile", "fireload", "krakenfiles", "1cloudfile",
   "userscloud", "drive.google", "clicknupload", "vikingfile", "filecrypt",
+  "downloadmy.link", // pkg.games RAR archives
+  "pkg-zone.com",    // pkg-zone direct PKG redirect
 ];
 
 function hostOf(u: string): string {
@@ -266,6 +388,22 @@ export async function fetchDownloadLinks(
   pageUrl: string,
   deep = true,
 ): Promise<DownloadLink[]> {
+  // pkg-zone.com: build the download URL directly from the APPID in the page
+  // path — no need to fetch the detail page at all.
+  const pzMatch = pageUrl.match(/pkg-zone\.com\/details\/([A-Z0-9]{4,9})/i);
+  if (pzMatch) {
+    const appId = pzMatch[1].toUpperCase();
+    const platform = appId.startsWith("PPSA") ? "ps5" : "ps4";
+    return [
+      {
+        label: "Download PKG (Latest)",
+        url: `https://pkg-zone.com/download/${platform}/${appId}/latest`,
+        host: "pkg-zone.com",
+        kind: "terminal",
+      },
+    ];
+  }
+
   const html = await linksHtmlFor(pageUrl);
   if (!html) return [];
   const seen = new Set<string>();
