@@ -10,7 +10,7 @@
 
 <br/>
 
-<img src="https://readme-typing-svg.demolab.com?font=Orbitron&weight=800&size=24&pause=800&color=F7C948&center=true&vCenter=true&width=760&lines=%F0%9F%8E%AF+Cheats+%26+Trainers+that+apply+LIVE;%F0%9F%93%A6+9%2C200%2B+trainers+bundled+right+in;%F0%9F%9B%92+Full+PS4%2FPS5+Game+Store+%2B+real+links;%F0%9F%90%89+Dragon+Ball+Z+Jailbreak+%C2%B7+XENOKING+EDITION;%F0%9F%9A%80+Payloads+%C2%B7+Saves+%C2%B7+nanoDNS+%C2%B7+and+more" alt="tagline"/>
+<img src="https://readme-typing-svg.demolab.com?font=Orbitron&weight=800&size=24&pause=800&color=F7C948&center=true&vCenter=true&width=760&lines=%F0%9F%8E%AF+Cheats+%26+Trainers+that+apply+LIVE;%F0%9F%93%A6+9%2C200%2B+trainers+bundled+right+in;%F0%9F%9B%92+Full+PS4%2FPS5+Game+Store+%2B+real+links;%F0%9F%9A%80+Payloads+%C2%B7+Saves+%C2%B7+nanoDNS+%C2%B7+and+more" alt="tagline"/>
 
 <br/><br/>
 
@@ -56,7 +56,6 @@
 <td align="center">⚡<br/><b>LIVE</b><br/><sub>cheat apply</sub></td>
 <td align="center">🎨<br/><b>50</b><br/><sub>themes</sub></td>
 <td align="center">🌐<br/><b>nanoDNS</b><br/><sub>ON / OFF</sub></td>
-<td align="center">🐉<br/><b>DBZ</b><br/><sub>jailbreak HUD</sub></td>
 </tr>
 </table>
 
@@ -111,63 +110,6 @@
 > the **Home** showcase. 🏠
 
 ---
-
-## 🐉 Dragon Ball Z Jailbreak · XENOKING EDITION — FW 9.00–12.40
-
-**`p2jb_dbz.js`** — the stock p2jb 2.3 kernel exploit dressed up as a full Dragon Ball Z cinema experience. Drop it on your PS5 as `p2jb.js` and watch the show while it jailbreaks.
-
-<div align="center">
-
-<table>
-<tr>
-<td align="center">🎬<br/><b>Cinematic</b><br/><sub>DBZ movie HUD</sub></td>
-<td align="center">📺<br/><b>6 Scenes</b><br/><sub>Sensing → SSJ Blue</sub></td>
-<td align="center">💯<br/><b>Power Level</b><br/><sub>0 → 999,999,999</sub></td>
-<td align="center">🌊<br/><b>Kamehameha</b><br/><sub>fires on done</sub></td>
-<td align="center">✅<br/><b>FW 9.00–12.40</b><br/><sub>stock exploit</sub></td>
-</tr>
-</table>
-
-</div>
-
-### What plays while it runs
-
-The YouTube app's page becomes a **full-screen Dragon Ball Z movie** for the entire ~50 minutes:
-
-| Time | Scene | What you see |
-|:--|:--|:--|
-| **0 – 4 s** | Intro | *"Previously on Dragon Ball Z..."* fades in on black, then dissolves to the main scene |
-| **~2 min** | Over 9,000 | Power level crosses 9,000 → **fullscreen "IT'S OVER 9,000!"** card |
-| **0 – 5 min** | 🔴 Sensing | Deep purple sky · Goku stands still · faint ki particles drift |
-| **5 – 15 min** | 🟠 Charging | Sky turns dark red · aura rings expand · particle count rises |
-| **15 – 25 min** | ⭐ Super Saiyan | Golden flash · sky blazes orange · hair turns gold · lightning starts |
-| **25 – 35 min** | ⚡ SSJ2 | Ground cracks widen · debris flies · speed-line bursts |
-| **35 – 45 min** | 💥 SSJ3 | Near-maximum intensity · *"Hair grows — eyebrows gone"* |
-| **45+ min** | 🔵 SSJ Blue | Sky shifts electric blue · all effects recolor blue-white |
-| **Done** | 🌊 Kamehameha | Beam fires across screen → impact flash → **JAILBROKEN** slams in |
-
-**Always on screen:**
-- ⏱️ Live **MM:SS** timer — top right
-- 🏷️ **DRAGON BALL Z · XENOKING EDITION** badge — top left
-- 📊 Stage label — updates from real exploit log events
-- 💯 **Power level counter** — climbs 0 → 999,999,999 over the session
-- 📈 Ki energy bar — fills as the exploit advances
-
-### Deploy via FileZilla
-
-1. Download **`p2jb_dbz.js`** from [Releases](../../releases/latest)
-2. Open **FileZilla** → connect to your PS5: `Host: 192.168.4.44` · `Port: 21`
-3. Navigate to:
-   ```
-   /mnt/sandbox/PPSA01650_000/download0/cache/splash_screen/aHR0cHM6Ly93d3cueW91dHViZS5jb20vdHY=/
-   ```
-4. Drag `p2jb_dbz.js` into that folder and rename it **`p2jb.js`** (overwrite the existing file)
-5. Launch the **YouTube app** on your PS5 — the Dragon Ball Z HUD appears and the exploit runs automatically
-
-> 💡 **Keep WiFi on while jailbreaking** — the HUD loads Goku's image and fonts over the internet.
-> Set PS5 DNS to `165.227.83.145` (primary) / `192.241.221.79` (secondary) under
-> **Settings ▸ Network ▸ Set Up Internet Connection ▸ Advanced Settings**.
-> This blocks Sony update servers while keeping all other internet working.
 
 ---
 
@@ -251,13 +193,6 @@ The game must be <b>running</b> on the PS5, and you must hit <b>Attach</b> first
 (the dot goes green). If a write is refused, the toggle reverts itself.
 </details>
 
-<details>
-<summary><b>The DBZ HUD isn't loading / looks plain?</b></summary>
-<br/>
-The HUD fetches Google Fonts and the Goku image over Wi-Fi. Make sure your PS5 has internet
-access while jailbreaking (the DNS settings above keep Wi-Fi on while blocking Sony servers).
-If fonts don't load, the HUD still works — it just uses fallback system fonts.
-</details>
 
 ---
 
@@ -295,13 +230,6 @@ building out the PS Trainer Viewer component and putting in serious hours on the
 If you find XENO TOOL useful, a shoutout to him is well deserved.
 
 [![hejran7 on GitHub](https://img.shields.io/badge/GitHub-hejran7-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/hejran7)
-
-### p2jb kernel exploit — Gezine / cheburek3000
-
-The underlying PS5 kernel exploit (`cr_ref` overflow via `kqueueex`) that powers the jailbreak
-was created by **Gezine** and **cheburek3000**.
-
-[![Gezine on GitHub](https://img.shields.io/badge/GitHub-Gezine-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/Gezine/Luac0re)
 
 </div>
 
