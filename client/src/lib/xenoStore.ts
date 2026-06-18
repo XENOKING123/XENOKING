@@ -8,7 +8,7 @@ export interface GameEntry {
   platform: "PS5" | "PS4";
   coverUrl: string;
   pageUrl: string;
-  source?: "dlpsgame" | "pkggames" | "pkgzone";
+  source?: "dlpsgame" | "pkggames";
 }
 
 export interface DownloadLink {
@@ -192,12 +192,11 @@ export async function scrapeCatalog(
     };
 
     onProgress?.(`Adding extra sources… (${byUrl.size} games)`);
-    const [pgResult, pzResult] = await Promise.allSettled([
-      scrapeFromPkgGames(),
-      scrapeFromPkgZone(),
-    ]);
-    if (pgResult.status === "fulfilled") addExtra(pgResult.value);
-    if (pzResult.status === "fulfilled") addExtra(pzResult.value);
+    try {
+      addExtra(await scrapeFromPkgGames());
+    } catch {
+      /* extra source is best-effort — never blocks the primary catalog */
+    }
   }
 
   return [...byUrl.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -234,57 +233,6 @@ async function scrapeFromPkgGames(): Promise<GameEntry[]> {
   return out;
 }
 
-// --- pkg-zone.com PS5/PS4 catalog ----------------------------------------- //
-// Alpine.js SPA — game grid only renders after JS runs. Jina renders the page
-// JS before returning HTML so we can parse the cover <img> tags.
-// Cover images: /images/{APPID}/cover.png served directly from pkg-zone.com.
-async function scrapeFromPkgZone(): Promise<GameEntry[]> {
-  const BASE_PZ = "https://pkg-zone.com";
-  const out: GameEntry[] = [];
-  const seen = new Set<string>();
-
-  for (let page = 1; page <= 10; page++) {
-    const listUrl =
-      page === 1
-        ? `${BASE_PZ}?category=Game&console=ps5`
-        : `${BASE_PZ}?category=Game&console=ps5&page=${page}`;
-    let html = "";
-    try {
-      html = await httpGet(listUrl, true);
-    } catch {
-      break;
-    }
-
-    const beforeSize = seen.size;
-    // Each Alpine-rendered game card has <img src="/images/{APPID}/cover.png" alt="Title">.
-    // Parse every <img> tag and extract APPID + title from src/alt attributes.
-    const IMG_TAG_RE = /<img\b[^>]*>/gi;
-    const SRC_RE = /\bsrc="\/images\/([A-Z0-9]{4,9})\/cover\.png"/i;
-    const ALT_RE = /\balt="([^"]+)"/;
-    for (const imgTagMatch of html.matchAll(IMG_TAG_RE)) {
-      const tag = imgTagMatch[0];
-      const srcM = SRC_RE.exec(tag);
-      if (!srcM) continue;
-      const appId = srcM[1].toUpperCase();
-      if (seen.has(appId)) continue;
-      seen.add(appId);
-      const altM = ALT_RE.exec(tag);
-      const name = altM ? altM[1].trim() : appId;
-      out.push({
-        name,
-        platform: appId.startsWith("PPSA") ? "PS5" : "PS4",
-        coverUrl: `${BASE_PZ}/images/${appId}/cover.png`,
-        pageUrl: `${BASE_PZ}/details/${appId}`,
-        source: "pkgzone",
-      });
-    }
-
-    if (seen.size === beforeSize) break;
-    await new Promise((r) => setTimeout(r, 400));
-  }
-  return out;
-}
-
 // ---- deep download-link resolver ---------------------------------------- //
 const B64_GATEWAYS = [
   "shrinkearn", "shrinkme", "shrink", "ouo.io", "gplinks",
@@ -297,7 +245,6 @@ const TERMINAL_HOSTS = [
   "send.cm", "rocketfile", "fireload", "krakenfiles", "1cloudfile",
   "userscloud", "drive.google", "clicknupload", "vikingfile", "filecrypt",
   "downloadmy.link", // pkg.games RAR archives
-  "pkg-zone.com",    // pkg-zone direct PKG redirect
 ];
 
 function hostOf(u: string): string {
@@ -356,7 +303,10 @@ const EXCLUDE_LABEL_RE = /guide\s*download|tool\s*download|jdownload/i;
 
 async function linksHtmlFor(pageUrl: string): Promise<string> {
   // 1) WP API content's base64 `data-payload` (reliable — always present).
-  const slug = slugFromUrl(pageUrl);
+  //    Only for dlpsgame URLs — other sources (pkg.games) have their own slugs
+  //    that could collide with an unrelated dlpsgame post, so we skip straight
+  //    to rendering their page.
+  const slug = pageUrl.includes("dlpsgame.com") ? slugFromUrl(pageUrl) : "";
   if (slug) {
     try {
       const json = await httpGet(
@@ -388,22 +338,6 @@ export async function fetchDownloadLinks(
   pageUrl: string,
   deep = true,
 ): Promise<DownloadLink[]> {
-  // pkg-zone.com: build the download URL directly from the APPID in the page
-  // path — no need to fetch the detail page at all.
-  const pzMatch = pageUrl.match(/pkg-zone\.com\/details\/([A-Z0-9]{4,9})/i);
-  if (pzMatch) {
-    const appId = pzMatch[1].toUpperCase();
-    const platform = appId.startsWith("PPSA") ? "ps5" : "ps4";
-    return [
-      {
-        label: "Download PKG (Latest)",
-        url: `https://pkg-zone.com/download/${platform}/${appId}/latest`,
-        host: "pkg-zone.com",
-        kind: "terminal",
-      },
-    ];
-  }
-
   const html = await linksHtmlFor(pageUrl);
   if (!html) return [];
   const seen = new Set<string>();

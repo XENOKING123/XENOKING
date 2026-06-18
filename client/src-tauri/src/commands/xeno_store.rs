@@ -23,7 +23,6 @@ const ALLOWED_HOSTS: &[&str] = &[
     "prosperopatches.com",     // PS5 (PPSA) title + cover lookup
     "serialstation.com",       // PS4 (CUSA) title lookup
     "pkg.games",               // static PS5 game list + individual detail pages
-    "pkg-zone.com",            // Alpine.js game store (via jina) + detail pages
 ];
 
 /// Hosts allowed for the cover-image proxy. Superset of ALLOWED_HOSTS image
@@ -32,8 +31,7 @@ const IMAGE_ALLOWED_HOSTS: &[&str] = &[
     "dlpsgame.com",
     "wp.com",         // i0.wp.com … i3.wp.com — WordPress Jetpack image CDN
     "wordpress.com",
-    "pkg-zone.com",   // /images/{APPID}/cover.png served directly
-    "pkg.games",      // wp-content/uploads cover art
+    "pkg.games",      // wp-content/uploads cover art (individual game pages)
 ];
 
 /// 12 MiB ceiling — the jina-rendered game pages are large but bounded.
