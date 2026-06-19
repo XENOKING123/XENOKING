@@ -8,7 +8,7 @@ export interface GameEntry {
   platform: "PS5" | "PS4";
   coverUrl: string;
   pageUrl: string;
-  source?: "dlpsgame" | "pkggames";
+  source?: "dlpsgame" | "pkggames" | "pspkg";
 }
 
 export interface DownloadLink {
@@ -179,24 +179,31 @@ export async function scrapeCatalog(
   const seenNorm = new Set<string>();
   for (const g of byUrl.values()) seenNorm.add(normalizeTitle(g.name));
 
-  if (platform === "PS5") {
-    const addExtra = (entries: GameEntry[]) => {
-      const before = byUrl.size;
-      for (const g of entries) {
-        const norm = normalizeTitle(g.name);
-        if (seenNorm.has(norm)) continue;
-        seenNorm.add(norm);
-        byUrl.set(g.pageUrl, g);
-      }
-      if (byUrl.size !== before) onBatch?.([...byUrl.values()]);
-    };
+  const addExtra = (entries: GameEntry[]) => {
+    const before = byUrl.size;
+    for (const g of entries) {
+      const norm = normalizeTitle(g.name);
+      if (seenNorm.has(norm)) continue;
+      seenNorm.add(norm);
+      byUrl.set(g.pageUrl, g);
+    }
+    if (byUrl.size !== before) onBatch?.([...byUrl.values()]);
+  };
 
-    onProgress?.(`Adding extra sources… (${byUrl.size} games)`);
+  if (platform === "PS5") {
+    onProgress?.(`Adding pkg.games source… (${byUrl.size} games)`);
     try {
       addExtra(await scrapeFromPkgGames());
     } catch {
-      /* extra source is best-effort — never blocks the primary catalog */
+      /* best-effort */
     }
+  }
+
+  onProgress?.(`Adding pspkg.com source… (${byUrl.size} games)`);
+  try {
+    addExtra(await scrapeFromPspkg(platform));
+  } catch {
+    /* best-effort — never blocks the primary catalog */
   }
 
   return [...byUrl.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -230,6 +237,93 @@ async function scrapeFromPkgGames(): Promise<GameEntry[]> {
     seen.add(pageUrl);
     out.push({ name, platform: "PS5", coverUrl: "", pageUrl, source: "pkggames" });
   }
+  return out;
+}
+
+// --- pspkg.com PS4/PS5 catalog -------------------------------------------- //
+// pspkg.com is Cloudflare-protected so we always route through jina.
+// Catalog pages live at /ps4/ and /ps5/ with /page/N/ pagination.
+async function scrapeFromPspkg(platform: "PS5" | "PS4"): Promise<GameEntry[]> {
+  const pfx = platform.toLowerCase();
+  const BASE_URL = `https://pspkg.com/${pfx}/`;
+
+  const out: GameEntry[] = [];
+  const seen = new Set<string>();
+
+  for (let page = 1; page <= 80; page++) {
+    const url = page === 1 ? BASE_URL : `${BASE_URL}page/${page}/`;
+    let html = "";
+    for (const useJina of [true, false]) {
+      try {
+        html = await httpGet(url, useJina);
+        if (html.length > 500) break;
+      } catch {
+        continue;
+      }
+    }
+    if (!html || html.length < 500) break;
+
+    // Match every game detail link on this listing page.
+    // Pattern: href="https://pspkg.com/ps4/download-SLUG-ps4-ID.html"
+    const linkPattern = new RegExp(
+      `href="(https://pspkg\\.com/${pfx}/download-([a-z0-9\\-]+)-${pfx}-\\d+\\.html)"`,
+      "gi",
+    );
+    const matches = [...html.matchAll(linkPattern)];
+    if (matches.length === 0) break;
+
+    let added = 0;
+    for (const m of matches) {
+      const pageUrl = m[1];
+      const slug = m[2];
+      if (seen.has(pageUrl)) continue;
+      seen.add(pageUrl);
+
+      // Scan 600 chars after the link tag for a title string and cover image.
+      const pos = m.index ?? 0;
+      const chunk = html.slice(pos, pos + 600);
+
+      // Title: look for alt="…" / title="…" or plain anchor text >…<
+      let name = "";
+      const titleMatches = [
+        ...chunk.matchAll(/(?:alt|title)="([^"]{4,120})"/gi),
+        ...chunk.matchAll(/>([^<]{4,80})</g),
+      ];
+      for (const tm of titleMatches) {
+        const candidate = (tm[1] ?? "").trim();
+        if (
+          candidate.length >= 4 &&
+          !/^(download|game|update|dlc|click|here|free|ps[45]|4gamer|password|region)/i.test(
+            candidate,
+          )
+        ) {
+          name = candidate;
+          break;
+        }
+      }
+      if (!name) {
+        // Humanize slug: "call-of-duty-modern-warfare-3-ps4" → "Call Of Duty Modern Warfare 3"
+        name = slug
+          .replace(new RegExp(`-${pfx}$`, "i"), "")
+          .replace(/-/g, " ")
+          .replace(/\b\w/g, (c) => c.toUpperCase());
+      }
+
+      const imgMatch = chunk.match(
+        /src="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp))"/i,
+      );
+      const coverUrl = imgMatch ? imgMatch[1] : "";
+
+      out.push({ name, platform, coverUrl, pageUrl, source: "pspkg" });
+      added++;
+    }
+
+    if (added === 0) break;
+    if (added < 8 && page > 1) break;
+
+    await new Promise((r) => setTimeout(r, 350));
+  }
+
   return out;
 }
 
