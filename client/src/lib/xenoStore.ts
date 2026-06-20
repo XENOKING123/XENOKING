@@ -8,6 +8,7 @@ export interface GameEntry {
   platform: "PS5" | "PS4";
   coverUrl: string;
   pageUrl: string;
+  altUrls?: string[];
   source?: "dlpsgame" | "pkggames" | "pspkg" | "superpsx" | "arabicps4";
 }
 
@@ -135,8 +136,10 @@ function decodeEntities(s: string): string {
     .replace(/&nbsp;/g, " ");
 }
 
-/** Turn a WP REST `posts` JSON page into game entries (name + page url +
- *  cover from the first content image). */
+/** Turn a WP REST `posts` JSON page into game entries (name + page url + cover).
+ *  Cover priority: 1) wp:featuredmedia embedded source_url  2) first wp-content
+ *  img in content.rendered.  Requires the request to include _embed=wp:featuredmedia
+ *  and _fields to include _embedded. */
 function postsFromApi(json: string, platform: "PS5" | "PS4"): GameEntry[] {
   let arr: unknown;
   try {
@@ -151,11 +154,25 @@ function postsFromApi(json: string, platform: "PS5" | "PS4"): GameEntry[] {
     const title = (post?.title as { rendered?: string })?.rendered ?? "";
     const name = cleanGameTitle(decodeEntities(title));
     if (!pageUrl || !name) continue;
+
+    // 1) Featured image from _embed=wp:featuredmedia (most reliable cover source)
+    type FM = Array<{ source_url?: string; media_details?: { sizes?: Record<string, { source_url?: string }> } }>;
+    const embedded = (post?._embedded as { "wp:featuredmedia"?: FM }) ?? {};
+    const fm = embedded["wp:featuredmedia"]?.[0];
+    const featuredUrl =
+      fm?.media_details?.sizes?.["medium_large"]?.source_url ??
+      fm?.media_details?.sizes?.["medium"]?.source_url ??
+      fm?.source_url ??
+      "";
+
+    // 2) Fallback: first wp-content image in the post content
     const content = (post?.content as { rendered?: string })?.rendered ?? "";
-    const m = content.match(
-      /<img[^>]+src="(https?:\/\/[^"]+\/wp-content\/uploads\/[^"]+\.(?:jpg|jpeg|png|webp))"/i,
-    );
-    out.push({ name, platform, coverUrl: m ? m[1] : "", pageUrl });
+    const contentImg =
+      content.match(
+        /<img[^>]+src="(https?:\/\/[^"]+\/wp-content\/uploads\/[^"]+\.(?:jpg|jpeg|png|webp))"/i,
+      )?.[1] ?? "";
+
+    out.push({ name, platform, coverUrl: featuredUrl || contentImg, pageUrl });
   }
   return out;
 }
@@ -181,7 +198,7 @@ export async function scrapeCatalog(
     let rows: GameEntry[] = [];
     try {
       const json = await httpGet(
-        `${WP_API}?categories=${cat}&per_page=100&page=${p}&_fields=link,title,content`,
+        `${WP_API}?categories=${cat}&per_page=100&page=${p}&_embed=wp:featuredmedia&_fields=link,title,content,_embedded`,
       );
       rows = postsFromApi(json, platform);
     } catch {
@@ -215,25 +232,42 @@ export async function scrapeCatalog(
     for (const g of byNorm.values()) byUrl.set(g.pageUrl, g);
   }
 
-  // Build a normalized-title dedupe set so extra sources only add new games.
-  const seenNorm = new Set<string>();
-  for (const g of byUrl.values()) seenNorm.add(normalizeTitle(g.name));
+  // Build normToKey for cross-source merging: same game from different sources
+  // gets its URL added to altUrls (for multi-source link fetching) and its
+  // cover merged in if the primary entry has none.
+  const normToKey = new Map<string, string>(); // normalized title → primary pageUrl
+  for (const [k, v] of byUrl) normToKey.set(normalizeTitle(v.name), k);
 
-  const addExtra = (entries: GameEntry[]) => {
-    const before = byUrl.size;
+  const mergeExtra = (entries: GameEntry[]) => {
+    let changed = false;
     for (const g of entries) {
       const norm = normalizeTitle(g.name);
-      if (seenNorm.has(norm)) continue;
-      seenNorm.add(norm);
+      const existingKey = normToKey.get(norm);
+      if (existingKey) {
+        // Already in catalog — merge cover + track this source URL for link fetching
+        const ex = byUrl.get(existingKey);
+        if (ex) {
+          let updated = false;
+          if (!ex.coverUrl && g.coverUrl) { ex.coverUrl = g.coverUrl; updated = true; }
+          if (g.pageUrl !== ex.pageUrl) {
+            if (!ex.altUrls) ex.altUrls = [];
+            if (!ex.altUrls.includes(g.pageUrl)) { ex.altUrls.push(g.pageUrl); updated = true; }
+          }
+          if (updated) changed = true;
+        }
+        continue;
+      }
+      normToKey.set(norm, g.pageUrl);
       byUrl.set(g.pageUrl, g);
+      changed = true;
     }
-    if (byUrl.size !== before) onBatch?.([...byUrl.values()]);
+    if (changed) onBatch?.([...byUrl.values()]);
   };
 
   if (platform === "PS5") {
     onProgress?.(`Adding pkg.games source… (${byUrl.size} games)`);
     try {
-      addExtra(await scrapeFromPkgGames());
+      mergeExtra(await scrapeFromPkgGames());
     } catch {
       /* best-effort */
     }
@@ -241,21 +275,21 @@ export async function scrapeCatalog(
 
   onProgress?.(`Adding pspkg.com source… (${byUrl.size} games)`);
   try {
-    addExtra(await scrapeFromPspkg(platform));
+    mergeExtra(await scrapeFromPspkg(platform));
   } catch {
     /* best-effort */
   }
 
   onProgress?.(`Adding superpsx.com source… (${byUrl.size} games)`);
   try {
-    addExtra(await scrapeFromSuperpsx(platform));
+    mergeExtra(await scrapeFromSuperpsx(platform));
   } catch {
     /* best-effort — never blocks the primary catalog */
   }
 
   onProgress?.(`Adding arabicps4games.com source… (${byUrl.size} games)`);
   try {
-    addExtra(await scrapeFromArabicps4(platform));
+    mergeExtra(await scrapeFromArabicps4(platform));
   } catch {
     /* best-effort */
   }
@@ -643,9 +677,12 @@ async function linksHtmlFor(pageUrl: string): Promise<string> {
 export async function fetchDownloadLinks(
   pageUrl: string,
   deep = true,
+  altUrls?: string[],
 ): Promise<DownloadLink[]> {
-  const html = await linksHtmlFor(pageUrl);
-  if (!html) return [];
+  // Fetch HTML for primary URL + all alt-source URLs in parallel, then merge results.
+  const allUrls = [pageUrl, ...(altUrls ?? [])];
+  const htmlBodies = await Promise.all(allUrls.map((u) => linksHtmlFor(u).catch(() => "")));
+
   const seen = new Set<string>();
   const out: DownloadLink[] = [];
   const landing: Array<[string, string]> = [];
@@ -657,24 +694,27 @@ export async function fetchDownloadLinks(
     out.push({ label: (label || host).slice(0, 70) || host, url: u, host, kind });
   };
 
-  for (let [label, url] of anchors(html)) {
-    // Skip the per-game "Guide Download" / "Tool Download" help links.
-    if (EXCLUDE_URL_RE.test(url) || EXCLUDE_LABEL_RE.test(label)) continue;
-    let host = hostOf(url);
-    // Decode a gateway-embedded real URL from ANY anchor — link shorteners pack
-    // the real destination as a base64 `url=`/`u=`/`link=` param, so we never
-    // have to sit through their ad-gate. Works for gateways NOT in our known
-    // list too, so new shorteners resolve automatically.
-    const dest = decodeGateway(url);
-    if (dest) {
-      url = dest;
-      host = hostOf(url);
+  for (const html of htmlBodies) {
+    if (!html) continue;
+    for (let [label, url] of anchors(html)) {
+      // Skip the per-game "Guide Download" / "Tool Download" help links.
+      if (EXCLUDE_URL_RE.test(url) || EXCLUDE_LABEL_RE.test(label)) continue;
+      let host = hostOf(url);
+      // Decode a gateway-embedded real URL from ANY anchor — link shorteners pack
+      // the real destination as a base64 `url=`/`u=`/`link=` param, so we never
+      // have to sit through their ad-gate. Works for gateways NOT in our known
+      // list too, so new shorteners resolve automatically.
+      const dest = decodeGateway(url);
+      if (dest) {
+        url = dest;
+        host = hostOf(url);
+      }
+      if (TERMINAL_HOSTS.some((t) => host.includes(t))) add(label, url, "terminal");
+      else if (LANDING_HOSTS.some((l) => host.includes(l))) {
+        landing.push([label, url]);
+        add(label, url, "landing");
+      } else if (B64_GATEWAYS.some((g) => host.includes(g))) add(label, url, "gateway");
     }
-    if (TERMINAL_HOSTS.some((t) => host.includes(t))) add(label, url, "terminal");
-    else if (LANDING_HOSTS.some((l) => host.includes(l))) {
-      landing.push([label, url]);
-      add(label, url, "landing");
-    } else if (B64_GATEWAYS.some((g) => host.includes(g))) add(label, url, "gateway");
   }
 
   if (deep && landing.length) {

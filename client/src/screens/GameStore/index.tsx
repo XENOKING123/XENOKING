@@ -104,7 +104,7 @@ export default function GameStoreScreen() {
     setLinks(null);
     setLinksBusy(true);
     try {
-      const items = await fetchDownloadLinks(g.pageUrl);
+      const items = await fetchDownloadLinks(g.pageUrl, true, g.altUrls);
       setLinks(items);
     } catch {
       setLinks([]);
