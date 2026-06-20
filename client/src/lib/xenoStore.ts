@@ -128,7 +128,7 @@ function postsFromApi(json: string, platform: "PS5" | "PS4"): GameEntry[] {
     if (!pageUrl || !name) continue;
     const content = (post?.content as { rendered?: string })?.rendered ?? "";
     const m = content.match(
-      /<img[^>]+src="(https:\/\/dlpsgame\.com\/wp-content\/uploads\/[^"]+\.(?:jpg|jpeg|png|webp))"/i,
+      /<img[^>]+src="(https?:\/\/[^"]+\/wp-content\/uploads\/[^"]+\.(?:jpg|jpeg|png|webp))"/i,
     );
     out.push({ name, platform, coverUrl: m ? m[1] : "", pageUrl });
   }

@@ -30,10 +30,13 @@ const ALLOWED_HOSTS: &[&str] = &[
 /// origins — WordPress commonly serves resized thumbnails through wp.com CDN.
 const IMAGE_ALLOWED_HOSTS: &[&str] = &[
     "dlpsgame.com",
-    "wp.com",         // i0.wp.com … i3.wp.com — WordPress Jetpack image CDN
+    "wp.com",                      // i0.wp.com … i3.wp.com — WordPress Jetpack image CDN
     "wordpress.com",
-    "pkg.games",      // wp-content/uploads cover art (individual game pages)
-    "pspkg.com",      // pspkg.com game cover art
+    "pkg.games",                   // wp-content/uploads cover art (individual game pages)
+    "pspkg.com",                   // pspkg.com game cover art
+    "image.api.playstation.com",   // PlayStation official cover CDN (covers.json URLs)
+    "cdn.prosperopatches.com",     // PS5 PPSA cover art via prosperopatches
+    "orbispatches.com",            // PS4 cover art fallback
 ];
 
 /// 12 MiB ceiling — the jina-rendered game pages are large but bounded.

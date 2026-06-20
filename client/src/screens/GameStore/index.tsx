@@ -10,6 +10,7 @@ import {
   type GameEntry,
   type DownloadLink,
 } from "../../lib/xenoStore";
+import { coverByName } from "../../lib/covers";
 
 /**
  * XENO Game Store — browse the dlpsgame.com PS4/PS5 catalog with covers,
@@ -214,38 +215,53 @@ export default function GameStoreScreen() {
   );
 }
 
-/** Game cover with a two-stage load:
- *  1. Direct <img> with referrerpolicy="no-referrer" (strips Referer, bypasses hotlink checks).
- *  2. onError → Rust xeno_image_fetch → data: URI (handles CSP-blocked hosts & persistent 403s).
- *  Falls back to a styled first-letter placeholder if both fail. */
+/** Game cover with a four-stage fallback:
+ *  1. Direct <img> of the scraped coverUrl (no-referrer bypasses hotlink checks).
+ *  2. onError → Rust xeno_image_fetch proxy for the scraped URL (handles 403/CSP).
+ *  3. If scraped URL fails completely → covers.json PlayStation CDN lookup by game name.
+ *  4. onError → Rust proxy for the CDN URL (PlayStation CDN is now in IMAGE_ALLOWED_HOSTS).
+ *  Only falls back to the letter-tile placeholder when all four stages fail. */
 function StoreCover({ name, coverUrl }: { name: string; coverUrl: string }) {
   const [src, setSrc] = useState(coverUrl);
   const [failed, setFailed] = useState(false);
-  const fetching = useRef(false);
+  // Track every URL we've attempted proxy for, preventing infinite retry loops.
+  const tried = useRef(new Set<string>());
 
   useEffect(() => {
-    setSrc(coverUrl);
+    tried.current.clear();
     setFailed(false);
-    fetching.current = false;
-  }, [coverUrl]);
-
-  const handleError = useCallback(async () => {
-    if (fetching.current || !coverUrl) { setFailed(true); return; }
-    fetching.current = true;
-    try {
-      const dataUrl = await fetchCoverImage(coverUrl);
-      setSrc(dataUrl);
-    } catch {
-      setFailed(true);
+    setSrc(coverUrl);
+    // For games with no scraped cover, eagerly resolve a covers.json PS CDN URL.
+    if (!coverUrl) {
+      void coverByName(name).then((u) => { if (u) setSrc(u); });
     }
-  }, [coverUrl]);
+  }, [coverUrl, name]);
+
+  const handleError = useCallback(() => {
+    const failing = src;
+    if (!failing || tried.current.has(failing)) { setFailed(true); return; }
+    tried.current.add(failing);
+
+    fetchCoverImage(failing)
+      .then((data) => setSrc(data))
+      .catch(() => {
+        // After proxy fails for the scraped URL, fall through to covers.json.
+        if (failing === coverUrl && coverUrl) {
+          coverByName(name)
+            .then((u) => { if (u && !tried.current.has(u)) setSrc(u); else setFailed(true); })
+            .catch(() => setFailed(true));
+        } else {
+          setFailed(true);
+        }
+      });
+  }, [src, coverUrl, name]);
 
   return (
     <div className="relative aspect-[3/4] w-full bg-[var(--color-surface-3)]">
       <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[var(--color-surface-3)] to-[var(--color-surface)] text-3xl font-black text-[var(--color-accent)]">
         {(name || "?").slice(0, 1).toUpperCase()}
       </div>
-      {!failed && coverUrl && (
+      {!failed && src && (
         <img
           src={src}
           alt={name}
