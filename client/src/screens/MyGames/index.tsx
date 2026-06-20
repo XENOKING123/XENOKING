@@ -220,16 +220,19 @@ function CheatsDialog({ host, game, onClose }: { host: string; game: CRGame; onC
     setLocalCheats(null);
     try {
       const live = await cheatState(host, game.titleId);
+      if (!alive.current) return;
       if (live.length > 0) {
         setCheats(live);
         return;
       }
       throw new Error("empty");
     } catch {
+      if (!alive.current) return;
       // fall back to the local trainer library so cheats still LOAD
       setCheats([]);
       try {
         const all = await listTrainers();
+        if (!alive.current) return;
         const tid = game.titleId.toUpperCase();
         const norm = (s: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
         const gname = norm(game.name);
@@ -249,7 +252,7 @@ function CheatsDialog({ host, game, onClose }: { host: string; game: CRGame; onC
           setErr(`No cheats for ${game.titleId} on the console or in the local library.`);
         }
       } catch {
-        setErr("Couldn't read the local trainer library.");
+        if (alive.current) setErr("Couldn't read the local trainer library.");
       }
     }
   }, [host, game.titleId]);

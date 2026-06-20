@@ -395,7 +395,7 @@ fn extract_zip(bytes: &[u8], root: &std::path::Path) -> Result<u32, String> {
 const TRAINER_SEED_ZIP: &[u8] = include_bytes!("../../resources/trainers-seed.zip");
 const TITLES_SEED_ZIP: &[u8] = include_bytes!("../../resources/titles-seed.zip");
 const COVERS_SEED_ZIP: &[u8] = include_bytes!("../../resources/covers-seed.zip");
-const SEED_VERSION: &str = "v3";
+const SEED_VERSION: &str = "v4";
 
 /// Best-effort, called once at startup. Never panics — a seed hiccup just means
 /// the user syncs from the repos as before.
