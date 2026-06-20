@@ -26,6 +26,9 @@ const ALLOWED_HOSTS: &[&str] = &[
     "pspkg.com",               // pspkg.com PS4/PS5 catalog (CF-protected, uses jina)
     "superpsx.com",            // superpsx.com PS4/PS5 catalog + dll-* download redirects
     "allorigins.win",          // CORS proxy for sites that block non-browser agents
+    "arabicps4games.com",      // arabicps4games.com PS4/PS5 direct catalog (GitHub Pages)
+    "justpaste.it",            // justpaste.it detail pages — PS5 game download links inside
+    "jpcdn.it",                // justpaste CDN (cover/image assets)
 ];
 
 /// Hosts allowed for the cover-image proxy. Superset of ALLOWED_HOSTS image
@@ -40,6 +43,8 @@ const IMAGE_ALLOWED_HOSTS: &[&str] = &[
     "cdn.prosperopatches.com",     // PS5 PPSA cover art via prosperopatches
     "orbispatches.com",            // PS4 cover art fallback
     "superpsx.com",                // superpsx.com cover art (wp-content/uploads, .webp)
+    "postimg.cc",                  // arabicps4games.com cover art (i.postimg.cc)
+    "jpcdn.it",                    // justpaste.it CDN for cover images
 ];
 
 /// 12 MiB ceiling — the jina-rendered game pages are large but bounded.

@@ -8,7 +8,7 @@ export interface GameEntry {
   platform: "PS5" | "PS4";
   coverUrl: string;
   pageUrl: string;
-  source?: "dlpsgame" | "pkggames" | "pspkg" | "superpsx";
+  source?: "dlpsgame" | "pkggames" | "pspkg" | "superpsx" | "arabicps4";
 }
 
 export interface DownloadLink {
@@ -211,6 +211,13 @@ export async function scrapeCatalog(
     addExtra(await scrapeFromSuperpsx(platform));
   } catch {
     /* best-effort — never blocks the primary catalog */
+  }
+
+  onProgress?.(`Adding arabicps4games.com source… (${byUrl.size} games)`);
+  try {
+    addExtra(await scrapeFromArabicps4(platform));
+  } catch {
+    /* best-effort */
   }
 
   return [...byUrl.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -446,6 +453,8 @@ async function scrapeFromSuperpsx(platform: "PS5" | "PS4"): Promise<GameEntry[]>
 const B64_GATEWAYS = [
   "shrinkearn", "shrinkme", "shrink", "ouo.io", "gplinks",
   "rocketlink", "clk.sh", "link1s",
+  // arabicps4games.com ad-shorteners (opaque redirect, no embedded URL in path)
+  "tii.la", "tpi.li", "exe.io", "cuty.io",
 ];
 const LANDING_HOSTS = ["downloadgameps3.net", "downloadgameps4.net"];
 const TERMINAL_HOSTS = [
@@ -468,8 +477,17 @@ function hostOf(u: string): string {
 
 function decodeGateway(u: string): string | null {
   try {
+    // justpaste.it/redirect/SLUG/PERCENT_ENCODED_DEST — destination is in the path
+    if (u.includes("justpaste.it/redirect/")) {
+      const parts = new URL(u).pathname.split("/").filter(Boolean);
+      // ["redirect", "SLUG", "https%3A%2F%2F..."]
+      if (parts.length >= 3) {
+        try { return decodeURIComponent(parts[2]); } catch {}
+      }
+    }
     const q = new URL(u).searchParams;
-    for (const key of ["url", "u", "link", "id"]) {
+    // Add "s" for ouo.io?s=URL (plain URL, not base64) alongside the usual keys.
+    for (const key of ["url", "u", "link", "id", "s"]) {
       const raw = q.get(key);
       if (!raw) continue;
       if (raw.startsWith("http")) return raw;
@@ -513,6 +531,14 @@ const EXCLUDE_URL_RE = /guide-download-game|guide-download|tool-download/i;
 const EXCLUDE_LABEL_RE = /guide\s*download|tool\s*download|jdownload/i;
 
 async function linksHtmlFor(pageUrl: string): Promise<string> {
+  // Fast path: if pageUrl itself encodes the destination (e.g., ouo.io?s=URL or
+  // justpaste.it/redirect/SLUG/URL), decode it immediately and return synthetic HTML
+  // so we never have to fetch the ad-redirect page at all.
+  const quickDecode = decodeGateway(pageUrl);
+  if (quickDecode && quickDecode !== pageUrl && quickDecode.startsWith("http")) {
+    return `<a href="${quickDecode}">Direct Link</a>`;
+  }
+
   // superpsx.com uses a two-hop redirect:
   //   game detail page → internal /dll-SLUG/ page → real filekeeper/1fichier links.
   // We must follow the hop ourselves before the link parser runs.
@@ -629,4 +655,152 @@ export async function fetchDownloadLinks(
   const order = { terminal: 0, landing: 1, gateway: 2 } as const;
   out.sort((a, b) => order[a.kind] - order[b.kind]);
   return out;
+}
+
+// --- arabicps4games.com PS4/PS5 catalog ------------------------------------ //
+// Three sections scraped:
+//   PS4 direct: /0/ps4/index.html + indexpages2..11.html  (≈5,241 games, raw HTML)
+//   PS5 direct: /0/ps5/index.html                         (≈94 games, JS-unescape obfuscated)
+//   PS5 torrent: /0/ps5torrent/0/0/index.html             (≈146 games, raw HTML, covers)
+//
+// The site pads URL attribute values with whitespace — every extracted URL must
+// be .trim()med. Cover art is served from i.postimg.cc.
+// PS5 direct games link to justpaste.it pages; "Get links" fetches those via jina
+// and the justpaste.it/redirect/ decoder in decodeGateway resolves the real mirrors.
+
+/** Decode a JS unescape-obfuscated HTML block.
+ *  The technique percent-encodes every byte of the real HTML; the page then calls
+ *  the browser's unescape() at runtime. We replicate that decode in TypeScript. */
+function decodeJsUnescape(html: string): string {
+  const m = html.match(/unescape\('([^']{50,})'\)/);
+  if (!m) return "";
+  // Handle %XX sequences — replace byte-by-byte to avoid decodeURIComponent
+  // throwing on malformed sequences that sometimes appear at the end.
+  return m[1].replace(/%([0-9A-Fa-f]{2})/g, (_, h) =>
+    String.fromCharCode(parseInt(h, 16)),
+  );
+}
+
+/** Parse a card-grid listing page from arabicps4games.com into game entries.
+ *  Each card has: primary link (video-tmb anchor), cover img (postimg.cc), and
+ *  title + secondary link inside .card-body.  All URL values are whitespace-padded
+ *  and must be trimmed.  Torrent titles carry "[PS5] … (PPSA12345) [1.00]"
+ *  formatting that is stripped to the plain game name. */
+function parseArabicCardHtml(html: string, platform: "PS5" | "PS4"): GameEntry[] {
+  const out: GameEntry[] = [];
+  const seen = new Set<string>();
+
+  // Split on the card list-item boundary — each card is wrapped in <li>
+  const cards = html.split("<li>").slice(1);
+
+  for (const card of cards) {
+    // Primary download link: the anchor that wraps the cover image (class="video-tmb")
+    const m1Raw =
+      card.match(/href="([^"]+)"[^>]*class="video-tmb"/i)?.[1] ??
+      card.match(/class="video-tmb"[^>]*href="([^"]+)"/i)?.[1] ??
+      "";
+    const mirror1 = m1Raw.trim();
+    if (!mirror1 || !mirror1.startsWith("http")) continue;
+
+    // Cover image: first <img src="…"> in the card (always postimg.cc or similar)
+    const coverRaw = card.match(/<img[^>]+src="([^"]+)"/i)?.[1]?.trim() ?? "";
+    const coverUrl = coverRaw.startsWith("http") ? coverRaw : "";
+
+    // Title: card-body anchor text BEFORE the <br> separator
+    // Direct format:  "GAME TITLE   <br>(Download Link Mirror 2)"
+    // Torrent format: "[PS5] Game Name (PPSA15716) [1.00]</a>"
+    const titleRaw =
+      card.match(/card-body[\s\S]{0,600}?<a[^>]*>([\s\S]{1,200}?)<br/i)?.[1] ??
+      card.match(/card-body[\s\S]{0,600}?<a[^>]*>([^<]{2,120})<\/a>/i)?.[1] ??
+      "";
+    if (!titleRaw) continue;
+
+    let name = titleRaw
+      .replace(/<[^>]+>/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    // Strip torrent-section prefix "[PS5]" and suffix "(PPSA15716) [1.00]"
+    name = name.replace(/^\[PS[45]\]\s*/i, "");
+    name = name
+      .replace(
+        /\s*\((?:PPSA|CUSA|BCAS|BCES|BLES|NPEA|NPUB|BCEU|BLAS|BLUS)\d+\).*$/i,
+        "",
+      )
+      .trim();
+    name = name.replace(/\s*\[\d+\.\d+[^\]]*\]\s*$/i, "").trim();
+
+    if (!name || name.length < 2) continue;
+    if (seen.has(mirror1)) continue;
+    seen.add(mirror1);
+
+    out.push({ name, platform, coverUrl, pageUrl: mirror1, source: "arabicps4" });
+  }
+  return out;
+}
+
+async function scrapeFromArabicps4(platform: "PS5" | "PS4"): Promise<GameEntry[]> {
+  const results: GameEntry[] = [];
+  const seen = new Set<string>();
+
+  const addEntries = (entries: GameEntry[]) => {
+    for (const e of entries) {
+      if (!seen.has(e.pageUrl)) {
+        seen.add(e.pageUrl);
+        results.push(e);
+      }
+    }
+  };
+
+  async function fetchPage(url: string): Promise<string> {
+    for (const useJina of [false, true]) {
+      try {
+        const html = await httpGet(url, useJina);
+        if (html.length > 500) return html;
+      } catch { continue; }
+    }
+    return "";
+  }
+
+  if (platform === "PS4") {
+    // PS4 direct section: raw HTML card grid across 11 paginated pages
+    // index.html = page 1; indexpages2.html … indexpages11.html = pages 2–11
+    for (let p = 1; p <= 11; p++) {
+      const url =
+        p === 1
+          ? "https://arabicps4games.com/0/ps4/index.html"
+          : `https://arabicps4games.com/0/ps4/indexpages${p}.html`;
+      const html = await fetchPage(url);
+      if (!html) break;
+      const entries = parseArabicCardHtml(html, "PS4");
+      if (entries.length === 0) break;
+      addEntries(entries);
+      await new Promise((r) => setTimeout(r, 350));
+    }
+  } else {
+    // PS5 direct: single page, JS-unescape obfuscation, plain anchor list
+    // Each entry: <a href="https://justpaste.it/SLUG" rel="nofollow">Game Title</a>
+    // No covers on this section — StoreCover falls back to covers.json.
+    const ps5Raw = await fetchPage("https://arabicps4games.com/0/ps5/index.html");
+    const ps5Html = ps5Raw.length > 500 ? decodeJsUnescape(ps5Raw) || ps5Raw : "";
+    if (ps5Html) {
+      for (const m of ps5Html.matchAll(
+        /<a\s[^>]*href="(https?:\/\/justpaste\.it\/[^"]+)"[^>]*rel="nofollow"[^>]*>([^<]+)<\/a>/gi,
+      )) {
+        const pageUrl = m[1].trim();
+        const name = decodeEntities(m[2]).trim();
+        if (!name || !pageUrl || seen.has(pageUrl)) continue;
+        seen.add(pageUrl);
+        results.push({ name, platform: "PS5", coverUrl: "", pageUrl, source: "arabicps4" });
+      }
+    }
+
+    // PS5 torrent: raw HTML card grid with cover art — same card format as PS4 direct
+    const ps5TorHtml = await fetchPage(
+      "https://arabicps4games.com/0/ps5torrent/0/0/index.html",
+    );
+    if (ps5TorHtml) addEntries(parseArabicCardHtml(ps5TorHtml, "PS5"));
+  }
+
+  return results;
 }
