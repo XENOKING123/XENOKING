@@ -822,6 +822,100 @@ function parseArabicCardHtml(html: string, platform: "PS5" | "PS4"): GameEntry[]
   return out;
 }
 
+// ---- cover helpers / hydration ------------------------------------------ //
+
+/** Minimal normalization used as keys in the extra-cover cache.
+ *  Must be identical in xenoStore (write) and GameStore (read). */
+export function coverNorm(s: string): string {
+  return (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/** Batch-fetch covers from Wikipedia's pageimages API for games missing a cover.
+ *  Sends up to 40 titles per request (~3 req/sec).
+ *  Returns coverNorm(name) → Wikipedia thumbnail URL.
+ *  Persist the result to localStorage("xeno.covers.extra"); GameStore passes the
+ *  resolved URL into StoreCover as extraCoverUrl (stage-5 fallback). */
+export async function hydrateCoversWikipedia(
+  games: GameEntry[],
+  signal?: AbortSignal,
+  onProgress?: (done: number, total: number) => void,
+): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  const todo = games.filter((g) => !g.coverUrl);
+  const BATCH = 40; // keep under Wikipedia's 50-title limit
+
+  for (let i = 0; i < todo.length; i += BATCH) {
+    if (signal?.aborted) break;
+    const batch = todo.slice(i, i + BATCH);
+
+    // Appending the platform + "video game" guides Wikipedia to the most recent
+    // release: "God of War PS4 video game" → 2018 article, not the PS2 original.
+    const queries = batch.map((g) => `${g.name} ${g.platform} video game`);
+    const titlesParam = queries.map((q) => q.replace(/\s+/g, "_")).join("|");
+
+    try {
+      const json = await httpGet(
+        `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(titlesParam)}&prop=pageimages&pithumbsize=400&redirects=1&format=json&pilimit=50`,
+      );
+      const data = JSON.parse(json) as {
+        query?: {
+          normalized?: Array<{ from: string; to: string }>;
+          redirects?: Array<{ from: string; to: string }>;
+          pages?: Record<
+            string,
+            { title?: string; thumbnail?: { source?: string }; missing?: "" }
+          >;
+        };
+      };
+
+      // Build a chain: query title (lowercase + underscored) → batch index.
+      // Wikipedia's normalized + redirects arrays tell us the full mapping from
+      // our queried title to the final article title.
+      const chain = new Map<string, number>();
+      for (let j = 0; j < queries.length; j++) {
+        chain.set(queries[j].toLowerCase().replace(/\s+/g, "_"), j);
+      }
+      for (const n of data?.query?.normalized ?? []) {
+        const idx = chain.get(n.from.toLowerCase().replace(/\s+/g, "_"));
+        if (idx !== undefined) chain.set(n.to.toLowerCase().replace(/\s+/g, "_"), idx);
+      }
+      for (const r of data?.query?.redirects ?? []) {
+        const idx = chain.get(r.from.toLowerCase().replace(/\s+/g, "_"));
+        if (idx !== undefined) chain.set(r.to.toLowerCase().replace(/\s+/g, "_"), idx);
+      }
+
+      for (const page of Object.values(data?.query?.pages ?? {})) {
+        if (!page.thumbnail?.source || page.missing !== undefined) continue;
+        const titleKey = (page.title ?? "").toLowerCase().replace(/\s+/g, "_");
+
+        // 1) Exact chain match (most reliable)
+        const directIdx = chain.get(titleKey);
+        if (directIdx !== undefined && directIdx < batch.length) {
+          out[coverNorm(batch[directIdx].name)] = page.thumbnail.source;
+          continue;
+        }
+
+        // 2) Fuzzy: strip disambiguation like "(2018 video game)" and compare
+        const baseTitle = coverNorm((page.title ?? "").replace(/\s*\([^)]*\)\s*$/g, ""));
+        for (const g of batch) {
+          const gn = coverNorm(g.name);
+          if (baseTitle && gn && (baseTitle === gn || baseTitle.includes(gn) || gn.includes(baseTitle))) {
+            if (!out[gn]) out[gn] = page.thumbnail.source;
+            break;
+          }
+        }
+      }
+    } catch {
+      /* skip failed batch — network blip or JSON error; move on */
+    }
+
+    onProgress?.(Math.min(i + BATCH, todo.length), todo.length);
+    await new Promise((r) => setTimeout(r, 350)); // ≈ 3 req/sec
+  }
+
+  return out;
+}
+
 async function scrapeFromArabicps4(platform: "PS5" | "PS4"): Promise<GameEntry[]> {
   const results: GameEntry[] = [];
   const seen = new Set<string>();

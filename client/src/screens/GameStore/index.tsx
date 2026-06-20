@@ -7,6 +7,8 @@ import {
   scrapeCatalog,
   fetchDownloadLinks,
   fetchCoverImage,
+  hydrateCoversWikipedia,
+  coverNorm,
   type GameEntry,
   type DownloadLink,
 } from "../../lib/xenoStore";
@@ -21,6 +23,7 @@ import { coverByName } from "../../lib/covers";
  */
 type Platform = "PS5" | "PS4";
 const CACHE_KEY = (p: Platform) => `xeno.store.catalog.${p}`;
+const EXTRA_COVERS_KEY = "xeno.covers.extra";
 
 function loadCache(p: Platform): GameEntry[] {
   try {
@@ -32,6 +35,20 @@ function loadCache(p: Platform): GameEntry[] {
 function saveCache(p: Platform, games: GameEntry[]) {
   try {
     localStorage.setItem(CACHE_KEY(p), JSON.stringify(games));
+  } catch {
+    /* quota — ignore */
+  }
+}
+function loadExtraCovers(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem(EXTRA_COVERS_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+function saveExtraCovers(map: Record<string, string>) {
+  try {
+    localStorage.setItem(EXTRA_COVERS_KEY, JSON.stringify(map));
   } catch {
     /* quota — ignore */
   }
@@ -52,6 +69,9 @@ export default function GameStoreScreen() {
   const [linksFor, setLinksFor] = useState<GameEntry | null>(null);
   const [links, setLinks] = useState<DownloadLink[] | null>(null);
   const [linksBusy, setLinksBusy] = useState(false);
+  // Extra covers resolved by Wikipedia hydration (persisted in localStorage).
+  const [extraCovers, setExtraCovers] = useState<Record<string, string>>(loadExtraCovers);
+  const hydrateAbort = useRef<AbortController | null>(null);
 
   const scrape = useCallback(
     async (p: Platform, pages: number) => {
@@ -59,9 +79,6 @@ export default function GameStoreScreen() {
       setBusy(true);
       setStatus(`Scraping ${p}…`);
       try {
-        // merge with what's cached so each scrape ADDS rather than replaces.
-        // Persist + show each batch as it arrives so a long (30+ page) scrape
-        // surfaces games live and survives interruption.
         const fresh = await scrapeCatalog(
           p,
           pages,
@@ -77,6 +94,27 @@ export default function GameStoreScreen() {
           setGames(fresh);
         }
         setStatus(`${fresh.length} ${p} games cached.`);
+
+        // Auto-hydrate covers for games that still have no cover art.
+        // Wikipedia batch API: 40 titles/request ≈ 3 req/sec → ~30 s for 3 k games.
+        const uncovered = fresh.filter((g) => !g.coverUrl);
+        if (uncovered.length > 0) {
+          hydrateAbort.current?.abort();
+          hydrateAbort.current = new AbortController();
+          const ab = hydrateAbort.current;
+          setStatus(`Fetching covers for ${uncovered.length} games…`);
+          void hydrateCoversWikipedia(uncovered, ab.signal, (done, total) => {
+            if (!ab.signal.aborted) setStatus(`Covers ${done}/${total}…`);
+          }).then((newCovers) => {
+            if (ab.signal.aborted) return;
+            setExtraCovers((prev) => {
+              const merged = { ...prev, ...newCovers };
+              saveExtraCovers(merged);
+              return merged;
+            });
+            setStatus(`Done — ${fresh.length} games, +${Object.keys(newCovers).length} covers.`);
+          });
+        }
       } catch (e) {
         setStatus(`Scrape failed: ${e}`);
       } finally {
@@ -184,7 +222,7 @@ export default function GameStoreScreen() {
                 key={g.pageUrl}
                 className="flex flex-col overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]"
               >
-                <StoreCover name={g.name} coverUrl={g.coverUrl} />
+                <StoreCover name={g.name} coverUrl={g.coverUrl} extraCoverUrl={extraCovers[coverNorm(g.name)]} />
                 <div className="flex flex-1 flex-col gap-2 p-2">
                   <div className="line-clamp-2 text-xs font-semibold">{g.name}</div>
                   <Button
@@ -215,46 +253,69 @@ export default function GameStoreScreen() {
   );
 }
 
-/** Game cover with a four-stage fallback:
- *  1. Direct <img> of the scraped coverUrl (no-referrer bypasses hotlink checks).
- *  2. onError → Rust xeno_image_fetch proxy for the scraped URL (handles 403/CSP).
- *  3. If scraped URL fails completely → covers.json PlayStation CDN lookup by game name.
- *  4. onError → Rust proxy for the CDN URL (PlayStation CDN is now in IMAGE_ALLOWED_HOSTS).
- *  Only falls back to the letter-tile placeholder when all four stages fail. */
-function StoreCover({ name, coverUrl }: { name: string; coverUrl: string }) {
-  const [src, setSrc] = useState(coverUrl);
+/** Game cover — five-stage fallback:
+ *  1. Direct <img> of scraped coverUrl (no-referrer, bypasses hotlink checks).
+ *  2. Rust proxy for scraped URL (handles Cloudflare 403 / CSP img-src blocks).
+ *  3. covers.json PlayStation CDN lookup by name (~1,300 bundled entries).
+ *  4. Rust proxy for that CDN URL.
+ *  5. Wikipedia-hydrated cover (extraCoverUrl, resolved after scrape, stage-5 new).
+ *  Falls back to the letter-tile placeholder only when all five stages fail. */
+function StoreCover({ name, coverUrl, extraCoverUrl }: { name: string; coverUrl: string; extraCoverUrl?: string }) {
+  const [src, setSrc] = useState(coverUrl || extraCoverUrl || "");
   const [failed, setFailed] = useState(false);
-  // Track every URL we've attempted proxy for, preventing infinite retry loops.
   const tried = useRef(new Set<string>());
 
   useEffect(() => {
     tried.current.clear();
     setFailed(false);
-    setSrc(coverUrl);
-    // For games with no scraped cover, eagerly resolve a covers.json PS CDN URL.
+    setSrc(coverUrl || "");
     if (!coverUrl) {
-      void coverByName(name).then((u) => { if (u) setSrc(u); });
+      // No scraped cover: try covers.json, then extra (Wikipedia) cover.
+      void coverByName(name).then((u) => {
+        if (u) setSrc(u);
+        else if (extraCoverUrl) setSrc(extraCoverUrl);
+      });
     }
-  }, [coverUrl, name]);
+  }, [coverUrl, name, extraCoverUrl]);
 
   const handleError = useCallback(() => {
     const failing = src;
-    if (!failing || tried.current.has(failing)) { setFailed(true); return; }
+
+    // All prior attempts exhausted for this URL → try next fallback.
+    if (!failing || tried.current.has(failing)) {
+      if (extraCoverUrl && !tried.current.has(extraCoverUrl)) {
+        tried.current.add(extraCoverUrl);
+        setSrc(extraCoverUrl);
+      } else {
+        setFailed(true);
+      }
+      return;
+    }
     tried.current.add(failing);
 
     fetchCoverImage(failing)
       .then((data) => setSrc(data))
       .catch(() => {
-        // After proxy fails for the scraped URL, fall through to covers.json.
         if (failing === coverUrl && coverUrl) {
+          // Scraped URL (direct + proxy) failed → try covers.json CDN.
           coverByName(name)
-            .then((u) => { if (u && !tried.current.has(u)) setSrc(u); else setFailed(true); })
-            .catch(() => setFailed(true));
+            .then((u) => {
+              if (u && !tried.current.has(u)) setSrc(u);
+              else if (extraCoverUrl && !tried.current.has(extraCoverUrl)) setSrc(extraCoverUrl);
+              else setFailed(true);
+            })
+            .catch(() => {
+              if (extraCoverUrl && !tried.current.has(extraCoverUrl)) setSrc(extraCoverUrl);
+              else setFailed(true);
+            });
+        } else if (extraCoverUrl && !tried.current.has(extraCoverUrl)) {
+          // covers.json CDN URL (direct + proxy) also failed → Wikipedia cover.
+          setSrc(extraCoverUrl);
         } else {
           setFailed(true);
         }
       });
-  }, [src, coverUrl, name]);
+  }, [src, coverUrl, name, extraCoverUrl]);
 
   return (
     <div className="relative aspect-[3/4] w-full bg-[var(--color-surface-3)]">
