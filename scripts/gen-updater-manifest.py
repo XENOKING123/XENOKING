@@ -43,6 +43,13 @@ from pathlib import Path
 PLATFORM_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("darwin-aarch64",  re.compile(r".*-mac-arm64\.dmg$")),
     ("darwin-x86_64",   re.compile(r".*-mac-x64\.dmg$")),
+    # NSIS desktop installers (the shipped Windows distribution form):
+    #   XENO_TOOL_<ver>_x64-setup.exe  /  ..._arm64-setup.exe
+    # Listed BEFORE the legacy *-win-*.zip patterns so the real installer
+    # wins when both happen to be present. The `[_-]` before the arch
+    # tolerates either separator Tauri/GitHub may emit.
+    ("windows-x86_64",  re.compile(r".*[_-]x64-setup\.exe$")),
+    ("windows-aarch64", re.compile(r".*[_-]arm64-setup\.exe$")),
     ("windows-x86_64",  re.compile(r".*-win-x64\.zip$")),
     ("windows-aarch64", re.compile(r".*-win-arm64\.zip$")),
     ("linux-x86_64",    re.compile(r".*-linux-x64\.zip$")),

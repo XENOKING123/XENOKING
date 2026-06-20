@@ -1,0 +1,399 @@
+name: release
+
+# ONE pipeline → ONE complete "Latest" release, every push.
+#
+# Every push that changes the app, engine, payload, on-console PS5 app, or
+# VERSION rebuilds EVERYTHING and publishes a single consolidated GitHub
+# release (tag = v<VERSION>) marked "Latest", carrying ALL of our tools in
+# its assets:
+#
+#   • XENO_TOOL_<ver>_x64-setup.exe   — the desktop app installer (NSIS)
+#   • latest.json                     — in-app auto-updater manifest
+#   • xeno-store.elf / -browser.elf   — on-console Game Store servers
+#   • XENO-Game-Store.zip             — homebrew-launcher package
+#   • CheatRunner.elf                 — on-console cheat engine (carried fwd)
+#   • XENO_Trainer_Tool_v2.5.exe      — PS Trainer Viewer (carried fwd)
+#
+# This replaces the old split (ps5-app.yml built only the ELFs; the desktop
+# installer was uploaded by hand and went stale). The auto-updater reads
+# /releases/latest/download/latest.json, so a fresh, complete Latest release
+# every time is exactly what keeps both the "Setup" exe and the updater current.
+
+on:
+  push:
+    paths:
+      - 'client/**'
+      - 'engine/**'
+      - 'payload/**'
+      - 'ps5-app/**'
+      - 'scripts/gen-updater-manifest.py'
+      - 'scripts/update-version.js'
+      - 'VERSION'
+      - '.github/workflows/release.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+# One release build per ref; a newer push cancels the in-flight one.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── PS5 payload ELF (embedded into the desktop exe at compile time). It's
+  #    gitignored, so it MUST be built; build.rs include_bytes!'s it. ───────
+  build-payload:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install payload toolchain (pinned LLVM 18)
+        run: |
+          # The SDK's prospero-clang/prospero-lld are wrapper scripts that
+          # resolve a host LLVM via prospero-llvm-config (it searches PATH
+          # for llvm-config-NN). Pin LLVM 18 to match the SDK contract and
+          # this repo's install-ubuntu.sh, and expose llvm-config-18 on PATH.
+          sudo apt-get update
+          sudo apt-get install -y clang-18 lld-18 llvm-18 llvm-18-dev unzip file
+          echo "/usr/lib/llvm-18/bin" >> "$GITHUB_PATH"
+
+      - name: Download PS5 Payload SDK
+        env:
+          PS5_SDK_TAG: v0.40
+        run: |
+          curl --retry 3 --retry-delay 5 --retry-connrefused \
+            --fail --location --silent --show-error \
+            -o /tmp/ps5-payload-sdk.zip \
+            "https://github.com/ps5-payload-dev/sdk/releases/download/${PS5_SDK_TAG}/ps5-payload-sdk.zip"
+          sudo unzip -q /tmp/ps5-payload-sdk.zip -d /opt
+
+      - name: Smoke-check the prospero toolchain
+        env:
+          PS5_PAYLOAD_SDK: /opt/ps5-payload-sdk
+        run: |
+          # Fail fast with a clear message if the wrapper can't resolve LLVM,
+          # instead of a confusing mid-compile error inside `make payload`.
+          "$PS5_PAYLOAD_SDK/bin/prospero-clang" --version
+
+      - name: Build payload ELF (+ DPI install daemon)
+        env:
+          PS5_PAYLOAD_SDK: /opt/ps5-payload-sdk
+        run: make payload
+
+      - name: Verify payload + DPI artifacts
+        run: |
+          test -s payload/ps5upload.elf
+          # `make payload` depends on `dpi`, which produces the gz the desktop
+          # build embeds (build.rs gates the DPI install daemon on its presence).
+          gzip -kf payload/ps5upload.elf
+          test -s payload/ps5upload.elf.gz
+          test -s payload/dpi/ezremote-dpi.elf.gz
+          ls -la payload/ps5upload.elf.gz payload/dpi/ezremote-dpi.elf.gz
+
+      - name: Upload payload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: payload
+          path: |
+            payload/ps5upload.elf.gz
+            payload/dpi/ezremote-dpi.elf.gz
+          if-no-files-found: error
+
+  # ── On-console Game Store ELFs + homebrew package. ────────────────────────
+  build-ps5app:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ps5-app
+    env:
+      PS5_PAYLOAD_SDK: /opt/ps5-payload-sdk
+    steps:
+      - uses: actions/checkout@v4
+
+      # Self-contained pacbrew SDK (real prospero-clang binary, no host-LLVM
+      # dependency) — same source the ELF build has always used.
+      - name: Install PS5 payload SDK (pacbrew v0.36)
+        run: |
+          curl -fsSL \
+            "https://github.com/ps5-payload-dev/pacbrew-repo/releases/download/v0.36/ps5-payload-dev.tar.gz" \
+            | sudo tar -xzf - -C /
+          /opt/ps5-payload-sdk/bin/prospero-clang --version
+
+      - name: Build ELFs + homebrew package
+        run: make all PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk
+
+      - name: Assemble PS5 app assets
+        run: |
+          mkdir -p ../release
+          cp xeno-store.elf          ../release/
+          cp xeno-store-browser.elf  ../release/
+          ( cd dist && zip -r ../../release/XENO-Game-Store.zip XENO-Game-Store )
+          ls -lh ../release
+
+      - name: Upload PS5 app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ps5app
+          path: release/*
+          if-no-files-found: error
+
+  # ── Windows desktop installer (NSIS) + engine sidecar. ────────────────────
+  build-desktop:
+    needs: build-payload
+    runs-on: windows-2022   # pinned for WebView2/MSVC reproducibility
+    timeout-minutes: 45
+    env:
+      RUST_TARGET: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Sync version from VERSION
+        run: node scripts/update-version.js
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache cargo + tauri target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            client/src-tauri/target
+            engine/target
+          key: ${{ runner.os }}-x64-desktop-${{ hashFiles('client/src-tauri/Cargo.lock', 'engine/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-x64-desktop-
+
+      - name: Ensure libclang for bindgen
+        shell: bash
+        run: |
+          # jpegxr's build runs bindgen, which loads libclang.dll into the
+          # host build process. Pin LIBCLANG_PATH so clang-sys resolves it.
+          set -u
+          find_libclang() {
+            for d in \
+              "/c/Program Files/LLVM/bin" \
+              "/c/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/Llvm/bin" \
+              "/c/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/bin"; do
+              if [ -f "$d/libclang.dll" ]; then echo "$d"; return 0; fi
+            done
+            return 1
+          }
+          dir="$(find_libclang || true)"
+          if [ -z "$dir" ]; then
+            choco install llvm -y --no-progress
+            dir="$(find_libclang || true)"
+          fi
+          if [ -n "$dir" ]; then
+            win="$(cygpath -w "$dir")"
+            echo "LIBCLANG_PATH=$win" >> "$GITHUB_ENV"
+            echo "Using libclang at: $win"
+          else
+            echo "WARNING: no host libclang found; jpegxr/bindgen may fail" >&2
+          fi
+
+      - name: Install client deps
+        working-directory: client
+        run: npm ci --no-audit --no-fund
+
+      - name: Restore payload artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: payload
+          path: artifact-payload
+
+      - name: Place payload files at the paths build.rs expects
+        shell: bash
+        run: |
+          # Robust to whatever internal layout the artifact has: find the
+          # files and copy them to the canonical paths build.rs include_bytes!'s.
+          set -euo pipefail
+          mkdir -p payload/dpi
+          cp -v "$(find artifact-payload -name ps5upload.elf.gz -print -quit)" payload/ps5upload.elf.gz
+          cp -v "$(find artifact-payload -name ezremote-dpi.elf.gz -print -quit)" payload/dpi/ezremote-dpi.elf.gz
+          test -s payload/ps5upload.elf.gz
+          test -s payload/dpi/ezremote-dpi.elf.gz
+
+      - name: Build engine sidecar binary
+        working-directory: engine
+        shell: bash
+        run: cargo build --release -p ps5upload-engine --target "$RUST_TARGET"
+
+      - name: Verify engine binary in place
+        shell: bash
+        run: |
+          test -s "engine/target/${RUST_TARGET}/release/ps5upload-engine.exe"
+          ls -la "engine/target/${RUST_TARGET}/release/ps5upload-engine.exe"
+
+      - name: Build Tauri NSIS installer
+        working-directory: client
+        shell: bash
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx tauri build --target "$RUST_TARGET" --bundles nsis --ci
+
+      - name: Collect installer (canonical name)
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          bundle="client/src-tauri/target/${RUST_TARGET}/release/bundle/nsis"
+          ls -la "$bundle" || true
+          setup="$(find "$bundle" -type f -name '*-setup.exe' -print -quit)"
+          if [ -z "$setup" ]; then
+            echo "::error::no NSIS *-setup.exe produced under $bundle"
+            exit 1
+          fi
+          mkdir -p out
+          # Deterministic, space-free name (matches historical asset + the
+          # updater's windows-x86_64 regex).
+          cp -v "$setup" "out/XENO_TOOL_${VERSION}_x64-setup.exe"
+          ls -la out
+
+      - name: Upload desktop artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop
+          path: out/*
+          if-no-files-found: error
+
+  # ── Assemble the complete, Latest release. ────────────────────────────────
+  publish:
+    needs: [build-payload, build-ps5app, build-desktop]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve tag from VERSION
+        id: ver
+        run: |
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag=v$VERSION"
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Stage release assets
+        id: stage
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          # Built this run — find regardless of artifact nesting.
+          for n in \
+            "XENO_TOOL_*_x64-setup.exe" \
+            "xeno-store.elf" "xeno-store-browser.elf" "XENO-Game-Store.zip"; do
+            f="$(find artifacts -type f -name "$n" -print -quit)"
+            if [ -n "$f" ]; then
+              cp -v "$f" "release/$(basename "$f")"
+            else
+              echo "::warning::expected asset not found in artifacts: $n"
+            fi
+          done
+          ls -la release
+
+      - name: Carry forward static third-party tools
+        env:
+          GH_TOKEN: ${{ github.token }}
+          THIS_TAG: ${{ steps.ver.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # CheatRunner.elf (maj0r) and the PS Trainer Viewer exe aren't built
+          # by CI. Pull each from the newest prior release that still has it so
+          # every release stays complete without committing 70+ MB to git.
+          carry() {
+            local name="$1"
+            if [ -f "release/$name" ]; then echo "$name already present"; return 0; fi
+            local tag
+            for tag in $(gh release list --limit 25 --json tagName -q '.[].tagName'); do
+              [ "$tag" = "$THIS_TAG" ] && continue
+              if gh release download "$tag" -p "$name" -D release/ 2>/dev/null; then
+                echo "carried $name from $tag"; return 0
+              fi
+            done
+            echo "::warning::could not carry $name from any prior release"
+          }
+          carry CheatRunner.elf
+          carry XENO_Trainer_Tool_v2.5.exe
+          ls -la release
+
+      - name: Generate latest.json updater manifest
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' \
+            "XENO TOOL ${VERSION} — 10,781 cheats bundled, My Games crash fixed, full PS4/PS5 Game Store with auto cover art, payloads, saves, nanoDNS." \
+            > /tmp/notes.md
+          python3 scripts/gen-updater-manifest.py \
+            --release-dir release \
+            --version "$VERSION" \
+            --tag "$TAG" \
+            --repo XENOKING123/XENOKING \
+            --notes /tmp/notes.md \
+            --out release/latest.json
+          echo "--- latest.json ---"
+          cat release/latest.json
+          # Guard: the whole point is the Windows updater entry — fail if absent.
+          python3 -c "import json,sys; u=json.load(open('release/latest.json')).get('assets',{}).get('windows-x86_64'); print('windows-x86_64 ->', u) if u else sys.exit('::error::latest.json missing windows-x86_64 asset')"
+
+      - name: Publish complete Latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Ensure the release exists (don't clobber existing notes), and pin it Latest.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --latest
+          else
+            gh release create "$TAG" \
+              --title "XENO TOOL $TAG" \
+              --notes "XENO TOOL $VERSION — full all-in-one release. See assets below." \
+              --latest
+          fi
+          # Upload every asset, replacing any older copy.
+          gh release upload "$TAG" release/* --clobber
+          echo "Uploaded $(find release -type f | wc -l) assets to $TAG"
+
+      - name: Scrub stale updater manifests from superseded releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          THIS_TAG: ${{ steps.ver.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # If an OLD release still carries latest.json and GitHub ever resolves
+          # it as "Latest", shipped apps would read a stale manifest. Remove
+          # latest.json from every release except the current one.
+          for tag in $(gh release list --limit 25 --json tagName -q '.[].tagName'); do
+            [ "$tag" = "$THIS_TAG" ] && continue
+            gh release delete-asset "$tag" latest.json -y 2>/dev/null \
+              && echo "scrubbed stale latest.json from $tag" || true
+          done
