@@ -8,7 +8,7 @@ export interface GameEntry {
   platform: "PS5" | "PS4";
   coverUrl: string;
   pageUrl: string;
-  source?: "dlpsgame" | "pkggames" | "pspkg";
+  source?: "dlpsgame" | "pkggames" | "pspkg" | "superpsx";
 }
 
 export interface DownloadLink {
@@ -203,6 +203,13 @@ export async function scrapeCatalog(
   try {
     addExtra(await scrapeFromPspkg(platform));
   } catch {
+    /* best-effort */
+  }
+
+  onProgress?.(`Adding superpsx.com source… (${byUrl.size} games)`);
+  try {
+    addExtra(await scrapeFromSuperpsx(platform));
+  } catch {
     /* best-effort — never blocks the primary catalog */
   }
 
@@ -327,6 +334,114 @@ async function scrapeFromPspkg(platform: "PS5" | "PS4"): Promise<GameEntry[]> {
   return out;
 }
 
+// --- superpsx.com PS4/PS5 catalog ----------------------------------------- //
+// superpsx.com uses the Pencil WordPress theme. Cover art is in a CSS lazy-load
+// attribute `data-bgset` on the card anchor — NOT a standard <img src>. We try
+// a direct Rust fetch first (different UA/IP from the browser); if blocked we
+// fall through to jina rendering which executes the JS and surfaces the images.
+// Pagination: /category/ps4/ps4-games-free/page/N/ (124 pages × 20 games)
+//             /category/ps5/ps5-games/page/N/        (24 pages × 20 games)
+async function scrapeFromSuperpsx(platform: "PS5" | "PS4"): Promise<GameEntry[]> {
+  const BASE_URL =
+    platform === "PS4"
+      ? "https://www.superpsx.com/category/ps4/ps4-games-free/"
+      : "https://www.superpsx.com/category/ps5/ps5-games/";
+  const MAX_PAGES = platform === "PS4" ? 130 : 30;
+
+  const seen = new Set<string>();
+  const results: GameEntry[] = [];
+
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const url = page === 1 ? BASE_URL : `${BASE_URL}page/${page}/`;
+    let html = "";
+    for (const useJina of [false, true]) {
+      try {
+        html = await httpGet(url, useJina);
+        if (html.length > 500) break;
+      } catch {
+        continue;
+      }
+    }
+    // First page: if both fetch strategies failed, give up immediately.
+    if (!html || html.length < 500) {
+      if (page === 1) break;
+      continue;
+    }
+
+    const before = results.length;
+
+    // --- Strategy A: raw HTML from a direct Rust fetch ---
+    // The Pencil theme puts each card's cover URL in data-bgset and the title
+    // in h2.penci-entry-title > a. We harvest both in one paired pass.
+    //
+    // data-bgset pattern: data-bgset="https://…/wp-content/uploads/….webp"
+    // title+link pattern: class="…penci-entry-title…"><a href="URL">TITLE</a>
+    const bgCovers = [...html.matchAll(
+      /data-bgset="(https?:\/\/[^"]+\/wp-content\/uploads\/[^"]+\.(?:webp|jpg|jpeg|png))"/gi,
+    )].map((m) => m[1]);
+
+    const titleLinks = [...html.matchAll(
+      /class="[^"]*penci-entry-title[^"]*"[\s\S]{0,300}?<a\s[^>]*href="(https?:\/\/(?:www\.)?superpsx\.com\/(?!category|tag|page\/|wp-|author|feed)[a-z0-9][a-z0-9-]*\/)"[^>]*>([^<]{2,120})<\/a>/gi,
+    )];
+
+    if (titleLinks.length > 0) {
+      titleLinks.forEach((m, i) => {
+        const pageUrl = m[1];
+        if (seen.has(pageUrl)) return;
+        seen.add(pageUrl);
+
+        let name = decodeEntities(m[2]).trim();
+        // "Hunting Simulator 2 PS4 [FPkg]" → "Hunting Simulator 2"
+        name = name.replace(/\s*[\[(][^\])]*[\])]/g, "").trim();
+        name = name.replace(/\s+(PS[45]|FPkg|fpkg|PKG)\b.*/i, "").trim();
+
+        results.push({
+          name: name || m[2].trim(),
+          platform,
+          coverUrl: bgCovers[i] ?? "",
+          pageUrl,
+          source: "superpsx",
+        });
+      });
+    } else {
+      // --- Strategy B: jina markdown ---
+      // Jina renders lazy images, so data-bgset → normal <img> → markdown ![](url).
+      // Game links appear as [Title](https://www.superpsx.com/slug/).
+      const mdLinks = [...html.matchAll(
+        /\[([^\]]{2,120})\]\((https?:\/\/(?:www\.)?superpsx\.com\/(?!category|tag|page\/|wp-|author|feed)[a-z0-9][a-z0-9-]*\/)\)/gi,
+      )];
+      const mdImgs = [...html.matchAll(
+        /!\[[^\]]*\]\((https?:\/\/(?:www\.)?superpsx\.com\/wp-content\/uploads\/[^)]+\.(?:webp|jpg|jpeg|png))\)/gi,
+      )].map((m) => m[1]);
+
+      mdLinks.forEach((m, i) => {
+        const pageUrl = m[2];
+        if (seen.has(pageUrl)) return;
+        // Skip navigation / category links that slip through
+        if (/^(next|prev|previous|page|home|menu|read more|download|back)/i.test(m[1])) return;
+        seen.add(pageUrl);
+
+        let name = decodeEntities(m[1]).trim();
+        name = name.replace(/\s*[\[(][^\])]*[\])]/g, "").trim();
+        name = name.replace(/\s+(PS[45]|FPkg|fpkg|PKG)\b.*/i, "").trim();
+
+        results.push({
+          name: name || m[1].trim(),
+          platform,
+          coverUrl: mdImgs[i] ?? "",
+          pageUrl,
+          source: "superpsx",
+        });
+      });
+    }
+
+    if (results.length === before) break; // no new games — end of catalog
+    await new Promise((r) => setTimeout(r, 350));
+  }
+
+  return results;
+}
+
 // ---- deep download-link resolver ---------------------------------------- //
 const B64_GATEWAYS = [
   "shrinkearn", "shrinkme", "shrink", "ouo.io", "gplinks",
@@ -339,6 +454,8 @@ const TERMINAL_HOSTS = [
   "send.cm", "rocketfile", "fireload", "krakenfiles", "1cloudfile",
   "userscloud", "drive.google", "clicknupload", "vikingfile", "filecrypt",
   "downloadmy.link", // pkg.games RAR archives
+  "filekeeper",      // superpsx.com primary host (filekeeper.net RAR direct links)
+  "rapidgator", "uploadhaven", "hexupload", "uploadrar", "turbobit",
 ];
 
 function hostOf(u: string): string {
@@ -396,6 +513,33 @@ const EXCLUDE_URL_RE = /guide-download-game|guide-download|tool-download/i;
 const EXCLUDE_LABEL_RE = /guide\s*download|tool\s*download|jdownload/i;
 
 async function linksHtmlFor(pageUrl: string): Promise<string> {
+  // superpsx.com uses a two-hop redirect:
+  //   game detail page → internal /dll-SLUG/ page → real filekeeper/1fichier links.
+  // We must follow the hop ourselves before the link parser runs.
+  if (pageUrl.includes("superpsx.com")) {
+    let detailHtml = "";
+    for (const useJina of [false, true]) {
+      try {
+        detailHtml = await httpGet(pageUrl, useJina);
+        if (detailHtml.length > 500) break;
+      } catch { continue; }
+    }
+    // Find the /dll-*/ redirect URL (appears in raw HTML and jina markdown).
+    const dllMatch = detailHtml.match(
+      /https?:\/\/(?:www\.)?superpsx\.com\/(dll-[a-z0-9-]+)\//i,
+    );
+    if (dllMatch) {
+      const dllUrl = `https://www.superpsx.com/${dllMatch[1]}/`;
+      for (const useJina of [false, true]) {
+        try {
+          const dllHtml = await httpGet(dllUrl, useJina);
+          if (dllHtml.length > 200) return dllHtml;
+        } catch { continue; }
+      }
+    }
+    return detailHtml;
+  }
+
   // 1) WP API content's base64 `data-payload` (reliable — always present).
   //    Only for dlpsgame URLs — other sources (pkg.games) have their own slugs
   //    that could collide with an unrelated dlpsgame post, so we skip straight
