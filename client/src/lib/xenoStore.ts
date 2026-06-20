@@ -49,7 +49,7 @@ function parsePosts(html: string, platform: "PS5" | "PS4"): GameEntry[] {
     if (seen.has(pageUrl)) continue;
     seen.add(pageUrl);
     out.push({
-      name: m[2].replace(/\s+/g, " ").trim(),
+      name: cleanGameTitle(m[2].replace(/\s+/g, " ").trim()),
       platform,
       coverUrl: m[3],
       pageUrl,
@@ -58,10 +58,35 @@ function parsePosts(html: string, platform: "PS5" | "PS4"): GameEntry[] {
   return out;
 }
 
+/** Strip platform/version/region/type suffixes that game-site posts append to titles.
+ *  Safe to call on already-clean names — acts as a no-op for clean inputs. */
+function cleanGameTitle(raw: string): string {
+  let s = raw.trim();
+  // Bracket-wrapped version tags: [v1.00], [1.00.002], [v2.01.000]
+  s = s.replace(/\s*\[\s*v?\d+[\d.]*\s*\]/gi, "");
+  // Paren-wrapped version tags with v prefix: (v1.00), (v2.01.000)
+  s = s.replace(/\s*\(\s*v\d+[\d.]*\s*\)/gi, "");
+  // Inline version with v prefix at word/line boundary: "Game v1.00", "v1.003.001"
+  s = s.replace(/\s+v\d+[\d.]*(?=\s|$)/gi, "");
+  // Platform identifiers (standalone): PS4, PS5, PS4/PS5, (PS5), [PS4]
+  s = s.replace(/\s*[\[(]?\s*PS[45](?:\/PS[45])?\s*[\])]?(?=\s|\/|$)/gi, "");
+  // Type identifiers: [FPkg], (FPkg), [Fake PKG], trailing FPkg/PKG
+  s = s.replace(/\s*[\[(]\s*(?:Fake\s+)?F?PKG\s*[\])]/gi, "");
+  s = s.replace(/\s+(?:Fake\s+)?F?PKG(?=\s|$)/gi, "");
+  // Region codes in parens: (EUR), (USA), (JPN), (ASIA), (KOR), (JAP), (PAL)
+  s = s.replace(/\s*\((?:EUR|USA|JPN|ASIA|KOR|JAP|NTSC|PAL)\)/gi, "");
+  // Console title IDs in parens: (CUSA12345), (PPSA12345)
+  s = s.replace(/\s*\([A-Z]{4}\d{5}\b[^)]*\)/g, "");
+  // Trailing punctuation / slash / whitespace
+  s = s.replace(/[-:,\/\s]+$/, "").trim();
+  return s.replace(/\s+/g, " ").trim();
+}
+
 /** Normalize a game title for cross-source deduplication.
- *  Strips punctuation, collapses whitespace, drops leading articles. */
+ *  Calls cleanGameTitle first (strips versions/platform tags), then
+ *  lowercases, removes remaining punctuation, drops leading articles. */
 function normalizeTitle(name: string): string {
-  return name
+  return cleanGameTitle(name)
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, "")
     .replace(/\s+/g, " ")
@@ -124,7 +149,7 @@ function postsFromApi(json: string, platform: "PS5" | "PS4"): GameEntry[] {
   for (const post of arr as Array<Record<string, unknown>>) {
     const pageUrl = typeof post?.link === "string" ? post.link : "";
     const title = (post?.title as { rendered?: string })?.rendered ?? "";
-    const name = decodeEntities(title).trim();
+    const name = cleanGameTitle(decodeEntities(title));
     if (!pageUrl || !name) continue;
     const content = (post?.content as { rendered?: string })?.rendered ?? "";
     const m = content.match(
@@ -148,7 +173,8 @@ export async function scrapeCatalog(
   // persists progress live so a long pull survives interruption.
   const cat = CAT_ID[platform];
   const byUrl = new Map<string, GameEntry>();
-  for (const g of existing ?? []) byUrl.set(g.pageUrl, g);
+  // Clean cached entries immediately so old dirty names normalize correctly.
+  for (const g of existing ?? []) byUrl.set(g.pageUrl, { ...g, name: cleanGameTitle(g.name) });
   let emptyStreak = 0;
   for (let p = 1; p <= pages; p++) {
     onProgress?.(`Loading catalog… (${byUrl.size} games)`);
@@ -173,6 +199,20 @@ export async function scrapeCatalog(
       if (rows.length < 100) break; // last API page (full pages are 100)
     }
     await new Promise((r) => setTimeout(r, 250));
+  }
+
+  // Intra-source dedup: dlpsgame posts the same game at multiple versions, each
+  // with a different URL and now a shared clean title. Collapse by normalizeTitle,
+  // keeping the entry with cover art (or the first seen = newest from API sort).
+  {
+    const byNorm = new Map<string, GameEntry>();
+    for (const g of byUrl.values()) {
+      const norm = normalizeTitle(g.name);
+      const ex = byNorm.get(norm);
+      if (!ex || (!ex.coverUrl && g.coverUrl)) byNorm.set(norm, g);
+    }
+    byUrl.clear();
+    for (const g of byNorm.values()) byUrl.set(g.pageUrl, g);
   }
 
   // Build a normalized-title dedupe set so extra sources only add new games.
@@ -246,7 +286,7 @@ async function scrapeFromPkgGames(): Promise<GameEntry[]> {
   const ENTRY_RE = /href="(https:\/\/pkg\.games\/ps5\/[a-z0-9\-\/]+?\/)"[^>]*>\s*([^<]+)/gi;
   for (const m of html.matchAll(ENTRY_RE)) {
     const pageUrl = m[1];
-    const name = m[2].trim();
+    const name = cleanGameTitle(m[2].trim());
     if (!name || seen.has(pageUrl)) continue;
     seen.add(pageUrl);
     out.push({ name, platform: "PS5", coverUrl: "", pageUrl, source: "pkggames" });
@@ -328,7 +368,7 @@ async function scrapeFromPspkg(platform: "PS5" | "PS4"): Promise<GameEntry[]> {
       );
       const coverUrl = imgMatch ? imgMatch[1] : "";
 
-      out.push({ name, platform, coverUrl, pageUrl, source: "pspkg" });
+      out.push({ name: cleanGameTitle(name), platform, coverUrl, pageUrl, source: "pspkg" });
       added++;
     }
 
@@ -401,9 +441,10 @@ async function scrapeFromSuperpsx(platform: "PS5" | "PS4"): Promise<GameEntry[]>
         // "Hunting Simulator 2 PS4 [FPkg]" → "Hunting Simulator 2"
         name = name.replace(/\s*[\[(][^\])]*[\])]/g, "").trim();
         name = name.replace(/\s+(PS[45]|FPkg|fpkg|PKG)\b.*/i, "").trim();
+        name = cleanGameTitle(name);
 
         results.push({
-          name: name || m[2].trim(),
+          name: name || cleanGameTitle(m[2].trim()),
           platform,
           coverUrl: bgCovers[i] ?? "",
           pageUrl,
@@ -431,9 +472,10 @@ async function scrapeFromSuperpsx(platform: "PS5" | "PS4"): Promise<GameEntry[]>
         let name = decodeEntities(m[1]).trim();
         name = name.replace(/\s*[\[(][^\])]*[\])]/g, "").trim();
         name = name.replace(/\s+(PS[45]|FPkg|fpkg|PKG)\b.*/i, "").trim();
+        name = cleanGameTitle(name);
 
         results.push({
-          name: name || m[1].trim(),
+          name: name || cleanGameTitle(m[1].trim()),
           platform,
           coverUrl: mdImgs[i] ?? "",
           pageUrl,
@@ -729,6 +771,7 @@ function parseArabicCardHtml(html: string, platform: "PS5" | "PS4"): GameEntry[]
       )
       .trim();
     name = name.replace(/\s*\[\d+\.\d+[^\]]*\]\s*$/i, "").trim();
+    name = cleanGameTitle(name);
 
     if (!name || name.length < 2) continue;
     if (seen.has(mirror1)) continue;

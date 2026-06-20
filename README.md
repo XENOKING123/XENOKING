@@ -14,7 +14,7 @@
 
 <br/><br/>
 
-![version](https://img.shields.io/badge/version-3.2.15-F7C948?style=for-the-badge)
+![version](https://img.shields.io/badge/version-3.2.16-F7C948?style=for-the-badge)
 ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?style=for-the-badge&logo=windows&logoColor=white)
 ![trainers](https://img.shields.io/badge/trainers-9%2C200%2B-2ea043?style=for-the-badge&logo=target&logoColor=white)
 ![license](https://img.shields.io/badge/license-GPL--3.0-4c6ef5?style=for-the-badge)
