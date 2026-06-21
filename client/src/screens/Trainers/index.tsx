@@ -142,9 +142,13 @@ export default function TrainersScreen() {
       <PageHeader
         icon={Target}
         title="Trainers"
-        count={libraryCount}
+        count={
+          rows.length
+            ? `${rows.length.toLocaleString()} trainers · ${libraryCount.toLocaleString()} games`
+            : libraryCount
+        }
         loading={busy}
-        description="The full XENO trainer library — one card per game, all versions merged. Open one to pick a version and see its cheats. Apply from My Games while the game runs."
+        description={`The full XENO trainer library — ${rows.length.toLocaleString()} trainers across ${libraryCount.toLocaleString()} games (every version + format merged onto one card). Open a card to pick a version and see its cheats. Apply from My Games while the game runs.`}
         right={
           <Button variant="primary" size="sm" leftIcon={<Download size={15} />} onClick={() => void sync()} disabled={busy}>
             Sync now
