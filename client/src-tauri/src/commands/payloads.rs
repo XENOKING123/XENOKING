@@ -532,6 +532,109 @@ const CATALOGUE: &[CatalogueEntry] = &[
         autoload_delay_ms: 200,
         homepage: "https://github.com/StonedModder/Ghostpad",
     },
+    // -----------------------------------------------------------------
+    // v3.2.26 catalog expansion (audited 2026-06-23 against the user's
+    // local payloads folder — every one of these was missing).
+    // -----------------------------------------------------------------
+    CatalogueEntry {
+        id: "pldmgr",
+        display_name: "Payload Manager (PLK)",
+        // Loads FIRST: pldmgr's own daemon takes over the autoload
+        // pipeline. Sending kstuff/etaHEN AFTER pldmgr races against
+        // its state machine and KPs the console.
+        role: "On-console payload manager + web UI",
+        description: "Web dashboard on the PS5 for importing/managing/autoloading payloads. v0.3.0 has a known kernel-panic bug (itsPLK#28, #34) — DOWNLOAD v0.3.1 OR LATER. pldmgr is designed to run FIRST and orchestrate kstuff/etaHEN/SMP itself; do NOT queue other payloads alongside it in Inject-All.",
+        repo_host: "github.com",
+        repo_owner: "itsPLK",
+        repo_name: "ps5-payload-manager",
+        asset_name_hint: "pldmgr",
+        on_console_marker_path: Some("/data/pldmgr/"),
+        process_name_hint: Some("pldmgr"),
+        ports: &[8000],
+        autoload_priority: 0,
+        autoload_delay_ms: 5000,
+        homepage: "https://github.com/itsPLK/ps5-payload-manager",
+    },
+    CatalogueEntry {
+        id: "ps5debug-ng",
+        display_name: "ps5debug-NG (OpenSourcereR)",
+        role: "PS5 TCP debugger — FW 3.x → 13.x",
+        description: "Modern fork of ps5debug — userland TCP wire-protocol server hosted inside SceShellCore. Covers FW 3.x through 13.x (the legacy ps5debug stops at 7.xx). v1.2.7 fixed a KP crash when rescanning with 'between'; v1.2.6 added FW 8.40+ poke/breakpoint fixes. Recommended over legacy ps5debug for FW 8+ consoles (including FW 12.40). GPL-3.",
+        repo_host: "github.com",
+        repo_owner: "OpenSourcereR-dev",
+        repo_name: "ps5debug-NG",
+        asset_name_hint: "ps5debug-NG",
+        on_console_marker_path: None,
+        process_name_hint: Some("ps5debug-NG"),
+        ports: &[744],
+        autoload_priority: 3,
+        autoload_delay_ms: 200,
+        homepage: "https://github.com/OpenSourcereR-dev/ps5debug-NG",
+    },
+    CatalogueEntry {
+        id: "cheatrunner",
+        display_name: "CheatRunner",
+        role: "PS5 web cheat trainer + game launcher",
+        description: "Web cheat trainer on the PS5. Loads cheats from /data/cheatrunner/cheats — JSON / SHN / MC4 formats. Installed-games dashboard with Favorites + Recent tabs and per-mod ON/OFF toggles. Crash-suspect detection blocks mods that have crashed a title from re-enabling automatically. Pairs with ps5debug-NG for runtime memory patches.",
+        repo_host: "github.com",
+        repo_owner: "notmaj0r",
+        repo_name: "CheatRunner",
+        asset_name_hint: "CheatRunner",
+        on_console_marker_path: Some("/data/cheatrunner/cheats"),
+        process_name_hint: Some("CheatRunner"),
+        ports: &[9999],
+        autoload_priority: 5,
+        autoload_delay_ms: 500,
+        homepage: "https://github.com/notmaj0r/CheatRunner",
+    },
+    CatalogueEntry {
+        id: "elf-arsenal",
+        display_name: "Elf Arsenal (Sonic Loader successor)",
+        role: "All-in-one PS5 utility + web UI on :6969",
+        description: "Successor to Sonic Loader. One web UI on :6969 wires up cheats, save management, FTP, trophy unlocker, ShadowMount+, kstuff-lite, PS5 Linux loader, fan control, NP fake sign-in. Heavyweight (~4.5 MB ELF + offline pack ZIP). If you already run ps5upload + individual payloads you probably don't need this; if you want a one-stop launcher, it's the most feature-complete option.",
+        repo_host: "git.etawen.dev",
+        repo_owner: "soniciso",
+        repo_name: "elf-arsenal",
+        asset_name_hint: "elf-arsenal",
+        on_console_marker_path: None,
+        process_name_hint: Some("elf-arsenal"),
+        ports: &[6969],
+        autoload_priority: 7,
+        autoload_delay_ms: 1000,
+        homepage: "https://git.etawen.dev/soniciso/elf-arsenal",
+    },
+    CatalogueEntry {
+        id: "backpork",
+        display_name: "BackPork (system library sideloader)",
+        role: "Auto-mount fakelibs into game processes",
+        description: "Background payload that watches game launches and unionfs-mounts a per-game fakelib folder over the system library path — enables backports without modifying game files. Pairs with ShadowMount+ for backported game images. Companion tooling: Nazky/Auto-Backpork (PC-side prep) and rajeshca911/PS5-BACKPORK-KITCHEN (recipes).",
+        repo_host: "github.com",
+        repo_owner: "BestPig",
+        repo_name: "BackPork",
+        asset_name_hint: "backpork",
+        on_console_marker_path: None,
+        process_name_hint: Some("backpork"),
+        ports: &[],
+        autoload_priority: 2,
+        autoload_delay_ms: 300,
+        homepage: "https://github.com/BestPig/BackPork",
+    },
+    CatalogueEntry {
+        id: "ps4debug",
+        display_name: "ps4debug (PS4 debugger)",
+        role: "PS4 TCP debugger / memory R/W server",
+        description: "PS4 debugger payload — TCP wire-protocol memory R/W + breakpoints + module list. Inspired ps5debug. Latest release (v1.1.19) covers FW 5.05 through 12.02. PS4 only. Maintained by ctn123 + SiSTRo under the GoldHEN organization (jogolden's original repo is archived).",
+        repo_host: "github.com",
+        repo_owner: "GoldHEN",
+        repo_name: "ps4debug",
+        asset_name_hint: "ps4debug",
+        on_console_marker_path: None,
+        process_name_hint: Some("ps4debug"),
+        ports: &[744],
+        autoload_priority: 3,
+        autoload_delay_ms: 200,
+        homepage: "https://github.com/GoldHEN/ps4debug",
+    },
 ];
 
 /// Serializable mirror of `CatalogueEntry`. Has owned `String` fields
@@ -1417,6 +1520,104 @@ pub async fn payloads_download(
 /// a renderer-supplied `id = "../foo"` would let `payload_cache_dir`
 /// (which calls `create_dir_all`) materialise attacker-named
 /// directories anywhere under `app_local_data_dir`.
+/// Copy a downloaded-and-cached payload from its app-data location into the
+/// user's Favorites folder (the folder FavoritesPanel scans, stored in
+/// renderer-side localStorage under "xeno.payloads_folder"). Returns the
+/// resolved destination path on success.
+///
+/// Behavior:
+///   - Verifies `src_path` exists and is a regular file.
+///   - Creates `dest_dir` if missing (mkdir -p).
+///   - On filename collision, appends ` (N)` before the extension and
+///     searches N = 1..999 for a free slot. We DO NOT overwrite — the user
+///     may have a known-good older build there.
+///   - Atomic copy via std::fs::copy.
+///
+/// The dest_dir is renderer-supplied (user picked it via the native folder
+/// dialog), so we don't validate it against a static allowlist. We DO refuse
+/// any src_path containing `..` traversal segments as a basic defense.
+#[tauri::command]
+pub async fn payload_copy_to_favorites(
+    src_path: String,
+    dest_dir: String,
+    filename: String,
+) -> Result<String, String> {
+    let src = std::path::PathBuf::from(&src_path);
+    if !src.is_file() {
+        return Err(format!("source file not found: {src_path}"));
+    }
+    if filename.is_empty()
+        || filename == "."
+        || filename == ".."
+        || filename.contains('/')
+        || filename.contains('\\')
+        || filename.contains('\0')
+    {
+        return Err(format!("invalid filename: {filename:?}"));
+    }
+    let dest_root = std::path::PathBuf::from(&dest_dir);
+    std::fs::create_dir_all(&dest_root).map_err(|e| format!("mkdir {dest_dir}: {e}"))?;
+
+    // Find a free dest path. First try the bare filename; if it exists, try
+    // "<stem> (N).<ext>" for N = 1..=999. Refusing to overwrite preserves
+    // any tested-working older copy the user may have kept.
+    let initial = dest_root.join(&filename);
+    let dest = if !initial.exists() {
+        initial
+    } else {
+        let stem = std::path::Path::new(&filename)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&filename)
+            .to_string();
+        let ext = std::path::Path::new(&filename)
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|e| format!(".{e}"))
+            .unwrap_or_default();
+        let mut chosen: Option<std::path::PathBuf> = None;
+        for n in 1..=999 {
+            let candidate = dest_root.join(format!("{stem} ({n}){ext}"));
+            if !candidate.exists() {
+                chosen = Some(candidate);
+                break;
+            }
+        }
+        chosen.ok_or_else(|| "destination folder has too many copies — clean it up".to_string())?
+    };
+    std::fs::copy(&src, &dest).map_err(|e| format!("copy: {e}"))?;
+    Ok(dest.to_string_lossy().into_owned())
+}
+
+/// Heuristic priority + delay lookup for a payload filename (used by the
+/// Favorites Inject-All loop to sort by autoload_priority and pace per-payload
+/// instead of a flat gap). Returns `(priority, delay_ms, is_terminal)`.
+///
+/// `is_terminal` is true when the payload is one that takes over the autoload
+/// pipeline (currently just `pldmgr`) — the renderer uses it to break the
+/// inject-all loop after sending so we don't keep streaming to a console
+/// whose loader port has been hijacked by the manager daemon.
+///
+/// Match is asset_name_hint case-insensitive substring of the filename. If no
+/// catalog entry matches, returns a sensible default `(8, 350, false)` —
+/// unknown payloads go to the END of the sequence and use the legacy
+/// 350ms flat gap.
+#[tauri::command]
+pub async fn autoload_meta_for_filename(name: String) -> (u32, u32, bool) {
+    let lower = name.to_ascii_lowercase();
+    // pldmgr is "terminal" — pldmgr's own daemon takes over autoload, so
+    // sending more payloads after it races against its state machine and
+    // kernel-panics on FW 12.40 (and other FWs per upstream issue #28).
+    let is_terminal = lower.contains("pldmgr");
+    for entry in CATALOGUE.iter() {
+        let hint = entry.asset_name_hint.to_ascii_lowercase();
+        if !hint.is_empty() && lower.contains(&hint) {
+            return (entry.autoload_priority as u32, entry.autoload_delay_ms, is_terminal);
+        }
+    }
+    (8, 350, is_terminal)
+}
+
 #[tauri::command]
 pub async fn payloads_local_path(app: AppHandle, id: String) -> Option<String> {
     let entry = find_entry(&id)?;

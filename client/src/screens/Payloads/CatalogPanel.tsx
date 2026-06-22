@@ -9,6 +9,7 @@ import {
   HardDrive,
   AlertTriangle,
   Activity as ActivityIcon,
+  BookmarkPlus,
 } from "lucide-react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useConnectionStore } from "../../state/connection";
@@ -19,6 +20,7 @@ import {
   payloadsReleases,
   payloadsLocalInventory,
   payloadsDownload,
+  payloadCopyToFavorites,
   sendPayload,
   type PayloadInfo,
   type PayloadReleaseInfo,
@@ -169,6 +171,40 @@ export default function CatalogPanel() {
     }
   }
 
+  /** Copy the cached ELF into the user's Favorites folder (the folder the
+   *  Favorites tab scans for Inject-All). Surfaces a no-folder warning if the
+   *  user hasn't picked one yet on the Favorites tab. */
+  async function handleSaveToFavorites(id: string) {
+    const local = inventoryById[id];
+    if (!local) return;
+    const folder = (() => {
+      try {
+        return window.localStorage.getItem("xeno.payloads_folder");
+      } catch {
+        return null;
+      }
+    })();
+    if (!folder) {
+      pushNotification("warning", "Pick a Favorites folder first", {
+        body:
+          "Open Payloads → Favorites and choose the folder where you keep your payloads, then come back and click Save to Favorites again.",
+      });
+      return;
+    }
+    setBusy(id, true);
+    try {
+      const basename = local.path.replace(/^.*[\\/]/, "");
+      const dest = await payloadCopyToFavorites(local.path, folder, basename);
+      pushNotification("success", `Saved ${id} to Favorites`, {
+        body: `Copied to ${dest}. Open the Favorites tab and click Rescan to see it.`,
+      });
+    } catch (e) {
+      setErrors((prev) => ({ ...prev, [id]: String(e) }));
+    } finally {
+      setBusy(id, false);
+    }
+  }
+
   async function handleSend(id: string) {
     const local = inventoryById[id];
     if (!local) return;
@@ -291,6 +327,7 @@ export default function CatalogPanel() {
             error={errors[p.id]}
             onCheck={(force) => handleCheck(p.id, force)}
             onDownload={() => handleDownload(p.id)}
+            onSaveToFavorites={() => handleSaveToFavorites(p.id)}
             onSend={() => handleSend(p.id)}
             onOpenHomepage={() => {
               void openExternal(p.homepage);
@@ -320,6 +357,7 @@ function PayloadCard({
   error,
   onCheck,
   onDownload,
+  onSaveToFavorites,
   onSend,
   onOpenHomepage,
 }: {
@@ -333,6 +371,7 @@ function PayloadCard({
   error: string | undefined;
   onCheck: (force: boolean) => void;
   onDownload: () => void;
+  onSaveToFavorites: () => void;
   onSend: () => void;
   onOpenHomepage: () => void;
 }) {
@@ -484,6 +523,18 @@ function PayloadCard({
                         { version: release.tag },
                         `Download ${release.tag}`,
                       )}
+              </Button>
+            )}
+            {local && (
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<BookmarkPlus size={11} />}
+                onClick={onSaveToFavorites}
+                disabled={busy}
+                title="Copy this cached payload into your Favorites folder so Inject-All picks it up."
+              >
+                {tr("payloads_save_to_favorites", undefined, "Save to Favorites")}
               </Button>
             )}
             {local && (

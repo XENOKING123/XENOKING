@@ -14,7 +14,7 @@ import {
 
 import { Button } from "../../components";
 import { pickPath } from "../../lib/pickPath";
-import { sendPayload } from "../../api/ps5";
+import { sendPayload, autoloadMetaForFilename } from "../../api/ps5";
 import { useConnectionStore, PS5_LOADER_PORT } from "../../state/connection";
 import { pushNotification } from "../../state/notifications";
 
@@ -214,25 +214,73 @@ export default function FavoritesPanel() {
       return;
     }
     if (favPaths.length === 0) return;
+
+    // Resolve per-payload metadata via the Rust catalog: priority + delay +
+    // whether it's a "terminal" payload (one that takes over autoload, so
+    // sending anything after it crashes the console). Unknown payloads get
+    // (priority 8, 350ms gap, terminal:false) — they go to the end of the
+    // sequence with the legacy flat-gap pacing.
+    const basename = (p: string) => p.replace(/^.*[\\/]/, "");
+    const metas = await Promise.all(
+      favPaths.map(async (p) => {
+        const [priority, delayMs, terminal] = await autoloadMetaForFilename(
+          basename(p),
+        ).catch<[number, number, boolean]>(() => [8, INJECT_GAP_MS, false]);
+        return { path: p, priority, delayMs, terminal, name: basename(p) };
+      }),
+    );
+
+    // Sort by priority (lowest first = pldmgr 0 → kstuff 0 → SMP 1 → etaHEN 2
+    // → debuggers 3 → CheatRunner 5 → ghostpad 4 → arsenal 7 → unknown 8),
+    // breaking ties by filename for determinism.
+    metas.sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name));
+
+    // Pre-flight: if a terminal payload (pldmgr) is in the queue alongside
+    // other payloads, warn the user — sending kstuff/etaHEN/ftpsrv/etc. then
+    // pldmgr is the exact "load reaches pldmgr then PS5 crashes" report.
+    const terminalEntries = metas.filter((m) => m.terminal);
+    if (terminalEntries.length > 0 && metas.length > terminalEntries.length) {
+      const ok = window.confirm(
+        `pldmgr is a payload manager — it takes over autoload and crashes the PS5 if other payloads are loaded alongside it.\n\n` +
+          `Recommended: keep ONLY pldmgr starred (and let it manage kstuff / etaHEN / SMP itself).\n\n` +
+          `If you continue, the inject-all will send pldmgr FIRST and STOP — anything else starred will be skipped.\n\n` +
+          `Send pldmgr now and skip the rest?`,
+      );
+      if (!ok) return;
+    }
+
     setInjecting(true);
-    let ok = 0;
+    let okCount = 0;
     let fail = 0;
-    for (let i = 0; i < favPaths.length; i++) {
+    let stoppedEarly = false;
+    for (let i = 0; i < metas.length; i++) {
       if (!alive.current) break;
-      setInjectProgress({ done: i, total: favPaths.length });
-      const success = await sendOne(favPaths[i]);
-      if (success) ok++;
+      setInjectProgress({ done: i, total: metas.length });
+      const m = metas[i];
+      const success = await sendOne(m.path);
+      if (success) okCount++;
       else fail++;
-      // Small gap so the loader isn't hammered. Skip after the last one.
-      if (i < favPaths.length - 1) {
-        await new Promise((r) => setTimeout(r, INJECT_GAP_MS));
+      // Terminal-stop: pldmgr's daemon now owns :9021, so any further send
+      // would race against its state machine and kernel-panic the console.
+      if (m.terminal) {
+        stoppedEarly = true;
+        break;
+      }
+      // Pace per-payload (kstuff needs 3s to settle, etaHEN 500ms, etc.)
+      if (i < metas.length - 1) {
+        await new Promise((r) => setTimeout(r, m.delayMs));
       }
     }
     if (alive.current) {
-      setInjectProgress({ done: favPaths.length, total: favPaths.length });
+      setInjectProgress({ done: metas.length, total: metas.length });
       setInjecting(false);
+      const tail = stoppedEarly
+        ? " · stopped after pldmgr (took over autoload)"
+        : fail
+          ? `, ${fail} failed`
+          : "";
       pushNotification(fail === 0 ? "success" : "warning", "Inject all favorites", {
-        body: `${ok} sent${fail ? `, ${fail} failed` : ""}.`,
+        body: `${okCount} sent${tail}.`,
       });
     }
   };

@@ -1429,6 +1429,29 @@ export async function payloadsDownload(
   });
 }
 
+/** Copy a cached payload ELF from app-data into the user's favorites folder.
+ *  Returns the resolved destination path (with ` (N)` suffix on collision). */
+export async function payloadCopyToFavorites(
+  srcPath: string,
+  destDir: string,
+  filename: string,
+): Promise<string> {
+  return invoke<string>("payload_copy_to_favorites", {
+    srcPath,
+    destDir,
+    filename,
+  });
+}
+
+/** Heuristic catalog match for a local payload filename — returns the
+ *  autoload priority + delay + whether the payload is "terminal" (takes over
+ *  the autoload pipeline so the Inject-All loop should stop after sending). */
+export async function autoloadMetaForFilename(
+  name: string,
+): Promise<[number, number, boolean]> {
+  return invoke<[number, number, boolean]>("autoload_meta_for_filename", { name });
+}
+
 // ─── ShadowMount+ awareness (read-only) ───────────────────────────────
 
 export interface SmpMountedImage {
