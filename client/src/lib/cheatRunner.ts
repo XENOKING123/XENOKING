@@ -189,3 +189,74 @@ export async function uploadCheatFile(
     localPath,
   });
 }
+
+/**
+ * "Attach"-equivalent for CheatRunner. CR has no real attach step — once the
+ * game is running and CR has cheats loaded, /api/cheats/state returns mods.
+ * This launches the game (if not running) and polls until cheats appear.
+ * Returns { ok, cheats, launched } so the UI can render the right outcome.
+ */
+export async function attachCheatRunner(
+  ip: string,
+  titleId: string,
+  opts?: { running?: boolean; timeoutMs?: number; intervalMs?: number },
+): Promise<{ ok: boolean; cheats: number; launched: boolean; message: string }> {
+  const timeout = opts?.timeoutMs ?? 9000;
+  const interval = opts?.intervalMs ?? 750;
+  let launched = false;
+  if (!opts?.running) {
+    try {
+      launched = await launchGame(ip, titleId);
+    } catch {
+      /* CR will still answer state; launch is best-effort */
+    }
+  }
+  const deadline = Date.now() + timeout;
+  let lastCount = 0;
+  while (Date.now() < deadline) {
+    try {
+      const state = await cheatState(ip, titleId);
+      lastCount = state.length;
+      if (state.length > 0) {
+        return {
+          ok: true,
+          cheats: state.length,
+          launched,
+          message: `CheatRunner has ${state.length} cheat${state.length === 1 ? "" : "s"} loaded`,
+        };
+      }
+    } catch {
+      /* keep polling */
+    }
+    await new Promise((r) => setTimeout(r, interval));
+  }
+  return {
+    ok: false,
+    cheats: lastCount,
+    launched,
+    message: launched
+      ? "Game launched but CheatRunner has no cheats for it yet — install one below."
+      : "CheatRunner has no cheats for this game yet — install one below.",
+  };
+}
+
+/** Trigger CheatRunner's own repo-mirror to pull cheats from configured sources
+ *  (hencollection / ps5cheats / goldhen / henppsa / all) onto the PS5 itself. */
+export async function cheatRepoSync(
+  ip: string,
+  source: "all" | "hencollection" | "ps5cheats" | "goldhen" | "henppsa" = "all",
+  overwrite = false,
+): Promise<string> {
+  return await invoke<string>("cheatrunner_get", {
+    ip,
+    path: `/api/cheats/repo/download?source=${source}&overwrite=${overwrite ? 1 : 0}`,
+  });
+}
+
+/** Poll CheatRunner's repo-mirror status; returns the raw JSON response. */
+export async function cheatRepoSyncStatus(ip: string): Promise<string> {
+  return await invoke<string>("cheatrunner_get", {
+    ip,
+    path: "/api/cheats/repo/download/status",
+  });
+}

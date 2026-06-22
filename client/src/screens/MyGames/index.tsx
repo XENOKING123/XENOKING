@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Gamepad2, RefreshCw, Search, X, Zap, ZapOff, Play, Square, Upload } from "lucide-react";
+import {
+  Gamepad2, RefreshCw, Search, X, Zap, ZapOff, Play, Square, Upload,
+  Plug, PlugZap, ExternalLink, DownloadCloud,
+} from "lucide-react";
 
 import { PageHeader, Button, EmptyState } from "../../components";
 import { useConnectionStore } from "../../state/connection";
@@ -11,12 +14,15 @@ import {
   launchGame,
   closeGame,
   uploadCheatFile,
+  attachCheatRunner,
+  cheatRepoSync,
   type CRGame,
   type CRCheat,
 } from "../../lib/cheatRunner";
 import { friendlyCheatRunnerError } from "../../lib/cheatErrors";
 import { useGameCover } from "../../lib/covers";
-import { listTrainers, type TrainerRow } from "../../lib/trainers";
+import { listTrainers, cheatSync, type TrainerRow } from "../../lib/trainers";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
 
 /**
  * XENO My Games / Trainers — CheatRunner (:9999). Lists installed games with
@@ -199,6 +205,12 @@ function CheatsDialog({ host, game, onClose }: { host: string; game: CRGame; onC
   const [err, setErr] = useState("");
   const [pending, setPending] = useState<number | null>(null);
   const [installingPath, setInstallingPath] = useState<string | null>(null);
+  const [attaching, setAttaching] = useState(false);
+  const [detaching, setDetaching] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  // null = not yet probed; otherwise the most recent attach result so the UI
+  // can show "Attached · N cheats" or the friendly message.
+  const [attachInfo, setAttachInfo] = useState<{ ok: boolean; cheats: number; message: string } | null>(null);
   // Unmount guard so a toggle that resolves after the dialog closes doesn't
   // setState on an unmounted component.
   const alive = useRef(true);
@@ -290,6 +302,87 @@ function CheatsDialog({ host, game, onClose }: { host: string; game: CRGame; onC
     void load();
   }, [load]);
 
+  /** Attach: launch the game if it isn't running and poll CheatRunner until it
+   *  has cheats loaded. Best-effort — surfaces a friendly message on timeout. */
+  const doAttach = useCallback(async () => {
+    if (attaching) return;
+    setAttaching(true);
+    setErr("");
+    try {
+      const info = await attachCheatRunner(host, game.titleId, { running: game.running });
+      if (!alive.current) return;
+      setAttachInfo(info);
+      // Refresh the cheat list either way — if it succeeded we'll get live
+      // toggles; if not, the local-library install UI is the right next step.
+      await load();
+    } catch (e) {
+      if (alive.current) setErr(friendlyCheatRunnerError(e, "reach"));
+    } finally {
+      if (alive.current) setAttaching(false);
+    }
+  }, [attaching, host, game.titleId, game.running, load]);
+
+  /** Detach: turn every cheat OFF on the console and clear local state. */
+  const doDetach = useCallback(async () => {
+    if (detaching) return;
+    setDetaching(true);
+    try {
+      await disableAll(host, game.titleId);
+      playSfx("off");
+      if (alive.current) {
+        setAttachInfo(null);
+        setCheats(null);
+      }
+      await load();
+    } catch (e) {
+      if (alive.current) setErr(friendlyCheatRunnerError(e, "toggle"));
+    } finally {
+      if (alive.current) setDetaching(false);
+    }
+  }, [detaching, host, game.titleId, load]);
+
+  /** Sync cheats from GitHub — fires our own xeno_store cheat_sync (downloads
+   *  to the desktop library) AND CheatRunner's repo-mirror (downloads to the
+   *  PS5's /data/cheatrunner/cheats/) in parallel. */
+  const doSyncGithub = useCallback(async () => {
+    if (syncing) return;
+    setSyncing(true);
+    setErr("");
+    try {
+      const [desktop, console_] = await Promise.allSettled([
+        cheatSync(true),
+        cheatRepoSync(host, "all", false),
+      ]);
+      const parts: string[] = [];
+      if (desktop.status === "fulfilled") {
+        parts.push(`desktop +${desktop.value.total}`);
+      } else {
+        parts.push(`desktop sync failed`);
+      }
+      if (console_.status === "fulfilled") {
+        parts.push("console sync started");
+      } else {
+        parts.push("console sync unreachable");
+      }
+      if (alive.current) {
+        setAttachInfo({ ok: true, cheats: 0, message: parts.join(" · ") });
+      }
+      await load();
+    } catch (e) {
+      if (alive.current) setErr(friendlyCheatRunnerError(e, "reach"));
+    } finally {
+      if (alive.current) setSyncing(false);
+    }
+  }, [syncing, host, load]);
+
+  const openDashboard = useCallback(() => {
+    void openExternal(`http://${host}:9999/`).catch(() => {
+      // Fallback — Tauri shell open requires the URL to be allowlisted; if it
+      // fails just show the URL so the user can copy it.
+      setErr(`Couldn't open browser — paste this URL: http://${host}:9999/`);
+    });
+  }, [host]);
+
   const onToggle = async (c: CRCheat) => {
     // Serialize: one toggle at a time so rapid clicks can't interleave.
     if (pending !== null) return;
@@ -336,6 +429,44 @@ function CheatsDialog({ host, game, onClose }: { host: string; game: CRGame; onC
         </div>
 
         <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-4">
+          {/* Attach-state bar — green when CheatRunner has cheats loaded for the
+              running game, red otherwise. Maps the user's mental model of
+              "Attach" onto CheatRunner's lack of an explicit attach step. */}
+          <div className="mb-3 flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2">
+            <span
+              className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                (cheats?.length ?? 0) > 0 ? "bg-[var(--color-good)]" : "bg-[var(--color-bad)]"
+              }`}
+            />
+            <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--color-muted)]">
+              {(cheats?.length ?? 0) > 0
+                ? `Attached · ${cheats!.length} cheat${cheats!.length === 1 ? "" : "s"} live on the console`
+                : (attachInfo?.message ?? "Not attached — Attach to launch and link CheatRunner, or install a cheat below.")}
+            </span>
+            <Button
+              variant={(cheats?.length ?? 0) > 0 ? "ghost" : "primary"}
+              size="sm"
+              leftIcon={<Plug size={13} />}
+              loading={attaching}
+              disabled={detaching || syncing}
+              onClick={() => void doAttach()}
+            >
+              {(cheats?.length ?? 0) > 0 ? "Re-attach" : "Attach"}
+            </Button>
+            {(cheats?.length ?? 0) > 0 && (
+              <Button
+                variant="danger"
+                size="sm"
+                leftIcon={<PlugZap size={13} />}
+                loading={detaching}
+                disabled={attaching || pending !== null}
+                onClick={() => void doDetach()}
+              >
+                Detach
+              </Button>
+            )}
+          </div>
+
           {cheats === null && (
             <div className="py-8 text-center text-sm text-[var(--color-muted)]">Loading cheats…</div>
           )}
@@ -428,16 +559,35 @@ function CheatsDialog({ host, game, onClose }: { host: string; game: CRGame; onC
           )}
         </div>
 
-        <div className="flex gap-2 border-t border-[var(--color-border)] p-3">
-          <Button variant="secondary" size="sm" onClick={() => void load()}>Reload</Button>
+        <div className="flex flex-wrap gap-2 border-t border-[var(--color-border)] p-3">
           <Button
-            variant="danger"
+            variant="secondary"
             size="sm"
-            leftIcon={<ZapOff size={14} />}
-            onClick={() => void disableAll(host, game.titleId).then(() => { playSfx("off"); void load(); })}
-            disabled={!cheats?.length}
+            leftIcon={<RefreshCw size={14} />}
+            onClick={() => void load()}
+            disabled={attaching || detaching || syncing}
           >
-            Disable all
+            Reload
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            leftIcon={<DownloadCloud size={14} />}
+            loading={syncing}
+            disabled={attaching || detaching}
+            onClick={() => void doSyncGithub()}
+            title="Pull cheats from the 6 GitHub repos into our library, and ask CheatRunner to mirror them onto the PS5."
+          >
+            Sync GitHub
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            leftIcon={<ExternalLink size={14} />}
+            onClick={openDashboard}
+            title="Open CheatRunner's full web UI for advanced settings (address mode, sources, crash flags…)."
+          >
+            Dashboard
           </Button>
           <div className="flex-1" />
           <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>

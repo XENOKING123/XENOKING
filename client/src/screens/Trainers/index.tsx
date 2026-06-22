@@ -93,7 +93,22 @@ export default function TrainersScreen() {
     setStatus("Syncing cheats from the repos… (first run downloads a lot — give it a minute)");
     try {
       const r = await cheatSync(true);
-      setStatus(`Synced ${r.total} cheat files. Loading…`);
+      // Per-repo breakdown so the user can see which repos actually contributed.
+      // A "Synced 0" with all repos at 0 means offline or GitHub rate-limit;
+      // a partial breakdown means some repos failed and some succeeded.
+      const repoOk = r.per_repo.filter(([, n]) => n > 0).length;
+      const breakdown = r.per_repo
+        .map(([repo, n]) => `${repo.split("/")[1]}=${n}`)
+        .join(" · ");
+      // eslint-disable-next-line no-console
+      console.info(`[xeno] cheat sync result: ${r.total} files (${breakdown})`);
+      if (r.total === 0) {
+        setStatus(
+          `Sync returned 0 cheats — likely offline or GitHub rate-limit (60 req/h). Per-repo: ${breakdown}`,
+        );
+      } else {
+        setStatus(`Synced ${r.total} cheats from ${repoOk}/${r.per_repo.length} repos. Loading…`);
+      }
       await load();
     } catch (e) {
       setStatus(`Sync failed: ${e}`);
