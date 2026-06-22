@@ -19,6 +19,41 @@ export interface DownloadLink {
   kind: "terminal" | "landing" | "gateway";
 }
 
+/** Structured download bundle, dlpsgame-only. Each game on dlpsgame is laid
+ *  out as one block per (titleId × region × base-version) with rich sub-
+ *  sections (base game / each update with FW-compat tag / each DLC set) +
+ *  password and language metadata. The flat DownloadLink[] view loses all
+ *  of that structure; this bundle preserves it. */
+export interface BundleMirror {
+  host: string;
+  url: string;
+}
+export interface BundleUpdate {
+  version: string;
+  compat?: string;
+  mirrors: BundleMirror[];
+}
+export interface BundleDLC {
+  label: string;
+  mirrors: BundleMirror[];
+}
+export interface GameBundleVersion {
+  titleId: string;
+  region: string;
+  baseVersion?: string;
+  game?: { mirrors: BundleMirror[] };
+  updates: BundleUpdate[];
+  dlc: BundleDLC[];
+  password?: string;
+  languages?: string;
+  voice?: string;
+  subtitles?: string;
+  credits?: string;
+}
+export interface GameDownloadBundle {
+  versions: GameBundleVersion[];
+}
+
 const BASE = "https://dlpsgame.com";
 const CATEGORY: Record<string, string> = {
   PS5: "/category/ps5/",
@@ -737,6 +772,217 @@ export async function fetchDownloadLinks(
   const order = { terminal: 0, landing: 1, gateway: 2 } as const;
   out.sort((a, b) => order[a.kind] - order[b.kind]);
   return out;
+}
+
+/**
+ * Fetch dlpsgame's RICH per-version structure: one block per (titleId × region
+ * × version) with Game / Updates (each with FW-compat tag) / DLC sets / password
+ * / language. The page's "Link Download" / "Link Mirror" accordions render
+ * client-side from base64-encoded `data-payload` attrs — that's where all the
+ * real link structure lives. We pull the post via the WP REST API (preserves
+ * those attrs verbatim), decode each payload, and parse one version per attr.
+ *
+ * Returns null when the URL isn't a dlpsgame page or the post isn't reachable.
+ * Mirror entries with no `<a>` (plain-text host names in the source — e.g.
+ * "Lets" / "Mega" with no URL) are SKIPPED — they're not actionable for the
+ * user. Mirror count per section will reflect only links we can actually
+ * surface, not the count visible on dlpsgame.
+ */
+export async function fetchDownloadBundle(pageUrl: string): Promise<GameDownloadBundle | null> {
+  if (!pageUrl.includes("dlpsgame.com")) return null;
+  const slug = slugFromUrl(pageUrl);
+  if (!slug) return null;
+
+  const apiUrl = `https://dlpsgame.com/wp-json/wp/v2/posts?slug=${encodeURIComponent(slug)}&_fields=content`;
+  let posts: Array<{ content: { rendered: string } }>;
+  try {
+    const txt = await httpGet(apiUrl, false);
+    posts = JSON.parse(txt);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(posts) || posts.length === 0) return null;
+  const rawHtml = posts[0]?.content?.rendered ?? "";
+  if (!rawHtml) return null;
+  // Decode HTML entities up front so the header regex sees actual en-dashes
+  // and apostrophes instead of `&#8211;` / `&#8217;`. We have to keep ALL
+  // index offsets stable between header search and payload search, so we
+  // search the SAME decoded string for both.
+  const html = htmlEntitiesDecode(rawHtml);
+
+  // Pair each data-payload with the preceding version-header heading so we
+  // know which titleId/region/version each block belongs to before parsing.
+  // The page layout is: <h?>CUSA12345 - REGION (v1.23)</h?> … data-payload="…"
+  const HEADER_RE =
+    /((?:CUSA|PPSA|PCAS)\s*\d{5})\s*[-–—]\s*([A-Z]{2,4})(?:\s*\(\s*v([0-9]+(?:\.[0-9]+){0,3})\s*\))?/gi;
+  const PAYLOAD_RE = /data-payload="([^"]+)"/g;
+  type HeaderHit = { titleId: string; region: string; version?: string; idx: number };
+  const headers: HeaderHit[] = [];
+  let hm: RegExpExecArray | null;
+  while ((hm = HEADER_RE.exec(html))) {
+    headers.push({
+      titleId: hm[1].replace(/\s+/g, "").toUpperCase(),
+      region: hm[2].toUpperCase(),
+      version: hm[3] || undefined,
+      idx: hm.index,
+    });
+  }
+  const versions: GameBundleVersion[] = [];
+  let pm: RegExpExecArray | null;
+  while ((pm = PAYLOAD_RE.exec(html))) {
+    const payloadIdx = pm.index;
+    // Closest preceding header is the owner of this payload.
+    let header: HeaderHit | null = null;
+    for (const h of headers) {
+      if (h.idx < payloadIdx && (!header || h.idx > header.idx)) header = h;
+    }
+    let decodedHtml = "";
+    try {
+      decodedHtml = atob(pm[1].replace(/\s+/g, ""));
+    } catch {
+      continue;
+    }
+    const parsed = parseBundleVersionBlock(decodedHtml, header);
+    if (parsed) versions.push(parsed);
+  }
+  if (versions.length === 0) return null;
+  return { versions };
+}
+
+function htmlEntitiesDecode(s: string): string {
+  return s
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;|&apos;/g, "'");
+}
+
+/** Extract {host, url} for every <a> in a fragment, deduping by URL and
+ *  passing each href through decodeGateway() so shortener links resolve to
+ *  the real terminal URL (gofile/1fichier/mega/mediafire/etc.). */
+function extractBundleMirrors(html: string): BundleMirror[] {
+  const out: BundleMirror[] = [];
+  const seen = new Set<string>();
+  const re = /<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html))) {
+    let url = m[1].trim();
+    const text = htmlEntitiesDecode(m[2].replace(/<[^>]+>/g, "")).trim();
+    const decoded = decodeGateway(url);
+    if (decoded) url = decoded;
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    out.push({ host: text || hostOf(url), url });
+  }
+  return out;
+}
+
+function parseBundleVersionBlock(
+  html: string,
+  header: { titleId: string; region: string; version?: string } | null,
+): GameBundleVersion | null {
+  const decoded = htmlEntitiesDecode(html);
+  // Pull title-id/region from inline if not in header
+  const idM = decoded.match(
+    /((?:C?USA|PPSA|PCAS)\d{5})\s*[-–—]\s*([A-Z]{2,4})/i,
+  );
+  const titleId = (header?.titleId || idM?.[1] || "").toUpperCase();
+  const region = (header?.region || idM?.[2] || "").toUpperCase();
+  if (!titleId) return null;
+  const baseVersion =
+    header?.version || decoded.match(/v([0-9]+(?:\.[0-9]+){0,3})/i)?.[1];
+
+  // Walk each <p> block — that's how dlpsgame structures sections.
+  const blocks: string[] = [];
+  const pRe = /<p[^>]*>([\s\S]*?)<\/p>/g;
+  let bm: RegExpExecArray | null;
+  while ((bm = pRe.exec(decoded))) blocks.push(bm[1]);
+
+  let game: { mirrors: BundleMirror[] } | undefined;
+  const updates: BundleUpdate[] = [];
+  const dlc: BundleDLC[] = [];
+  let password: string | undefined;
+  let languages: string | undefined;
+  let voice: string | undefined;
+  let subtitles: string | undefined;
+  let credits: string | undefined;
+
+  for (const raw of blocks) {
+    // Plain-text view for label matching, but extract mirrors from raw <a>.
+    const text = raw.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    if (!text) continue;
+
+    // "Thank @..." credits line (only first one)
+    if (!credits && /^Thank\b/i.test(text)) {
+      credits = text;
+      continue;
+    }
+
+    // "Game : ..."
+    if (/^Game\s*:/i.test(text)) {
+      const mirrors = extractBundleMirrors(raw);
+      if (mirrors.length || !game) game = { mirrors };
+      continue;
+    }
+
+    // "Update 1.37 (Fix 5.05/6.72/...) : Lets - ..."
+    const upM = text.match(/^Update\s+([0-9]+(?:\.[0-9]+){0,3})\s*(\(([^)]+)\))?\s*:/i);
+    if (upM) {
+      updates.push({
+        version: upM[1],
+        compat: upM[3]?.trim() || undefined,
+        mirrors: extractBundleMirrors(raw),
+      });
+      continue;
+    }
+
+    // "DLC v3 (20) : ..." / "DLC (18) : ..." / "DLC : ..."
+    if (/^DLC\b[^:]*:/i.test(text)) {
+      const label = text.slice(0, text.indexOf(":")).trim();
+      const mirrors = extractBundleMirrors(raw);
+      // Skip "DLC (NN) Contents : Here" — the Here link is a docs page, not a download.
+      if (/contents\b/i.test(label)) continue;
+      dlc.push({ label, mirrors });
+      continue;
+    }
+
+    // Password (handle the common "Pasword" typo too)
+    const pwM = text.match(/^P[a]?(?:as)?sw[o]rd\s*:\s*(\S[^,]*)/i);
+    if (pwM && !password) {
+      password = pwM[1].replace(/\s+\(.*$/, "").trim();
+      continue;
+    }
+
+    // "Languages : ..." (single line)
+    if (/^Languages?\s*:/i.test(text) && !/voice|subtitle/i.test(text)) {
+      if (!languages) languages = text.replace(/^Languages?\s*:\s*/i, "").trim();
+      continue;
+    }
+
+    // "Language (Voice) : English, Japanese" + sometimes followed by Menu & Subtitles
+    const voiceM = text.match(/Language[s]?\s*\(\s*Voice\s*\)\s*:\s*([^]*?)(?=(?:Menu|Subtitles?)|$)/i);
+    if (voiceM && !voice) voice = voiceM[1].replace(/[,\s]+$/, "").trim();
+    const subM = text.match(/(?:Menu\s*&\s*Subtitles?|^Subtitles?)\s*:\s*(.+)$/i);
+    if (subM && !subtitles) subtitles = subM[1].trim();
+  }
+
+  if (!game && updates.length === 0 && dlc.length === 0) return null;
+  return {
+    titleId,
+    region,
+    baseVersion,
+    game,
+    updates,
+    dlc,
+    password,
+    languages,
+    voice,
+    subtitles,
+    credits,
+  };
 }
 
 // --- arabicps4games.com PS4/PS5 catalog ------------------------------------ //

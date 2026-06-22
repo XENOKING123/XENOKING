@@ -6,11 +6,13 @@ import { PageHeader, Button, EmptyState } from "../../components";
 import {
   scrapeCatalog,
   fetchDownloadLinks,
+  fetchDownloadBundle,
   fetchCoverImage,
   hydrateCoversWikipedia,
   coverNorm,
   type GameEntry,
   type DownloadLink,
+  type GameDownloadBundle,
 } from "../../lib/xenoStore";
 import { coverByName } from "../../lib/covers";
 
@@ -68,6 +70,7 @@ export default function GameStoreScreen() {
   const [busy, setBusy] = useState(false);
   const [linksFor, setLinksFor] = useState<GameEntry | null>(null);
   const [links, setLinks] = useState<DownloadLink[] | null>(null);
+  const [bundle, setBundle] = useState<GameDownloadBundle | null>(null);
   const [linksBusy, setLinksBusy] = useState(false);
   // Extra covers resolved by Wikipedia hydration (persisted in localStorage).
   const [extraCovers, setExtraCovers] = useState<Record<string, string>>(loadExtraCovers);
@@ -140,15 +143,26 @@ export default function GameStoreScreen() {
   const getLinks = useCallback(async (g: GameEntry) => {
     setLinksFor(g);
     setLinks(null);
+    setBundle(null);
     setLinksBusy(true);
-    try {
-      const items = await fetchDownloadLinks(g.pageUrl, true, g.altUrls);
-      setLinks(items);
-    } catch {
-      setLinks([]);
-    } finally {
-      setLinksBusy(false);
+    // Fetch both in parallel. The structured bundle is the rich view (one
+    // block per titleId/region/version with Game / each Update / each DLC and
+    // mirror hosts). The flat list is the fallback for non-dlpsgame sources
+    // and for dlpsgame pages whose bundle returns null (or for the rare
+    // alt-source URLs the bundle parser doesn't cover).
+    const [bundleRes, linksRes] = await Promise.allSettled([
+      fetchDownloadBundle(g.pageUrl),
+      fetchDownloadLinks(g.pageUrl, true, g.altUrls),
+    ]);
+    if (bundleRes.status === "fulfilled" && bundleRes.value && bundleRes.value.versions.length > 0) {
+      setBundle(bundleRes.value);
     }
+    if (linksRes.status === "fulfilled") {
+      setLinks(linksRes.value);
+    } else {
+      setLinks([]);
+    }
+    setLinksBusy(false);
   }, []);
 
   return (
@@ -245,6 +259,7 @@ export default function GameStoreScreen() {
         <LinksModal
           game={linksFor}
           links={links}
+          bundle={bundle}
           busy={linksBusy}
           onClose={() => setLinksFor(null)}
         />
@@ -339,14 +354,29 @@ function StoreCover({ name, coverUrl, extraCoverUrl }: { name: string; coverUrl:
 function LinksModal({
   game,
   links,
+  bundle,
   busy,
   onClose,
 }: {
   game: GameEntry;
   links: DownloadLink[] | null;
+  bundle: GameDownloadBundle | null;
   busy: boolean;
   onClose: () => void;
 }) {
+  // When the bundle parsed successfully (dlpsgame pages with at least one
+  // block of Game/Updates/DLC mirrors), prefer the structured view — it shows
+  // per-version blocks with credits, password, languages, and the mirror set
+  // for the base game + each update + each DLC pack. Falls back to the flat
+  // list for non-dlpsgame sources or empty bundles.
+  const showBundle =
+    !!bundle &&
+    bundle.versions.some(
+      (v) =>
+        (v.game?.mirrors.length ?? 0) > 0 ||
+        v.updates.some((u) => u.mirrors.length > 0) ||
+        v.dlc.some((d) => d.mirrors.length > 0),
+    );
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6"
@@ -362,44 +392,63 @@ function LinksModal({
             <div className="text-xs text-[var(--color-muted)]">
               {busy
                 ? "Resolving the real mirrors…"
-                : `${links?.length ?? 0} link(s) · ${game.platform}`}
+                : showBundle
+                  ? `${bundle!.versions.length} version block(s) · ${game.platform}`
+                  : `${links?.length ?? 0} link(s) · ${game.platform}`}
             </div>
           </div>
           <button onClick={onClose} className="text-[var(--color-muted)] hover:text-[var(--color-text)]">
             <X size={20} />
           </button>
         </div>
-        <p className="mb-2 text-[11px] text-[var(--color-muted)]">
-          <b className="text-[var(--color-good)]">direct file</b> = the real download ·{" "}
-          <b className="text-[var(--color-accent)]">mirror page</b> = a host list ·{" "}
-          <b className="text-[var(--color-warn)]">ad-gate</b> = needs a manual click. We decode the
-          ad-gate links automatically — some hosts (mega/1fichier/rootz) still need one click on
-          their own page.
-        </p>
-        <div className="mb-3 flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-xs">
-          <span className="text-[var(--color-muted)]">Extract password:</span>
-          <code className="font-semibold text-[var(--color-good)]">DLPSGAME.COM</code>
-          <Button
-            variant="ghost"
-            size="sm"
-            leftIcon={<Copy size={12} />}
-            onClick={() => void navigator.clipboard.writeText("DLPSGAME.COM")}
-          >
-            Copy
-          </Button>
-          <span className="text-[10px] text-[var(--color-muted)]">
-            — the .zip/.rar archives are password-protected with this.
-          </span>
-        </div>
 
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
+        {!showBundle && (
+          <p className="mb-2 text-[11px] text-[var(--color-muted)]">
+            <b className="text-[var(--color-good)]">direct file</b> = the real download ·{" "}
+            <b className="text-[var(--color-accent)]">mirror page</b> = a host list ·{" "}
+            <b className="text-[var(--color-warn)]">ad-gate</b> = needs a manual click. We decode the
+            ad-gate links automatically — some hosts (mega/1fichier/rootz) still need one click on
+            their own page.
+          </p>
+        )}
+
+        {!showBundle && (
+          <div className="mb-3 flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-xs">
+            <span className="text-[var(--color-muted)]">Extract password:</span>
+            <code className="font-semibold text-[var(--color-good)]">DLPSGAME.COM</code>
+            <Button
+              variant="ghost"
+              size="sm"
+              leftIcon={<Copy size={12} />}
+              onClick={() => void navigator.clipboard.writeText("DLPSGAME.COM")}
+            >
+              Copy
+            </Button>
+            <span className="text-[10px] text-[var(--color-muted)]">
+              — the .zip/.rar archives are password-protected with this.
+            </span>
+          </div>
+        )}
+
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
           {busy && <div className="py-8 text-center text-sm text-[var(--color-muted)]">Resolving…</div>}
-          {!busy && links && links.length === 0 && (
+
+          {/* RICH STRUCTURED VIEW — one panel per (titleId × region × version),
+              with Game / each Update / each DLC and all extracted mirror hosts. */}
+          {!busy &&
+            showBundle &&
+            bundle!.versions.map((v, vi) => (
+              <BundleVersionPanel key={`${v.titleId}-${v.region}-${vi}`} version={v} />
+            ))}
+
+          {/* Fallback flat list (non-dlpsgame sources, or empty bundles). */}
+          {!busy && !showBundle && links && links.length === 0 && (
             <div className="py-6 text-center text-sm text-[var(--color-muted)]">
               Couldn’t resolve links headlessly — open the game page in your browser instead.
             </div>
           )}
           {!busy &&
+            !showBundle &&
             links?.map((it) => (
               <div
                 key={it.url}
@@ -448,6 +497,127 @@ function LinksModal({
           </Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** One panel per dlpsgame version block — titleId · region · version on top,
+ *  credits + password + languages as metadata, then Game / each Update / each
+ *  DLC pack with mirror chips that open the URL in the user's browser with one
+ *  click. Each chip is the mirror's host name as it appears on dlpsgame
+ *  (Mediafire, Akia, Viki, 1File, Buznew, Root, Rano, Mega, …) so the user
+ *  picks the host they trust. */
+function BundleVersionPanel({
+  version: v,
+}: {
+  version: import("../../lib/xenoStore").GameBundleVersion;
+}) {
+  const langLine = v.languages
+    ? v.languages
+    : [v.voice && `Voice: ${v.voice}`, v.subtitles && `Subtitles: ${v.subtitles}`]
+        .filter(Boolean)
+        .join(" · ");
+  return (
+    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3">
+      <div className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span className="rounded bg-[var(--color-surface-3)] px-1.5 py-0.5 text-[10px] font-bold uppercase">
+          {v.titleId}
+        </span>
+        <span className="rounded bg-[var(--color-accent-soft)] px-1.5 py-0.5 text-[10px] font-bold uppercase text-[var(--color-accent)]">
+          {v.region}
+        </span>
+        {v.baseVersion && (
+          <span className="text-sm font-semibold text-[var(--color-good)]">v{v.baseVersion}</span>
+        )}
+        {v.credits && (
+          <span className="text-[10px] text-[var(--color-muted)]">· {v.credits}</span>
+        )}
+      </div>
+
+      {(v.password || langLine) && (
+        <div className="mb-2 flex flex-wrap items-center gap-2 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[11px]">
+          {v.password && (
+            <>
+              <span className="text-[var(--color-muted)]">password:</span>
+              <code className="font-semibold text-[var(--color-good)]">{v.password}</code>
+              <button
+                title="Copy password"
+                className="text-[var(--color-muted)] hover:text-[var(--color-text)]"
+                onClick={() => void navigator.clipboard.writeText(v.password!)}
+              >
+                <Copy size={11} />
+              </button>
+            </>
+          )}
+          {langLine && (
+            <span className="text-[var(--color-muted)]">{langLine}</span>
+          )}
+        </div>
+      )}
+
+      {v.game && v.game.mirrors.length > 0 && (
+        <BundleSection label="Game" mirrors={v.game.mirrors} />
+      )}
+
+      {v.updates.length > 0 && (
+        <div className="mt-2">
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-[var(--color-gold)]">
+            ◆ Updates ({v.updates.length})
+          </div>
+          <div className="space-y-1.5">
+            {v.updates.map((u, ui) => (
+              <div key={ui} className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5">
+                <div className="mb-1 text-[11px]">
+                  <b>{u.version}</b>
+                  {u.compat && <span className="text-[var(--color-muted)]"> · {u.compat}</span>}
+                </div>
+                {u.mirrors.length > 0 ? (
+                  <MirrorChips mirrors={u.mirrors} />
+                ) : (
+                  <span className="text-[10px] text-[var(--color-muted)]">no extracted mirrors</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {v.dlc.length > 0 && (
+        <div className="mt-2 space-y-1.5">
+          {v.dlc.map((d, di) => (
+            <BundleSection key={di} label={d.label} mirrors={d.mirrors} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BundleSection({ label, mirrors }: { label: string; mirrors: Array<{ host: string; url: string }> }) {
+  return (
+    <div className="mt-2">
+      <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-[var(--color-gold)]">
+        ◆ {label}
+      </div>
+      <MirrorChips mirrors={mirrors} />
+    </div>
+  );
+}
+
+function MirrorChips({ mirrors }: { mirrors: Array<{ host: string; url: string }> }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {mirrors.map((m, i) => (
+        <button
+          key={i}
+          title={m.url}
+          onClick={() => void openExternal(m.url)}
+          className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2.5 py-1 text-[11px] font-semibold hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)]"
+        >
+          {m.host}
+          <ExternalLink size={10} />
+        </button>
+      ))}
     </div>
   );
 }
