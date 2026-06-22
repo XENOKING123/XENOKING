@@ -265,6 +265,68 @@ pub async fn cheatrunner_icon(ip: String, id: String) -> Result<String, String> 
     Ok(format!("data:image/png;base64,{b64}"))
 }
 
+/// Install a cheat file ON the PS5 by streaming a local file's bytes to
+/// CheatRunner's `POST /api/cheats/upload?filename=<name>` (raw body, NOT
+/// multipart — the daemon reads Content-Length bytes verbatim). CheatRunner
+/// routes the file by EXTENSION into /data/cheatrunner/cheats/{json,shn,mc4}/
+/// (cr_api.c handle_api_cheats_upload). Caller MUST sanitize the filename
+/// (CheatRunner's is_safe_filename rejects spaces / parens / unicode and only
+/// accepts .json/.shn/.mc4 — `.ShnExt` must be remapped to `.shn` first).
+/// Returns the daemon's JSON response body on 200.
+#[tauri::command]
+pub async fn cheatrunner_upload(
+    ip: String,
+    filename: String,
+    local_path: String,
+) -> Result<String, String> {
+    if !valid_host(&ip) {
+        return Err(format!("bad host: {ip}"));
+    }
+    if filename.is_empty()
+        || filename.contains('/')
+        || filename.contains('\\')
+        || filename.contains("..")
+    {
+        return Err(format!("bad filename: {filename:?}"));
+    }
+    let lower = filename.to_ascii_lowercase();
+    if !(lower.ends_with(".json") || lower.ends_with(".shn") || lower.ends_with(".mc4")) {
+        return Err(format!(
+            "unsupported extension in '{filename}' — CheatRunner accepts .json, .shn, .mc4 only"
+        ));
+    }
+    let bytes = std::fs::read(&local_path)
+        .map_err(|e| format!("read {local_path}: {e}"))?;
+    if bytes.is_empty() {
+        return Err("empty cheat file".into());
+    }
+    // CheatRunner caps: JSON 2 MiB, SHN/MC4 1 MiB. Fail early with a clear
+    // message rather than a generic HTTP 413.
+    let max = if lower.ends_with(".json") { 2 * 1024 * 1024 } else { 1024 * 1024 };
+    if bytes.len() > max {
+        return Err(format!(
+            "cheat file too large ({} bytes > {} max for this format)",
+            bytes.len(),
+            max
+        ));
+    }
+    let url = format!("http://{ip}:{CR_PORT}/api/cheats/upload");
+    let resp = cr_client()?
+        .post(&url)
+        .query(&[("filename", filename.as_str())])
+        .header("Content-Type", "application/octet-stream")
+        .body(bytes)
+        .send()
+        .await
+        .map_err(|e| format!("cheatrunner unreachable on {ip}:{CR_PORT} — {e}"))?;
+    let status = resp.status();
+    let text = resp.text().await.map_err(|e| format!("cheatrunner read: {e}"))?;
+    if !status.is_success() {
+        return Err(format!("cheatrunner http {} — {}", status.as_u16(), text));
+    }
+    Ok(text)
+}
+
 // --------------------------------------------------------------------------- //
 //  XENO trainer library — 6-repo cheat sync + scan. Trainers live under
 //  <app_data_dir>/trainers/{json,mc4,shn}/. Sync pulls each repo's branch zip

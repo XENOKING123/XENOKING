@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Gamepad2, RefreshCw, Search, X, Zap, ZapOff, Play, Square } from "lucide-react";
+import { Gamepad2, RefreshCw, Search, X, Zap, ZapOff, Play, Square, Upload } from "lucide-react";
 
 import { PageHeader, Button, EmptyState } from "../../components";
 import { useConnectionStore } from "../../state/connection";
@@ -10,9 +10,11 @@ import {
   disableAll,
   launchGame,
   closeGame,
+  uploadCheatFile,
   type CRGame,
   type CRCheat,
 } from "../../lib/cheatRunner";
+import { friendlyCheatRunnerError } from "../../lib/cheatErrors";
 import { useGameCover } from "../../lib/covers";
 import { listTrainers, type TrainerRow } from "../../lib/trainers";
 
@@ -191,10 +193,12 @@ function GameCard({ host, game, onCheats }: { host: string; game: CRGame; onChea
 function CheatsDialog({ host, game, onClose }: { host: string; game: CRGame; onClose: () => void }) {
   const cover = useGameCover(host, game.titleId, game.name);
   const [cheats, setCheats] = useState<CRCheat[] | null>(null);
-  const [localCheats, setLocalCheats] = useState<string[] | null>(null);
-  const [localOn, setLocalOn] = useState<Set<number>>(new Set());
+  // Local-library matches we could push to the console. JSON > SHN > MC4 ordered
+  // so the user gets the most readable / most likely-to-apply variant on top.
+  const [localMatches, setLocalMatches] = useState<TrainerRow[] | null>(null);
   const [err, setErr] = useState("");
   const [pending, setPending] = useState<number | null>(null);
+  const [installingPath, setInstallingPath] = useState<string | null>(null);
   // Unmount guard so a toggle that resolves after the dialog closes doesn't
   // setState on an unmounted component.
   const alive = useRef(true);
@@ -205,19 +209,9 @@ function CheatsDialog({ host, game, onClose }: { host: string; game: CRGame; onC
     };
   }, []);
 
-  const toggleLocal = (i: number) =>
-    setLocalOn((prev) => {
-      const next = new Set(prev);
-      const turningOn = !next.has(i);
-      if (turningOn) next.add(i);
-      else next.delete(i);
-      playSfx(turningOn ? "on" : "off");
-      return next;
-    });
-
   const load = useCallback(async () => {
     setErr("");
-    setLocalCheats(null);
+    setLocalMatches(null);
     try {
       const live = await cheatState(host, game.titleId);
       if (!alive.current) return;
@@ -226,9 +220,10 @@ function CheatsDialog({ host, game, onClose }: { host: string; game: CRGame; onC
         return;
       }
       throw new Error("empty");
-    } catch {
+    } catch (e) {
       if (!alive.current) return;
-      // fall back to the local trainer library so cheats still LOAD
+      // No cheats on the console yet — find candidates in our local library so
+      // the user can push one with one click instead of FTPing it by hand.
       setCheats([]);
       try {
         const all = await listTrainers();
@@ -236,26 +231,60 @@ function CheatsDialog({ host, game, onClose }: { host: string; game: CRGame; onC
         const tid = game.titleId.toUpperCase();
         const norm = (s: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
         const gname = norm(game.name);
-        // match by title-id, then exact game name, then name-contains
-        const match =
-          all.find((t: TrainerRow) => t.titleId.toUpperCase() === tid) ||
-          (gname.length > 2 ? all.find((t: TrainerRow) => norm(t.game) === gname) : undefined) ||
-          (gname.length > 4
-            ? all.find((t: TrainerRow) => {
-                const tn = norm(t.game);
-                return tn.includes(gname) || gname.includes(tn);
-              })
-            : undefined);
-        if (match && match.cheats.length) {
-          setLocalCheats(match.cheats);
+        const matches = all.filter((t: TrainerRow) => {
+          if (t.titleId.toUpperCase() === tid) return true;
+          if (gname.length > 2 && norm(t.game) === gname) return true;
+          if (gname.length > 4) {
+            const tn = norm(t.game);
+            if (tn && (tn.includes(gname) || gname.includes(tn))) return true;
+          }
+          return false;
+        });
+        const fmtRank: Record<string, number> = { JSON: 0, SHN: 1, MC4: 2, XML: 3 };
+        matches.sort(
+          (a, b) =>
+            (fmtRank[a.format] ?? 9) - (fmtRank[b.format] ?? 9) ||
+            b.cheats.length - a.cheats.length,
+        );
+        if (matches.length > 0) {
+          setLocalMatches(matches);
         } else {
-          setErr(`No cheats for ${game.titleId} on the console or in the local library.`);
+          // Surface the underlying CheatRunner error if that's why we got here.
+          setErr(
+            (e instanceof Error && e.message !== "empty"
+              ? friendlyCheatRunnerError(e, "state") + " "
+              : "") +
+              `No cheats for ${game.titleId} on the console or in the local library.`,
+          );
         }
-      } catch {
-        if (alive.current) setErr("Couldn't read the local trainer library.");
+      } catch (e2) {
+        if (alive.current) setErr(friendlyCheatRunnerError(e2, "state"));
       }
     }
-  }, [host, game.titleId]);
+  }, [host, game.titleId, game.name]);
+
+  /** Push a local cheat file to the PS5 via CheatRunner /api/cheats/upload,
+   *  then re-query so the live-cheats branch takes over with real toggles
+   *  that actually write to the running game. */
+  const installToConsole = useCallback(
+    async (row: TrainerRow) => {
+      if (installingPath) return;
+      setInstallingPath(row.path);
+      setErr("");
+      try {
+        await uploadCheatFile(host, row.path);
+        // small delay — CheatRunner scans the dir on next /state hit, but a
+        // breath helps when the console is sluggish.
+        await new Promise((r) => setTimeout(r, 250));
+        if (alive.current) await load();
+      } catch (e) {
+        if (alive.current) setErr(friendlyCheatRunnerError(e, "upload"));
+      } finally {
+        if (alive.current) setInstallingPath(null);
+      }
+    },
+    [host, installingPath, load],
+  );
 
   useEffect(() => {
     void load();
@@ -270,9 +299,11 @@ function CheatsDialog({ host, game, onClose }: { host: string; game: CRGame; onC
     setCheats((cur) => (cur ? cur.map((x) => (x.index === c.index ? { ...x, state: next } : x)) : cur));
     try {
       await toggleCheat(host, game.titleId, c.index, next);
-    } catch {
-      if (alive.current)
+    } catch (e) {
+      if (alive.current) {
         setCheats((cur) => (cur ? cur.map((x) => (x.index === c.index ? { ...x, state: c.state } : x)) : cur));
+        setErr(friendlyCheatRunnerError(e, "toggle"));
+      }
     } finally {
       if (alive.current) setPending(null);
     }
@@ -334,51 +365,66 @@ function CheatsDialog({ host, game, onClose }: { host: string; game: CRGame; onC
               </span>
             </button>
           ))}
-          {/* local-library cheats (display only — apply needs the game running + ps5debug) */}
-          {localCheats && (
+          {/* Local-library candidates — push to PS5 with one click so CheatRunner
+              loads them, then this dialog flips to the live-toggle view above. */}
+          {localMatches && localMatches.length > 0 && (
             <>
               <div className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-gold)]">
-                ◆ From your trainer library ({localCheats.length})
+                ◆ Install to console ({localMatches.length} found)
               </div>
               <p className="text-[11px] text-[var(--color-muted)]">
-                The console has no live trainer loaded for this game. These are from your synced
-                library — launch the game (Play) so CheatRunner can use them; one-click apply
-                (ps5debug) is coming.
+                CheatRunner has no cheats loaded for this game yet. Pick a variant below to push it to{" "}
+                <code className="text-[var(--color-text)]">/data/cheatrunner/cheats/</code>; the toggles
+                will appear automatically once it's there.
               </p>
-              {localCheats.map((c, i) => {
-                const on = localOn.has(i);
+              {localMatches.map((row) => {
+                const filename = row.path.replace(/^.*[\\/]/, "");
+                const installing = installingPath === row.path;
+                const anyInstalling = installingPath !== null;
                 return (
-                  <button
-                    key={i}
-                    onClick={() => toggleLocal(i)}
-                    className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left text-sm transition ${
-                      on
-                        ? "border-[var(--color-good)] bg-[var(--color-good-soft)]"
-                        : "border-[var(--color-bad)]/50 bg-[var(--color-bad-soft)]"
-                    }`}
+                  <div
+                    key={row.path}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-sm"
                   >
-                    <span className="flex items-center gap-2">
-                      {on ? (
-                        <Zap size={15} className="text-[var(--color-good)]" />
-                      ) : (
-                        <ZapOff size={15} className="text-[var(--color-bad)]" />
-                      )}
-                      {c}
-                    </span>
-                    <span
-                      className={`flex h-5 w-10 items-center rounded-full px-0.5 transition ${
-                        on ? "justify-end bg-[var(--color-good)]" : "justify-start bg-[var(--color-bad)]"
-                      }`}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="rounded bg-[var(--color-surface-3)] px-1.5 py-0.5 text-[10px] font-bold uppercase">
+                          {row.format}
+                        </span>
+                        <span className="truncate" title={filename}>
+                          {filename}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 text-[10px] text-[var(--color-muted)]">
+                        {row.cheats.length > 0
+                          ? `${row.cheats.length} cheat${row.cheats.length === 1 ? "" : "s"}`
+                          : "cheat names embedded on console"}
+                        {row.version ? ` · v${row.version}` : ""}
+                        {row.modder ? ` · ${row.modder}` : ""}
+                      </div>
+                    </div>
+                    <Button
+                      variant={installing ? "ghost" : "primary"}
+                      size="sm"
+                      leftIcon={<Upload size={13} />}
+                      loading={installing}
+                      disabled={anyInstalling}
+                      onClick={() => void installToConsole(row)}
                     >
-                      <span className="h-4 w-4 rounded-full bg-white shadow" />
-                    </span>
-                  </button>
+                      {installing ? "Sending…" : "Install"}
+                    </Button>
+                  </div>
                 );
               })}
             </>
           )}
-          {cheats?.length === 0 && !localCheats && err && (
+          {cheats?.length === 0 && !localMatches && err && (
             <div className="py-6 text-center text-sm text-[var(--color-muted)]">{err}</div>
+          )}
+          {err && (cheats?.length || (localMatches && localMatches.length > 0)) && (
+            <div className="mt-2 rounded border border-[var(--color-bad)]/40 bg-[var(--color-bad-soft)] px-3 py-2 text-[11px] text-[var(--color-bad)]">
+              {err}
+            </div>
           )}
         </div>
 

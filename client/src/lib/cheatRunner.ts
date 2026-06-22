@@ -149,3 +149,43 @@ export async function cheatRunnerUp(ip: string): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Rewrite a local cheat-file basename so CheatRunner's `is_safe_filename`
+ * accepts it: only `[A-Za-z0-9._-]` survive; the extension is forced lowercase;
+ * `.ShnExt` / `.SHNEXT` is remapped to `.shn` (CheatRunner only accepts
+ * `.json` / `.shn` / `.mc4`). Leaves the title-id and version intact so the
+ * daemon's filename-matching keeps working.
+ */
+export function sanitizeCheatFilename(name: string): string {
+  const lastDot = name.lastIndexOf(".");
+  const stem = lastDot >= 0 ? name.slice(0, lastDot) : name;
+  let ext = lastDot >= 0 ? name.slice(lastDot + 1).toLowerCase() : "";
+  if (ext === "shnext") ext = "shn";
+  // Strip illegal chars; collapse runs of underscores; trim leading/trailing dots.
+  const safeStem = stem
+    .replace(/[^A-Za-z0-9._-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^[._]+|[._]+$/g, "");
+  return ext ? `${safeStem}.${ext}` : safeStem;
+}
+
+/**
+ * Push a local cheat file (json / shn / mc4) to the PS5's
+ * `/data/cheatrunner/cheats/{format}/` via CheatRunner's `POST
+ * /api/cheats/upload`. Returns the daemon's JSON response body.
+ * Throws a friendly Error on validation / network failure.
+ */
+export async function uploadCheatFile(
+  ip: string,
+  localPath: string,
+  filenameHint?: string,
+): Promise<string> {
+  const base = filenameHint ?? localPath.replace(/^.*[\\/]/, "");
+  const filename = sanitizeCheatFilename(base);
+  return await invoke<string>("cheatrunner_upload", {
+    ip,
+    filename,
+    localPath,
+  });
+}

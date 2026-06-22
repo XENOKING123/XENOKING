@@ -426,6 +426,7 @@ pub fn run() {
             commands::xeno_image_fetch,
             commands::cheatrunner_get,
             commands::cheatrunner_icon,
+            commands::cheatrunner_upload,
             commands::cheat_sync,
             commands::list_trainers,
             commands::ps5debug_attach,

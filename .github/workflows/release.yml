@@ -176,9 +176,15 @@ jobs:
             ~/.cargo/git
             client/src-tauri/target
             engine/target
-          key: ${{ runner.os }}-x64-desktop-${{ hashFiles('client/src-tauri/Cargo.lock', 'engine/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-x64-desktop-
+          # CRITICAL: include VERSION in the key. update-version.js bumps the
+          # version line in Cargo.toml but NOT Cargo.lock, so a pure Cargo.lock-
+          # hash key let actions/cache restore the prior build's target/ —
+          # including bundle/nsis/*.exe with the OLD manifest.rc. tauri-build's
+          # build.rs doesn't re-run on Cargo.toml-only version bumps, so the
+          # cached .exe got renamed to the new tag and shipped. Versions
+          # 3.2.20/3.2.21 both went out as the 3.2.19 binary because of this.
+          # No restore-keys fallback for the same reason.
+          key: ${{ runner.os }}-x64-desktop-v${{ hashFiles('VERSION') }}-${{ hashFiles('client/src-tauri/Cargo.lock', 'engine/Cargo.lock') }}
 
       - name: Ensure libclang for bindgen
         shell: bash
@@ -266,6 +272,30 @@ jobs:
           cp -v "$setup" "out/XENO_TOOL_${VERSION}_x64-setup.exe"
           ls -la out
 
+      - name: Verify installer's inner EXE actually matches VERSION
+        shell: pwsh
+        run: |
+          # 3.2.20 + 3.2.21 both shipped the 3.2.19 binary because actions/cache
+          # restored target/ from a prior version (Cargo.lock-only key, see
+          # cache step). The NSIS wrapper takes its name from $VERSION but
+          # contains whatever EXE was cached. Extract the wrapped binary and
+          # assert its FileVersion matches — fail loudly if not.
+          $version = (Get-Content VERSION -Raw).Trim()
+          $target = $env:RUST_TARGET
+          $innerExe = "client/src-tauri/target/$target/release/XENO TOOL.exe"
+          if (-not (Test-Path $innerExe)) {
+            Write-Error "::error::inner XENO TOOL.exe not found at $innerExe"; exit 1
+          }
+          $info = (Get-Item $innerExe).VersionInfo
+          Write-Host "inner exe FileVersion    = $($info.FileVersion)"
+          Write-Host "inner exe ProductVersion = $($info.ProductVersion)"
+          Write-Host "expected VERSION         = $version"
+          if ($info.FileVersion -notlike "$version*") {
+            Write-Error "::error::PE FileVersion '$($info.FileVersion)' does not match VERSION '$version' — cache likely served a stale binary. Refusing to publish."
+            exit 1
+          }
+          Write-Host "OK — installer's inner EXE is genuinely $version"
+
       - name: Upload desktop artifact
         uses: actions/upload-artifact@v4
         with:
@@ -307,6 +337,11 @@ jobs:
             f="$(find artifacts -type f -name "$n" -print -quit)"
             if [ -n "$f" ]; then
               cp -v "$f" "release/$(basename "$f")"
+            elif [[ "$n" == "XENO_TOOL_"* ]]; then
+              # The desktop installer is non-negotiable for a release; abort
+              # rather than carry a stale prior asset forward.
+              echo "::error::desktop installer missing from artifacts: $n"
+              exit 1
             else
               echo "::warning::expected asset not found in artifacts: $n"
             fi
