@@ -164,32 +164,35 @@ function GameCard({ host, game, onCheats }: { host: string; game: CRGame; onChea
         <div className="flex items-center gap-1.5">
           <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${chipCls}`}>{game.titleId}</span>
         </div>
+        {/* Two-button row — Play swaps to Stop when running so the third
+            button never squeezes "Cheats" into "Chea" at the 184px card width. */}
         <div className="mt-auto flex gap-1.5">
-          <Button
-            variant="secondary"
-            size="sm"
-            leftIcon={<Play size={13} />}
-            onClick={() => {
-              void launchGame(host, game.titleId).then((ok) => ok && setRunning(true));
-            }}
-          >
-            Play
-          </Button>
-          <Button variant="primary" size="sm" leftIcon={<Zap size={13} />} onClick={onCheats}>
-            Cheats
-          </Button>
-          {running && (
+          {running ? (
             <Button
-              variant="ghost"
+              variant="danger"
               size="sm"
-              title="Close game"
+              leftIcon={<Square size={13} />}
               onClick={() => {
                 void closeGame(host, game.titleId).then((ok) => ok && setRunning(false));
               }}
             >
-              <Square size={13} />
+              Stop
+            </Button>
+          ) : (
+            <Button
+              variant="secondary"
+              size="sm"
+              leftIcon={<Play size={13} />}
+              onClick={() => {
+                void launchGame(host, game.titleId).then((ok) => ok && setRunning(true));
+              }}
+            >
+              Play
             </Button>
           )}
+          <Button variant="primary" size="sm" leftIcon={<Zap size={13} />} onClick={onCheats}>
+            Cheats
+          </Button>
         </div>
       </div>
     </div>

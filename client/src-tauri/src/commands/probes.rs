@@ -82,9 +82,22 @@ pub async fn payload_check(ip: String) -> serde_json::Value {
         // 502 Bad Gateway from the engine means the connect/STATUS frame
         // round-trip itself failed — surface as "not running" rather
         // than as an engine error so the UI can render "Not reachable".
+        // BUT first fall back to a raw TCP probe of :9114. After a payload
+        // restart the engine often holds a stale pooled socket to the OLD
+        // payload's :9114 lifetime — the new helper IS up and bound, the
+        // round-trip just retries on a dead fd. If the port is open, that
+        // alone is enough for the Connection screen's wait-for-boot loop
+        // to clear; the UI only looks at `reachable`.
         Ok(r) => {
             let code = r.status();
             let body = r.text().await.unwrap_or_default();
+            if tcp_reachable(&ip, PS5_MGMT_PORT).await {
+                return serde_json::json!({
+                    "ok": true,
+                    "reachable": true,
+                    "status": { "degraded": true },
+                });
+            }
             serde_json::json!({
                 "ok": false,
                 "reachable": false,
@@ -95,12 +108,34 @@ pub async fn payload_check(ip: String) -> serde_json::Value {
                 },
             })
         }
-        Err(e) => serde_json::json!({
-            "ok": false,
-            "reachable": false,
-            "error": e.to_string(),
-        }),
+        Err(e) => {
+            if tcp_reachable(&ip, PS5_MGMT_PORT).await {
+                return serde_json::json!({
+                    "ok": true,
+                    "reachable": true,
+                    "status": { "degraded": true },
+                });
+            }
+            serde_json::json!({
+                "ok": false,
+                "reachable": false,
+                "error": e.to_string(),
+            })
+        }
     }
+}
+
+/// Short-timeout raw TCP probe — used as a fallback when the engine's STATUS
+/// round-trip fails (typical cause: pooled socket to the prior payload's
+/// :9114 lifetime stayed in the pool across a restart). If the port accepts
+/// a connection the helper is bound and serving — that's enough signal for
+/// the renderer's wait-for-boot loop.
+async fn tcp_reachable(ip: &str, port: u16) -> bool {
+    let addr = format!("{ip}:{port}");
+    matches!(
+        timeout(Duration::from_millis(800), TcpStream::connect(&addr)).await,
+        Ok(Ok(_))
+    )
 }
 
 /// Stream a file to a PS5 loader port. Extracted from the
@@ -188,16 +223,23 @@ async fn do_payload_send(ip: &str, path: &str, target_port: u16) -> Result<u64, 
     // payload restore — which IS a ps5upload send — cleans up the ports.)
     if target_port == PS5_LOADER_PORT && sending_ps5upload {
         let mgmt_addr = format!("{ip}:9114");
-        // Off the async runtime — Connection is blocking I/O.
-        let _ = tokio::task::spawn_blocking(move || {
+        // Off the async runtime — Connection is blocking I/O. Capture the
+        // outcome so we only burn the 600ms grace window when we actually
+        // evicted a prior payload. On a cold console (nothing on :9114) the
+        // sleep just adds latency to the user-facing send for no benefit.
+        let evicted = tokio::task::spawn_blocking(move || {
             ps5upload_core::payload_lifecycle::shutdown_running_payload(&mgmt_addr)
         })
-        .await;
-        // Brief grace period for the OS to recycle :9114 after the
-        // old process exits. 600 ms is enough for the typical FreeBSD
-        // close-wait → unbind transition on the PS5 we've measured;
-        // anything more would noticeably slow the user-facing send.
-        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+        .await
+        .ok()
+        .and_then(|r| r.ok())
+        .unwrap_or(false);
+        if evicted {
+            // Brief grace period for the OS to recycle :9114 after the
+            // old process exits. 600 ms is enough for the typical FreeBSD
+            // close-wait → unbind transition on the PS5 we've measured.
+            tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+        }
     }
 
     let addr = format!("{ip}:{target_port}");

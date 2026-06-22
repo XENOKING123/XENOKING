@@ -65,6 +65,38 @@ export async function listGames(ip: string): Promise<CRGame[]> {
     .filter((g) => g.titleId);
 }
 
+/**
+ * Decide whether a CheatRunner mod entry is currently ENABLED on-console.
+ *
+ * CheatRunner v0.14 emits per-mod `state` as a *string* classification, not a
+ * boolean — values like "on", "off", "on_unverified", "off_unverified",
+ * "baseline_unknown", "mismatch", "conflict", "crash_suspect", "game_loading",
+ * etc. (cr_api.c `cheat_state_key`, ~line 1525). A naive Boolean(state) reads
+ * TRUE for every cheat (every non-empty string is truthy) — that's why every
+ * toggle showed green and wouldn't go off.
+ *
+ * Priority: explicit boolean (`enabled`/`on`/`active`) → `visualState` (CR's own
+ * canonical UI signal, only "on" means enabled) → string `state` (only "on" or
+ * "on_*" mean enabled; everything else, including baseline_unknown/mismatch, is
+ * OFF).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function isCheatEnabled(c: any): boolean {
+  for (const k of ["enabled", "on", "active"] as const) {
+    const v = c?.[k];
+    if (typeof v === "boolean") return v;
+    if (typeof v === "number") return v !== 0;
+  }
+  const vs = c?.visualState;
+  if (typeof vs === "string") return vs.toLowerCase() === "on";
+  const s = c?.state;
+  if (typeof s === "string") {
+    const k = s.toLowerCase();
+    return k === "on" || k.startsWith("on_");
+  }
+  return false;
+}
+
 export async function cheatState(ip: string, titleId: string): Promise<CRCheat[]> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const d: any = await crGet(
@@ -77,7 +109,7 @@ export async function cheatState(ip: string, titleId: string): Promise<CRCheat[]
     .map((c: any, i: number) => ({
       index: Number(pick(c, "index", "idx", "i") ?? i),
       name: String(pick(c, "name", "text", "title") ?? `Cheat ${i + 1}`),
-      state: Boolean(pick(c, "state", "on", "enabled", "active")),
+      state: isCheatEnabled(c),
     }))
     .filter((c) => c.name);
 }
