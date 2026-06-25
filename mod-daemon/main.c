@@ -153,38 +153,46 @@ static int resolve_sandbox_app0(const char *title_id, char *out, size_t outsz) {
     }
     closedir(d);
     if (best_n < 0) { llog("no /mnt/sandbox/%s_* — is ER running?", title_id); return -1; }
+    llog("  best sandbox dir: %s", best_prefix);
 
     // PS4 backwards-compat layout (CUSA18723 PS4 EU Elden Ring on PS5):
     //   /mnt/sandbox/CUSAXXXXX_NNN/app0/   ← direct, no hash dir
-    // Try this first; it's the simpler layout and matches every PS4-BC game.
+    // Use access(F_OK) instead of stat() — access doesn't dereference further
+    // into the mount stack so it survives the backwards-compat /app0/ being
+    // a tear-down-on-background dynamic mount on PS5 BC games. Some BC
+    // sandboxes also make stat() block waiting for SceShellCore.
     {
         char probe[MAX_PATH];
         snprintf(probe, sizeof(probe), "%s/app0", best_prefix);
-        struct stat st;
-        if (stat(probe, &st) == 0 && S_ISDIR(st.st_mode)) {
+        llog("  probing PS4-BC: %s", probe);
+        int rc = access(probe, F_OK);
+        if (rc == 0) {
+            llog("  ✓ PS4-BC direct app0 found");
             snprintf(out, outsz, "%s", probe);
             return 0;
         }
+        llog("  PS4-BC probe: rc=%d errno=%d (%s)", rc, errno, strerror(errno));
     }
 
     // PS5-native layout:
     //   /mnt/sandbox/CUSAXXXXX_NNN/<random_hash>/app0/   ← hash dir in between
-    // Enumerate the inner random-hash dir(s); the right one has an app0 child.
+    llog("  scanning <random>/app0 layout under %s", best_prefix);
     DIR *d2 = opendir(best_prefix);
-    if (!d2) { llog("opendir %s: %s", best_prefix, strerror(errno)); return -1; }
+    if (!d2) { llog("  opendir %s: %s", best_prefix, strerror(errno)); return -1; }
     while ((e = readdir(d2)) != NULL) {
         if (e->d_name[0] == '.') continue;
         char probe[MAX_PATH];
         snprintf(probe, sizeof(probe), "%s/%s/app0", best_prefix, e->d_name);
-        struct stat st;
-        if (stat(probe, &st) == 0 && S_ISDIR(st.st_mode)) {
+        llog("    probing: %s", probe);
+        if (access(probe, F_OK) == 0) {
+            llog("    ✓ found");
             closedir(d2);
             snprintf(out, outsz, "%s", probe);
             return 0;
         }
     }
     closedir(d2);
-    llog("no /app0 or <random>/app0 under %s — ER mid-launch?", best_prefix);
+    llog("no /app0 or <random>/app0 under %s — bring ER to the foreground (PS button → ER icon) and re-inject.", best_prefix);
     return -1;
 }
 
@@ -370,6 +378,7 @@ int main(int argc, char *argv[]) {
         return 2;
     }
     llog("matched %s pid=%d", title_id, pid);
+    llog("entering resolve_sandbox_app0(%s)", title_id);
 
     char sbx_app0[MAX_PATH];
     if (resolve_sandbox_app0(title_id, sbx_app0, sizeof(sbx_app0)) != 0) {
