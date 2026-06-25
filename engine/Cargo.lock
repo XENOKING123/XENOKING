@@ -494,7 +494,7 @@ dependencies = [
 
 [[package]]
 name = "ftx2-proto"
-version = "3.2.3"
+version = "3.2.29"
 dependencies = [
  "serde",
  "thiserror",
@@ -954,7 +954,7 @@ dependencies = [
 
 [[package]]
 name = "ps5upload-bench"
-version = "3.2.3"
+version = "3.2.29"
 dependencies = [
  "criterion",
  "ftx2-proto",
@@ -964,7 +964,7 @@ dependencies = [
 
 [[package]]
 name = "ps5upload-core"
-version = "3.2.3"
+version = "3.2.29"
 dependencies = [
  "anyhow",
  "base64",
@@ -981,7 +981,7 @@ dependencies = [
 
 [[package]]
 name = "ps5upload-engine"
-version = "3.2.3"
+version = "3.2.29"
 dependencies = [
  "anyhow",
  "axum",
@@ -999,7 +999,7 @@ dependencies = [
 
 [[package]]
 name = "ps5upload-lab"
-version = "3.2.3"
+version = "3.2.29"
 dependencies = [
  "anyhow",
  "ftx2-proto",
@@ -1008,7 +1008,7 @@ dependencies = [
 
 [[package]]
 name = "ps5upload-pkg"
-version = "3.2.3"
+version = "3.2.29"
 dependencies = [
  "serde",
  "serde_json",
@@ -1017,7 +1017,7 @@ dependencies = [
 
 [[package]]
 name = "ps5upload-tests"
-version = "3.2.3"
+version = "3.2.29"
 dependencies = [
  "anyhow",
  "ftx2-proto",
@@ -1199,9 +1199,9 @@ dependencies = [
 
 [[package]]
 name = "sevenz-rust2"
-version = "0.21.0"
+version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbbd24232798280d6bc896e3429a3469174de008ec8b1b591a96618b46664195"
+checksum = "081a399c6762c4a9bda9233f502aca74b6ca6a0caaff4d218b12887eac4b6adc"
 dependencies = [
  "aes",
  "bzip2",
@@ -1479,9 +1479,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.23.2"
+version = "1.23.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d258b83ceec21034727ecee8c382cfa6c3e133699b0742c64571814fb420c9f7"
+checksum = "bf80a72845275afea99e7f2b434723d3bc7e38470fcd1c7ed39a599c73319a53"
 dependencies = [
  "getrandom",
  "js-sys",
