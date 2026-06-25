@@ -117,7 +117,14 @@ fn classify(rel: &str) -> (&'static str, String) {
         return ("event", format!("player Havok script ({})", base));
     }
     // parts/ — wm/am/bd/hd/lg = weapon/arms/body/head/legs.
-    if lower.contains("/parts/") || lower.starts_with("parts/") {
+    // Parts files — either under a `parts/` subdir OR at the zip root with a
+    // recognizable partsbnd basename (Naruto Six Paths and a lot of cosmetic
+    // packs ship flat: `bd_m_2010.partsbnd.dcx` at zip root). Match the prefix
+    // pattern even when there's no `parts/` parent.
+    let is_partsbnd = base.ends_with(".partsbnd.dcx") || base.ends_with(".partsbnd");
+    let parts_prefix = base.len() >= 2
+        && matches!(&base[0..2], "wp" | "wm" | "am" | "bd" | "hd" | "lg" | "fc");
+    if lower.contains("/parts/") || lower.starts_with("parts/") || (is_partsbnd && parts_prefix) {
         let kind = match &base[0..2.min(base.len())] {
             "wp" => "weapon model",
             "wm" => "weapon model",
@@ -260,7 +267,26 @@ pub async fn mods_extract_and_inspect(
             continue;
         }
 
-        let dest = root.join(&rel);
+        let (ftype, label) = classify(&rel);
+        cats.insert(ftype.to_string());
+        // Normalize the relative path so the staged tree mirrors what the
+        // on-console daemon will mount at /app0/. Armor packs like Naruto Six
+        // Paths ship FLAT (bd_m_2010.partsbnd.dcx at zip root) but the bytes
+        // belong under /app0/parts/, not /app0/. Promote those into a
+        // synthetic `parts/` prefix so the staged layout, the displayed
+        // game_path, and the transfer_dir push all line up.
+        let canonical_rel: String = match ftype {
+            "parts" if !rel.contains("/parts/") && !rel.starts_with("parts/") => {
+                let base = Path::new(&rel)
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(&rel);
+                format!("parts/{}", base)
+            }
+            _ => rel.clone(),
+        };
+
+        let dest = root.join(&canonical_rel);
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {parent:?}: {e}"))?;
         }
@@ -268,9 +294,7 @@ pub async fn mods_extract_and_inspect(
         let copied = std::io::copy(&mut entry, &mut out).map_err(|e| format!("extract {rel}: {e}"))?;
         total_bytes = total_bytes.saturating_add(copied);
 
-        let (ftype, label) = classify(&rel);
-        cats.insert(ftype.to_string());
-        let game_path = format!("/app0/{}", rel.trim_start_matches('/'));
+        let game_path = format!("/app0/{}", canonical_rel.trim_start_matches('/'));
         if ftype == "regulation" || ftype == "animations" {
             conflict_paths.push(game_path.clone());
         }

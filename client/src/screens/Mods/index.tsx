@@ -6,7 +6,7 @@ import {
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 
 import { PageHeader, Button, EmptyState } from "../../components";
-import { useConnectionStore } from "../../state/connection";
+import { useConnectionStore, PS5_PAYLOAD_PORT } from "../../state/connection";
 import { pickPath } from "../../lib/pickPath";
 import { pushNotification } from "../../state/notifications";
 import {
@@ -79,6 +79,7 @@ export default function ModsScreen() {
   const [importing, setImporting] = useState(false);
   const [pushingId, setPushingId] = useState<string | null>(null);
   const [pushProgress, setPushProgress] = useState<{ done: number; total: number } | null>(null);
+  const [pushError, setPushError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -143,9 +144,15 @@ export default function ModsScreen() {
       if (pushingId) return;
       setPushingId(manifest.mod_id);
       setPushProgress({ done: 0, total: manifest.total_files });
+      setPushError(null);
       try {
         const dest = `/data/xeno_mods/${manifest.title_id}/${manifest.mod_id}`;
-        const jobId = await startTransferDir(manifest.staged_dir, dest, host.trim());
+        // The engine's transfer_dir expects an `<ip>:<port>` addr — the
+        // FTX2 transfer runtime listens on PS5_PAYLOAD_PORT (9113). Passing
+        // a bare IP made the engine return immediately with a 400 and the
+        // toast was rendering behind the modal so the click looked silent.
+        const transferAddr = `${host.trim()}:${PS5_PAYLOAD_PORT}`;
+        const jobId = await startTransferDir(manifest.staged_dir, dest, transferAddr);
         // Poll until the engine finishes streaming. JobSnapshot uses
         // `status` ∈ {running, done, failed} and a per-file counter
         // (`files_processing`) plus a byte counter (`bytes_sent` /
@@ -174,7 +181,9 @@ export default function ModsScreen() {
         });
         setPendingImport(null);
       } catch (e) {
-        pushNotification("error", "Push to PS5 failed", { body: String(e) });
+        const msg = String(e);
+        setPushError(msg);
+        pushNotification("error", "Push to PS5 failed", { body: msg });
       } finally {
         setPushingId(null);
         setPushProgress(null);
@@ -380,7 +389,8 @@ export default function ModsScreen() {
           host={host}
           pushing={pushingId === pendingImport.mod_id}
           progress={pushProgress}
-          onCancel={() => setPendingImport(null)}
+          error={pushError}
+          onCancel={() => { setPendingImport(null); setPushError(null); }}
           onPush={() => void stageToPs5(pendingImport)}
         />
       )}
@@ -626,12 +636,13 @@ function DetailModal({
 // ─── Stage confirmation modal ───────────────────────────────────────────
 
 function ConfirmStageModal({
-  manifest, host, pushing, progress, onCancel, onPush,
+  manifest, host, pushing, progress, error, onCancel, onPush,
 }: {
   manifest: ModManifest;
   host: string;
   pushing: boolean;
   progress: { done: number; total: number } | null;
+  error: string | null;
   onCancel: () => void;
   onPush: () => void;
 }) {
@@ -667,6 +678,19 @@ function ConfirmStageModal({
         </div>
 
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4 text-[12px]">
+          {error && (
+            <div className="flex items-start gap-2 rounded-lg border border-[var(--color-bad)]/60 bg-[var(--color-bad-soft)] px-3 py-2 text-[var(--color-bad)]">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold">Push to PS5 failed</div>
+                <div className="mt-0.5 break-words text-[11px]">{error}</div>
+                <div className="mt-1 text-[10px] opacity-80">
+                  Check: PS5 helper is loaded (Connection tab · green dot), the helper is on the
+                  current FW (12.40), and {host || "your PS5 IP"}:9113 is reachable.
+                </div>
+              </div>
+            </div>
+          )}
           {manifest.conflict_paths.length > 0 && (
             <div className="flex items-start gap-2 rounded-lg border border-[var(--color-warn)]/40 bg-[var(--color-warn-soft)] px-3 py-2 text-[var(--color-warn)]">
               <AlertTriangle size={14} className="mt-0.5 shrink-0" />
