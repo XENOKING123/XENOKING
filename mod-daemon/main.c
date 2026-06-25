@@ -154,6 +154,21 @@ static int resolve_sandbox_app0(const char *title_id, char *out, size_t outsz) {
     closedir(d);
     if (best_n < 0) { llog("no /mnt/sandbox/%s_* — is ER running?", title_id); return -1; }
 
+    // PS4 backwards-compat layout (CUSA18723 PS4 EU Elden Ring on PS5):
+    //   /mnt/sandbox/CUSAXXXXX_NNN/app0/   ← direct, no hash dir
+    // Try this first; it's the simpler layout and matches every PS4-BC game.
+    {
+        char probe[MAX_PATH];
+        snprintf(probe, sizeof(probe), "%s/app0", best_prefix);
+        struct stat st;
+        if (stat(probe, &st) == 0 && S_ISDIR(st.st_mode)) {
+            snprintf(out, outsz, "%s", probe);
+            return 0;
+        }
+    }
+
+    // PS5-native layout:
+    //   /mnt/sandbox/CUSAXXXXX_NNN/<random_hash>/app0/   ← hash dir in between
     // Enumerate the inner random-hash dir(s); the right one has an app0 child.
     DIR *d2 = opendir(best_prefix);
     if (!d2) { llog("opendir %s: %s", best_prefix, strerror(errno)); return -1; }
@@ -164,13 +179,12 @@ static int resolve_sandbox_app0(const char *title_id, char *out, size_t outsz) {
         struct stat st;
         if (stat(probe, &st) == 0 && S_ISDIR(st.st_mode)) {
             closedir(d2);
-            // Copy the app0 path back to the caller.
             snprintf(out, outsz, "%s", probe);
             return 0;
         }
     }
     closedir(d2);
-    llog("no <random>/app0 under %s — ER mid-launch?", best_prefix);
+    llog("no /app0 or <random>/app0 under %s — ER mid-launch?", best_prefix);
     return -1;
 }
 
