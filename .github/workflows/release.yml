@@ -168,7 +168,18 @@ jobs:
           /opt/ps5-payload-sdk/bin/prospero-clang --version
 
       - name: Build xenoking-mount-once.elf
-        run: make PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk
+        # `make clean` first because the 0-byte placeholder ELF tracked in git
+        # (so include_bytes! resolves in local cargo builds) has a checkout
+        # timestamp that's newer than main.c — without the clean, make says
+        # "Nothing to be done for 'all'" and uploads the placeholder.
+        run: |
+          make clean
+          make PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk
+          # Hard guard: any build that silently produced no bytes must fail
+          # here, not 3 steps later in build-desktop where the error is opaque.
+          test -s xenoking-mount-once.elf || { echo "::error::build produced a zero-byte ELF"; exit 1; }
+          ls -la xenoking-mount-once.elf
+          file xenoking-mount-once.elf || true
 
       - name: Upload mod-daemon artifact
         uses: actions/upload-artifact@v4
