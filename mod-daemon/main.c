@@ -55,6 +55,32 @@ typedef struct {
 extern int sceKernelGetAppInfo(pid_t, app_info_t *);
 
 // ──────────────────────────────────────────────────────────────────────
+//  PS5 system notification (the top-right corner toast)
+// ──────────────────────────────────────────────────────────────────────
+//
+// Same API CheatRunner / etaHEN / BackPork use. The notification text is
+// rendered by SceShellCore which handles UTF-8, so emojis work. Layout is
+// the canonical scene struct; only `message` matters for our use case.
+
+typedef struct {
+    char useless1[45];
+    char message[3075];
+    char useless2[1024];
+} OrbisNotificationRequest;
+
+extern int sceKernelSendNotificationRequest(int, OrbisNotificationRequest *, size_t, int);
+
+static void ps5_notify(const char *fmt, ...) {
+    OrbisNotificationRequest req;
+    memset(&req, 0, sizeof(req));
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(req.message, sizeof(req.message), fmt, ap);
+    va_end(ap);
+    sceKernelSendNotificationRequest(0, &req, sizeof(req), 0);
+}
+
+// ──────────────────────────────────────────────────────────────────────
 //  logging
 // ──────────────────────────────────────────────────────────────────────
 static FILE *g_log;
@@ -368,21 +394,27 @@ int main(int argc, char *argv[]) {
 
     log_open();
     llog("xenoking-mount-once · build %s %s", __DATE__, __TIME__);
+    // Inject confirmation — user sees this in the PS5 corner the moment
+    // they hit NetCat-GUI's Inject button. No more "did it even work?".
+    ps5_notify("⚔ XENO TOOL · mod loader injected\nscanning /data/xeno_mods …");
 
     // Auto-detect the running ER title id from whichever CUSA folder is
     // staged AND has a matching running process.
     char title_id[16];
     pid_t pid = -1;
     if (auto_discover_target(title_id, sizeof(title_id), &pid) != 0) {
+        ps5_notify("⚠ XENO TOOL · no staged game is running\nlaunch ER first, then re-inject");
         log_close();
         return 2;
     }
     llog("matched %s pid=%d", title_id, pid);
     llog("entering resolve_sandbox_app0(%s)", title_id);
+    ps5_notify("⚔ XENO TOOL · matched %s\nresolving sandbox …", title_id);
 
     char sbx_app0[MAX_PATH];
     if (resolve_sandbox_app0(title_id, sbx_app0, sizeof(sbx_app0)) != 0) {
         llog("could not resolve sandbox /app0 — bailing.");
+        ps5_notify("⚠ XENO TOOL · couldn't find /app0\nbring ER to the foreground and re-inject");
         log_close();
         return 3;
     }
@@ -395,12 +427,14 @@ int main(int argc, char *argv[]) {
     int n_active = 0;
     if (parse_state(state_path, state_title, active, &n_active) != 0) {
         llog("no/invalid state.json at %s — bailing.", state_path);
+        ps5_notify("⚠ XENO TOOL · no state.json for %s\nstage a mod from XENO TOOL first", title_id);
         log_close();
         return 4;
     }
     llog("state: title=%s active=%d", state_title, n_active);
     if (n_active == 0) {
         llog("no active mods — nothing to do.");
+        ps5_notify("⚠ XENO TOOL · no mods enabled\ntoggle Enable on a mod in My Mods");
         log_close();
         return 0;
     }
@@ -422,6 +456,20 @@ int main(int argc, char *argv[]) {
         total_mods++;
     }
     llog("done · %d mod(s) · %d unionfs mount(s) live until %s exits.", total_mods, total_mounts, title_id);
+    if (total_mounts > 0) {
+        // Hero notification — the one we actually want users to see.
+        ps5_notify(
+            "✅ XENO TOOL · %d mod%s live on %s\n%d overlay%s mounted · equip them in inventory · stays until you quit the game",
+            total_mods, total_mods == 1 ? "" : "s",
+            title_id,
+            total_mounts, total_mounts == 1 ? "" : "s"
+        );
+    } else {
+        ps5_notify(
+            "⚠ XENO TOOL · 0 overlays mounted on %s\n%d mod(s) tried but every mount errored — check /data/xeno_mods/mount-once.log",
+            title_id, total_mods
+        );
+    }
     log_close();
     return total_mounts > 0 ? 0 : 5;
 }
