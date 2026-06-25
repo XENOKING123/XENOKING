@@ -308,27 +308,57 @@ static int apply_one_mod(
     return 0;
 }
 
+// Walk /data/xeno_mods/CUSA*/ and find the first one whose title_id has a
+// matching running process. v3.2.29 hardcoded CUSA18000 (PS4 NA Elden Ring)
+// which silently no-op'd for everyone on the PS4 EU disc (CUSA18581), PS5
+// native ER (CUSA20850), and any other regional release. With auto-detect,
+// the user just stages mods under whichever CUSA folder they want and Apply
+// Mods Now picks the right one as long as the game is running.
+static int auto_discover_target(char *out_title, size_t outsz, pid_t *out_pid) {
+    DIR *d = opendir("/data/xeno_mods");
+    if (!d) { llog("opendir /data/xeno_mods: %s", strerror(errno)); return -1; }
+    struct dirent *e;
+    int candidates = 0;
+    while ((e = readdir(d)) != NULL) {
+        if (strncmp(e->d_name, "CUSA", 4) != 0) continue;
+        if (strlen(e->d_name) < 9) continue;
+        candidates++;
+        pid_t pid = find_game_pid(e->d_name);
+        if (pid >= 0) {
+            snprintf(out_title, outsz, "%s", e->d_name);
+            *out_pid = pid;
+            closedir(d);
+            return 0;
+        }
+        llog("  - %s staged but no running process", e->d_name);
+    }
+    closedir(d);
+    if (candidates == 0) {
+        llog("no CUSA* subdirs under /data/xeno_mods — stage at least one mod first.");
+    } else {
+        llog("none of the %d staged title(s) are running. Launch the game and re-apply.", candidates);
+    }
+    return -1;
+}
+
 int main(int argc, char *argv[]) {
     (void)argc; (void)argv;
 
     log_open();
     llog("xenoking-mount-once · build %s %s", __DATE__, __TIME__);
 
-    // For the v3.2.29 MVP we hardcode Elden Ring as the target; the state
-    // file's title_id field is authoritative (multi-game support is a
-    // future iteration once a second mod-catalog game lands).
-    const char *target_title = "CUSA18000";
-
-    pid_t pid = find_game_pid(target_title);
-    if (pid < 0) {
-        llog("ER (%s) not running — launch the game first, then re-run.", target_title);
+    // Auto-detect the running ER title id from whichever CUSA folder is
+    // staged AND has a matching running process.
+    char title_id[16];
+    pid_t pid = -1;
+    if (auto_discover_target(title_id, sizeof(title_id), &pid) != 0) {
         log_close();
         return 2;
     }
-    llog("found ER pid %d", pid);
+    llog("matched %s pid=%d", title_id, pid);
 
     char sbx_app0[MAX_PATH];
-    if (resolve_sandbox_app0(target_title, sbx_app0, sizeof(sbx_app0)) != 0) {
+    if (resolve_sandbox_app0(title_id, sbx_app0, sizeof(sbx_app0)) != 0) {
         llog("could not resolve sandbox /app0 — bailing.");
         log_close();
         return 3;
@@ -336,7 +366,7 @@ int main(int argc, char *argv[]) {
     llog("sandbox app0: %s", sbx_app0);
 
     char state_path[MAX_PATH];
-    snprintf(state_path, sizeof(state_path), STATE_FMT, target_title);
+    snprintf(state_path, sizeof(state_path), STATE_FMT, title_id);
     char state_title[16];
     char active[MAX_MODS][MAX_ID];
     int n_active = 0;
@@ -356,7 +386,7 @@ int main(int argc, char *argv[]) {
     int total_mods = 0;
     for (int i = 0; i < n_active; i++) {
         char mod_root[MAX_PATH];
-        snprintf(mod_root, sizeof(mod_root), MOD_ROOT_FMT, target_title, active[i]);
+        snprintf(mod_root, sizeof(mod_root), MOD_ROOT_FMT, title_id, active[i]);
         struct stat st;
         if (stat(mod_root, &st) != 0 || !S_ISDIR(st.st_mode)) {
             llog("- mod %s: not staged at %s (skip)", active[i], mod_root);
@@ -368,7 +398,7 @@ int main(int argc, char *argv[]) {
         total_mounts += n;
         total_mods++;
     }
-    llog("done · %d mod(s) · %d unionfs mount(s) live until ER exits.", total_mods, total_mounts);
+    llog("done · %d mod(s) · %d unionfs mount(s) live until %s exits.", total_mods, total_mounts, title_id);
     log_close();
     return total_mounts > 0 ? 0 : 5;
 }

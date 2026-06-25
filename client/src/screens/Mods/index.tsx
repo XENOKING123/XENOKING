@@ -83,6 +83,21 @@ export default function ModsScreen() {
   const [pushError, setPushError] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
   const [howToOpen, setHowToOpen] = useState(false);
+  // Title id the user is targeting. Default = CUSA18000 (PS4 NA Elden Ring,
+  // also the PS5 backwards-compat title used by most NA users). Persisted in
+  // localStorage so the user only picks once. The loader auto-detects which
+  // CUSA folder on the PS5 has a running process, so this field really
+  // controls which folder we WRITE to during Import / Stage / Apply.
+  const [activeTitleId, setActiveTitleId] = useState<string>(() => {
+    try {
+      return localStorage.getItem("xeno.mods.title_id") || TITLE_ID_ER;
+    } catch {
+      return TITLE_ID_ER;
+    }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("xeno.mods.title_id", activeTitleId); } catch { /* noop */ }
+  }, [activeTitleId]);
 
   const refresh = useCallback(async () => {
     try {
@@ -125,7 +140,7 @@ export default function ModsScreen() {
       if (!path) return;
       setImporting(true);
       try {
-        const manifest = await modsExtractAndInspect(path, modId, modTitle);
+        const manifest = await modsExtractAndInspect(path, modId, modTitle, activeTitleId);
         setPendingImport(manifest);
       } catch (e) {
         pushNotification("error", "Import failed", { body: String(e) });
@@ -133,7 +148,7 @@ export default function ModsScreen() {
         setImporting(false);
       }
     },
-    [importing],
+    [importing, activeTitleId],
   );
 
   const stageToPs5 = useCallback(
@@ -209,14 +224,43 @@ export default function ModsScreen() {
     }
     setApplying(true);
     try {
-      const res = await modsApplyNow(host.trim(), TITLE_ID_ER);
-      pushNotification("success", "Mods applied to PS5", {
-        body:
-          `Loader streamed ${(res.elf_bytes / 1024).toFixed(1)} KB · ${res.active.length} mod` +
-          `${res.active.length === 1 ? "" : "s"} mounted into Elden Ring's /app0/. ` +
-          `Tab back to the game — your changes are live until you quit ER. ` +
-          `Log: ${res.log_path}`,
-      });
+      const res = await modsApplyNow(host.trim(), activeTitleId);
+
+      // Trust the loader's actual log, not the PC's optimistic active.length.
+      // v3.2.29 reported "1 mod mounted" even when the loader silently
+      // bailed because the user was on a different ER SKU and the title
+      // filter rejected every running process.
+      if (res.loader_mounts > 0) {
+        const tid = res.loader_matched_title ?? res.title_id;
+        pushNotification("success", "Mods applied to PS5", {
+          body:
+            `${res.loader_mods} mod${res.loader_mods === 1 ? "" : "s"} · ` +
+            `${res.loader_mounts} unionfs overlay${res.loader_mounts === 1 ? "" : "s"} live on ${tid}. ` +
+            `Tab back to Elden Ring — your changes are visible until you quit the game. ` +
+            `Log: ${res.log_path}`,
+        });
+      } else if (res.loader_matched_title) {
+        // Loader found a running game but mounted nothing — usually the
+        // active mods aren't staged under that SKU's CUSA folder.
+        pushNotification("warning", "Loader ran but mounted nothing", {
+          body:
+            `Loader matched ${res.loader_matched_title} on the PS5 but found 0 staged mods to mount. ` +
+            `Did you Stage to PS5 after switching the title id? ` +
+            `Log tail:\n${res.loader_log_tail || "(empty)"}`,
+        });
+      } else {
+        // Loader bailed before matching anything — either ER isn't running
+        // or the user is on a SKU we never staged under.
+        const sniffedTitle = (res.loader_log_tail.match(/CUSA\d{5}/g) ?? [])[0];
+        const hint = sniffedTitle && sniffedTitle !== activeTitleId
+          ? ` The PS5 has ${sniffedTitle} staged but no matching process is running, OR you're playing a DIFFERENT ER SKU than what's staged. Type your actual title id into the picker and re-stage.`
+          : " Make sure Elden Ring is at the title/load screen on the PS5 before clicking Apply Mods Now.";
+        pushNotification("warning", "No mods mounted", {
+          body:
+            `Loader ran but didn't find a matching game.${hint} ` +
+            `Log tail:\n${res.loader_log_tail || "(no log on PS5 — loader couldn't write it)"}`,
+        });
+      }
     } catch (e) {
       const msg = String(e);
       const hint = /not running|sandbox|ER not running/i.test(msg)
@@ -226,7 +270,7 @@ export default function ModsScreen() {
     } finally {
       setApplying(false);
     }
-  }, [host, active, applying]);
+  }, [host, active, applying, activeTitleId]);
 
   const toggleActive = useCallback(
     async (modId: string) => {
@@ -235,12 +279,12 @@ export default function ModsScreen() {
       else next.add(modId);
       setActive(next);
       try {
-        await modsActiveSave({ title_id: TITLE_ID_ER, active: [...next] });
+        await modsActiveSave({ title_id: activeTitleId, active: [...next] });
       } catch (e) {
         pushNotification("error", "Couldn't save state", { body: String(e) });
       }
     },
-    [active],
+    [active, activeTitleId],
   );
 
   const removeStaged = useCallback(
@@ -252,13 +296,13 @@ export default function ModsScreen() {
         const next = new Set(active);
         next.delete(modId);
         setActive(next);
-        await modsActiveSave({ title_id: TITLE_ID_ER, active: [...next] });
+        await modsActiveSave({ title_id: activeTitleId, active: [...next] });
         await refresh();
       } catch (e) {
         pushNotification("error", "Remove failed", { body: String(e) });
       }
     },
-    [active, refresh],
+    [active, refresh, activeTitleId],
   );
 
   return (
@@ -299,6 +343,48 @@ export default function ModsScreen() {
           </div>
         }
       />
+
+      {/* Game-version picker. v3.2.29 hardcoded CUSA18000 (PS4 NA Elden
+          Ring, also the PS5-BC title for NA discs) which silently no-op'd
+          for anyone playing PS4 EU (CUSA18581) or the PS5-native SKU. The
+          on-console loader auto-detects the running game's title id from
+          whichever CUSA folder is staged, so this picker really controls
+          which CUSA folder we WRITE to during Import / Stage / Apply. */}
+      <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-[11px]">
+        <span className="font-semibold text-[var(--color-muted)]">Game version:</span>
+        {([
+          { id: "CUSA18000", label: "PS4 NA · PS5-BC NA" },
+          { id: "CUSA18581", label: "PS4 EU" },
+          { id: "CUSA22823", label: "PS5 native NA" },
+          { id: "CUSA22824", label: "PS5 native EU" },
+        ] as const).map((opt) => (
+          <button
+            key={opt.id}
+            onClick={() => setActiveTitleId(opt.id)}
+            className={`rounded-md px-2 py-0.5 font-mono ${
+              activeTitleId === opt.id
+                ? "bg-[var(--color-gold)] text-[#1a1206]"
+                : "bg-[var(--color-surface-3)] text-[var(--color-muted)] hover:text-[var(--color-fg)]"
+            }`}
+            title={opt.label}
+          >
+            {opt.id}
+          </button>
+        ))}
+        <span className="text-[10px] text-[var(--color-muted)]">·</span>
+        <input
+          type="text"
+          value={activeTitleId}
+          onChange={(e) => setActiveTitleId(e.target.value.toUpperCase().trim())}
+          placeholder="CUSAXXXXX"
+          className="w-[110px] rounded-md border border-[var(--color-border)] bg-[var(--color-surface-3)] px-2 py-0.5 font-mono text-[11px] outline-none focus:border-[var(--color-gold)]"
+          title="Or type any CUSA id — the on-console loader auto-matches whichever is running."
+        />
+        <span className="text-[10px] text-[var(--color-muted)]">
+          Currently writing to <code className="text-[var(--color-fg)]">/data/xeno_mods/{activeTitleId}/</code>
+          on PS5. The loader auto-detects whichever ER SKU is running, so this only matters for new imports + stage paths.
+        </span>
+      </div>
 
       {/* Step-by-step expander — collapsed by default. Mods are unfamiliar
           territory for first-time users so we put the recipe in the app. */}

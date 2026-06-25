@@ -229,7 +229,11 @@ pub async fn mods_extract_and_inspect(
     zip_path: String,
     override_mod_id: Option<String>,
     override_title: Option<String>,
+    title_id: Option<String>,
 ) -> Result<ModManifest, String> {
+    let tid = title_id
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| ER_TITLE_ID.to_string());
     let src = PathBuf::from(&zip_path);
     if !src.is_file() {
         return Err(format!("zip not found: {zip_path}"));
@@ -247,7 +251,7 @@ pub async fn mods_extract_and_inspect(
                 .replace('_', " ")
         });
 
-    let root = staged_root(&app)?.join(ER_TITLE_ID).join(&mod_id);
+    let root = staged_root(&app)?.join(&tid).join(&mod_id);
     // Idempotent re-import: wipe any previous extraction so the staged
     // tree exactly mirrors the new zip — partial leftovers would otherwise
     // upload stale files alongside the new ones.
@@ -335,7 +339,7 @@ pub async fn mods_extract_and_inspect(
     Ok(ModManifest {
         mod_id,
         title,
-        title_id: ER_TITLE_ID.to_string(),
+        title_id: tid.clone(),
         total_files: files.len(),
         total_bytes,
         staged_dir: root.to_string_lossy().into_owned(),
@@ -466,6 +470,17 @@ pub struct ApplyMountResult {
     pub state_bytes: usize,
     pub elf_bytes: usize,
     pub log_path: String,
+    /// Title id the on-console loader actually matched (may differ from the
+    /// PC's `title_id` when the user is playing a different SKU — e.g. PS4 EU
+    /// CUSA18581 vs the PC's default CUSA18000). `None` if the loader log
+    /// didn't include a `matched ...` line, which usually means no game was
+    /// running and the loader bailed early.
+    pub loader_matched_title: Option<String>,
+    pub loader_mods: u32,
+    pub loader_mounts: u32,
+    /// Last ~4 KB of the on-console log so the toast / error UI can render
+    /// the play-by-play without a separate FTP round trip.
+    pub loader_log_tail: String,
 }
 
 /// One-shot mod loader: write the current active-mods state.json to the PS5,
@@ -545,11 +560,91 @@ pub async fn mods_apply_now(
     // Best-effort cleanup; not fatal.
     let _ = std::fs::remove_file(&elf_path);
 
+    // (3) Read back the on-console log so the toast can report what ACTUALLY
+    // mounted instead of trusting the PC's optimistic state.active count.
+    // v3.2.29 reported "1 mod mounted" even when the loader silently bailed
+    // because the user was playing a different ER SKU (PS4 EU CUSA18581 vs
+    // the PC's default CUSA18000) and the loader's hardcoded title id
+    // filter rejected every process. The loader is fast — sleeping 1.5s
+    // gives it time to write its log without dragging out the toast.
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    let (loader_log_tail, loader_matched_title, loader_mods, loader_mounts) = {
+        let addr = mgmt_addr.clone();
+        let log_path = "/data/xeno_mods/mount-once.log".to_string();
+        let read = tokio::task::spawn_blocking(move || {
+            ps5upload_core::fs_ops::fs_read_with_timeout(
+                &addr,
+                &log_path,
+                0,
+                8192,
+                Some(std::time::Duration::from_secs(5)),
+            )
+        })
+        .await;
+        match read {
+            Ok(Ok(bytes)) => {
+                let txt = String::from_utf8_lossy(&bytes).to_string();
+                let matched = parse_loader_matched(&txt);
+                let (mods, mounts) = parse_loader_counts(&txt);
+                (tail(&txt, 4096), matched, mods, mounts)
+            }
+            _ => (String::new(), None, 0, 0),
+        }
+    };
+
     Ok(ApplyMountResult {
         title_id: state.title_id,
         active: state.active,
         state_bytes: state_bytes_len,
         elf_bytes: elf_bytes_len,
         log_path: "/data/xeno_mods/mount-once.log".to_string(),
+        loader_matched_title,
+        loader_mods,
+        loader_mounts,
+        loader_log_tail,
     })
+}
+
+fn tail(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes { return s.to_string(); }
+    // Snap to a char boundary so we don't slice a UTF-8 codepoint in half.
+    let start = s.len() - max_bytes;
+    let mut i = start;
+    while i < s.len() && !s.is_char_boundary(i) { i += 1; }
+    s[i..].to_string()
+}
+
+/// Extract the title id the loader matched ("matched CUSA18581 pid=NNN").
+fn parse_loader_matched(log: &str) -> Option<String> {
+    for line in log.lines().rev() {
+        if let Some(rest) = line.strip_prefix("matched ").or_else(|| {
+            line.find("matched ").map(|i| &line[i + 8..])
+        }) {
+            // rest looks like "CUSA18581 pid=123"
+            let tid = rest.split_whitespace().next().unwrap_or("");
+            if tid.starts_with("CUSA") && tid.len() >= 9 {
+                return Some(tid.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Parse the loader's `done · N mod(s) · M unionfs mount(s)` summary line.
+/// Returns (0, 0) if the line isn't present — the loader bailed before
+/// reaching it (game not running, no state.json, etc.).
+fn parse_loader_counts(log: &str) -> (u32, u32) {
+    for line in log.lines().rev() {
+        let l = line.trim_start();
+        if let Some(rest) = l.strip_prefix("done ") {
+            let nums: Vec<u32> = rest
+                .split(|c: char| !c.is_ascii_digit())
+                .filter_map(|s| s.parse::<u32>().ok())
+                .collect();
+            if nums.len() >= 2 {
+                return (nums[0], nums[1]);
+            }
+        }
+    }
+    (0, 0)
 }

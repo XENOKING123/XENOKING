@@ -1494,11 +1494,13 @@ export async function modsExtractAndInspect(
   zipPath: string,
   overrideModId?: string,
   overrideTitle?: string,
+  titleId?: string,
 ): Promise<ModManifest> {
   return invoke<ModManifest>("mods_extract_and_inspect", {
     zipPath,
     overrideModId: overrideModId ?? null,
     overrideTitle: overrideTitle ?? null,
+    titleId: titleId ?? null,
   });
 }
 
@@ -1524,6 +1526,15 @@ export interface ApplyMountResult {
   state_bytes: number;
   elf_bytes: number;
   log_path: string;
+  /** Title id the on-console loader actually matched against a running
+   *  process. Differs from `title_id` when the user is playing a different
+   *  ER SKU than the PC's default (e.g. PS4 EU CUSA18581 vs CUSA18000). */
+  loader_matched_title: string | null;
+  loader_mods: number;
+  loader_mounts: number;
+  /** Last ~4 KB of /data/xeno_mods/mount-once.log, so the UI can show the
+   *  play-by-play without a separate FTP trip. */
+  loader_log_tail: string;
 }
 
 /**
