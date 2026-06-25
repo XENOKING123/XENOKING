@@ -54,6 +54,7 @@ const HomeScreen = lazy(() => import("./screens/Home"));
 const GameStoreScreen = lazy(() => import("./screens/GameStore"));
 const MyGamesScreen = lazy(() => import("./screens/MyGames"));
 const TrainersScreen = lazy(() => import("./screens/Trainers"));
+const ModsScreen = lazy(() => import("./screens/Mods"));
 const TitleSearchScreen = lazy(() => import("./screens/TitleSearch"));
 
 /**
@@ -121,6 +122,14 @@ export default function App() {
           element={
             <Suspense fallback={<ScreenLoader />}>
               <TrainersScreen />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/mods"
+          element={
+            <Suspense fallback={<ScreenLoader />}>
+              <ModsScreen />
             </Suspense>
           }
         />

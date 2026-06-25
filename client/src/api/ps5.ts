@@ -1452,6 +1452,72 @@ export async function autoloadMetaForFilename(
   return invoke<[number, number, boolean]>("autoload_meta_for_filename", { name });
 }
 
+// ─── XENO Mod Manager (v3.2.27 Phase 1) ───────────────────────────────────
+// Extracts Nexus zips locally + maps each file to its `/app0/...` destination
+// + persists which mods the user has toggled active. The actual on-console
+// nullfs overlay mount ships in v3.2.28 as `xenoking-modloader.elf`.
+
+export interface ModFileEntry {
+  zip_path: string;
+  game_path: string;
+  file_type: "regulation" | "animations" | "parts" | "menu" | "msg" | "sound" | "param" | "event" | "shader" | "other";
+  replaces_item: string;
+  size_bytes: number;
+}
+
+export interface ModManifest {
+  mod_id: string;
+  title: string;
+  title_id: string;
+  total_files: number;
+  total_bytes: number;
+  staged_dir: string;
+  files: ModFileEntry[];
+  categories: string[];
+  conflict_paths: string[];
+}
+
+export interface ModStagedSummary {
+  mod_id: string;
+  title_id: string;
+  staged_dir: string;
+  file_count: number;
+  total_bytes: number;
+}
+
+export interface ModActiveState {
+  title_id: string;
+  active: string[];
+}
+
+export async function modsExtractAndInspect(
+  zipPath: string,
+  overrideModId?: string,
+  overrideTitle?: string,
+): Promise<ModManifest> {
+  return invoke<ModManifest>("mods_extract_and_inspect", {
+    zipPath,
+    overrideModId: overrideModId ?? null,
+    overrideTitle: overrideTitle ?? null,
+  });
+}
+
+export async function modsListStaged(titleId?: string): Promise<ModStagedSummary[]> {
+  return invoke<ModStagedSummary[]>("mods_list_staged", { titleId: titleId ?? null });
+}
+
+export async function modsRemoveStaged(modId: string, titleId?: string): Promise<void> {
+  return invoke<void>("mods_remove_staged", { modId, titleId: titleId ?? null });
+}
+
+export async function modsActiveLoad(titleId?: string): Promise<ModActiveState> {
+  return invoke<ModActiveState>("mods_active_load", { titleId: titleId ?? null });
+}
+
+export async function modsActiveSave(state: ModActiveState): Promise<void> {
+  return invoke<void>("mods_active_save", { state });
+}
+
 // ─── ShadowMount+ awareness (read-only) ───────────────────────────────
 
 export interface SmpMountedImage {
