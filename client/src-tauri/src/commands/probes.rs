@@ -11,7 +11,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 
-const PS5_LOADER_PORT: u16 = 9021;
+pub const PS5_LOADER_PORT: u16 = 9021;
 /// Management port — lightweight, served by its own pthread inside the
 /// payload. Used for HELLO / STATUS / FS_* / CLEANUP / QUERY_TX /
 /// TAKEOVER_REQUEST. Responsive even during an active transfer, which
@@ -154,7 +154,7 @@ async fn tcp_reachable(ip: &str, port: u16) -> bool {
 /// particular start with `PK\x03\x04` (ZIP) — sending them to :9021
 /// would be a no-op; users targeting BD-JB-style loaders are expected
 /// to set a non-9021 port in the Send Payload screen.
-async fn do_payload_send(ip: &str, path: &str, target_port: u16) -> Result<u64, String> {
+pub async fn do_payload_send(ip: &str, path: &str, target_port: u16) -> Result<u64, String> {
     let mut file = tokio::fs::File::open(path)
         .await
         .map_err(|e| format!("open {path}: {e}"))?;

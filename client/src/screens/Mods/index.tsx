@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Puzzle, ExternalLink, Search, X, Star, Download, Upload, Trash2,
-  AlertTriangle, CheckCircle2, FileArchive, Layers, Loader2,
+  AlertTriangle, CheckCircle2, FileArchive, Layers, Loader2, Zap, ChevronDown,
 } from "lucide-react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 
@@ -15,6 +15,7 @@ import {
   modsRemoveStaged,
   modsActiveLoad,
   modsActiveSave,
+  modsApplyNow,
   startTransferDir,
   jobStatus,
   type ModManifest,
@@ -80,6 +81,8 @@ export default function ModsScreen() {
   const [pushingId, setPushingId] = useState<string | null>(null);
   const [pushProgress, setPushProgress] = useState<{ done: number; total: number } | null>(null);
   const [pushError, setPushError] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [howToOpen, setHowToOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -192,6 +195,39 @@ export default function ModsScreen() {
     [host, pushingId, active, refresh],
   );
 
+  const applyNow = useCallback(async () => {
+    if (applying) return;
+    if (!host.trim()) {
+      pushNotification("error", "No PS5 connected", { body: "Connect first on the Connection tab." });
+      return;
+    }
+    if (active.size === 0) {
+      pushNotification("warning", "No active mods", {
+        body: "Enable at least one mod under My Mods before applying.",
+      });
+      return;
+    }
+    setApplying(true);
+    try {
+      const res = await modsApplyNow(host.trim(), TITLE_ID_ER);
+      pushNotification("success", "Mods applied to PS5", {
+        body:
+          `Loader streamed ${(res.elf_bytes / 1024).toFixed(1)} KB · ${res.active.length} mod` +
+          `${res.active.length === 1 ? "" : "s"} mounted into Elden Ring's /app0/. ` +
+          `Tab back to the game — your changes are live until you quit ER. ` +
+          `Log: ${res.log_path}`,
+      });
+    } catch (e) {
+      const msg = String(e);
+      const hint = /not running|sandbox|ER not running/i.test(msg)
+        ? " Launch Elden Ring on the PS5 first, then click Apply Mods Now again."
+        : "";
+      pushNotification("error", "Apply Mods failed", { body: msg + hint });
+    } finally {
+      setApplying(false);
+    }
+  }, [host, active, applying]);
+
   const toggleActive = useCallback(
     async (modId: string) => {
       const next = new Set(active);
@@ -230,20 +266,70 @@ export default function ModsScreen() {
       <PageHeader
         icon={Puzzle}
         title="Mods"
-        count={`${CATALOG.length} curated · ${staged.length} staged`}
-        description="XENOKING-curated Elden Ring mods plus drop-in Nexus zips. Files stage to /data/xeno_mods/CUSA18000/ — the xenoking-modloader daemon (v3.2.28) mounts them as nullfs overlays at game launch."
+        count={`${CATALOG.length} curated · ${staged.length} staged · ${active.size} active`}
+        description="XENOKING-curated Elden Ring mods plus drop-in Nexus zips. Stage to PS5, launch Elden Ring, then Apply Mods Now — the on-console loader unionfs-mounts your active mods over /app0/ for the session."
         right={
-          <Button
-            variant="primary"
-            size="sm"
-            leftIcon={<Upload size={14} />}
-            onClick={() => void importZip()}
-            loading={importing}
-          >
-            Import zip
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              leftIcon={<Upload size={14} />}
+              onClick={() => void importZip()}
+              loading={importing}
+            >
+              Import zip
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              leftIcon={<Zap size={14} />}
+              onClick={() => void applyNow()}
+              loading={applying}
+              disabled={active.size === 0 || !host.trim()}
+              title={
+                active.size === 0
+                  ? "Enable at least one mod under My Mods first."
+                  : !host.trim()
+                  ? "Connect to your PS5 on the Connection tab first."
+                  : "Send the loader to your running game and mount the active mods."
+              }
+            >
+              Apply Mods Now
+            </Button>
+          </div>
         }
       />
+
+      {/* Step-by-step expander — collapsed by default. Mods are unfamiliar
+          territory for first-time users so we put the recipe in the app. */}
+      <div className="mb-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]">
+        <button
+          type="button"
+          onClick={() => setHowToOpen((v) => !v)}
+          className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-semibold"
+        >
+          <span className="flex items-center gap-1.5 text-[var(--color-gold)]">
+            <Zap size={13} />
+            How to install a mod in Elden Ring on jailbroken PS5
+          </span>
+          <ChevronDown
+            size={14}
+            className={`transition-transform ${howToOpen ? "rotate-180" : ""}`}
+          />
+        </button>
+        {howToOpen && (
+          <ol className="space-y-1.5 border-t border-[var(--color-border)] px-3 py-2.5 text-[11px] text-[var(--color-muted)]">
+            <li><span className="font-semibold text-[var(--color-fg)]">1.</span> Connection tab → confirm the PS5 dot is green (helper is loaded).</li>
+            <li><span className="font-semibold text-[var(--color-fg)]">2.</span> Browse → click any mod → <em>Install (download zip)</em> opens Nexus → grab the file → drop it back via <em>Import zip</em> on the detail modal.</li>
+            <li><span className="font-semibold text-[var(--color-fg)]">3.</span> The preview modal lists every file + where it'll land in <code className="text-[var(--color-gold)]">/app0/</code>. Click <em>Stage to PS5</em>.</li>
+            <li><span className="font-semibold text-[var(--color-fg)]">4.</span> Repeat for each mod you want. Toggle <em>Active</em> on the ones to apply.</li>
+            <li><span className="font-semibold text-[var(--color-fg)]">5.</span> <span className="font-semibold text-[var(--color-fg)]">Launch Elden Ring on the PS5</span> — wait for the title screen.</li>
+            <li><span className="font-semibold text-[var(--color-fg)]">6.</span> Click <span className="font-semibold text-[var(--color-gold)]">Apply Mods Now</span> here. Loader streams to the PS5 and unionfs-mounts your active mods.</li>
+            <li><span className="font-semibold text-[var(--color-fg)]">7.</span> Tab back to the game — your mods are live for the session. Quit ER to unload; re-apply on next launch.</li>
+            <li className="pt-1 text-[10px]">Trouble? FTP into the PS5 and read <code>/data/xeno_mods/mount-once.log</code> — the loader logs every mount attempt + reason if it skipped one.</li>
+          </ol>
+        )}
+      </div>
 
       {/* Tabs + filters */}
       <div className="mb-3 flex flex-wrap items-center gap-2">

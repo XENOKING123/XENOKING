@@ -1518,6 +1518,28 @@ export async function modsActiveSave(state: ModActiveState): Promise<void> {
   return invoke<void>("mods_active_save", { state });
 }
 
+export interface ApplyMountResult {
+  title_id: string;
+  active: string[];
+  state_bytes: number;
+  elf_bytes: number;
+  log_path: string;
+}
+
+/**
+ * One-shot mod loader. Pushes the active-mods state.json to the PS5 then
+ * streams the `xenoking-mount-once.elf` payload to :9021 so etaHEN executes
+ * it inside kstuff-lite. The ELF finds the running game's sandbox and
+ * unionfs-mounts every active mod's top-level dirs over /app0/. Pre-req:
+ * the game (Elden Ring for v3.2.29) must already be running on the PS5.
+ */
+export async function modsApplyNow(host: string, titleId?: string): Promise<ApplyMountResult> {
+  return invoke<ApplyMountResult>("mods_apply_now", {
+    host,
+    titleId: titleId ?? null,
+  });
+}
+
 // ─── ShadowMount+ awareness (read-only) ───────────────────────────────
 
 export interface SmpMountedImage {

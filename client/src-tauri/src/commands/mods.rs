@@ -9,7 +9,13 @@
 //!   - download from Nexus (their CDN isn't in the http allowlist; users
 //!     click through to nexusmods.com in their browser, download manually,
 //!     then drag-drop the zip back into the app)
-//!   - mount overlays on the console (that's v3.2.28 — `xenoking-modloader.elf`)
+//!
+//! What's NEW in v3.2.29:
+//!   - `mods_apply_now` ships the `xenoking-mount-once.elf` payload to PS5:9021
+//!     after writing the active-mods `state.json` to the console. The ELF
+//!     reads that state file, finds the running Elden Ring sandbox, and
+//!     unionfs-mounts every active mod's top-level subdirs over /app0/.
+//!     One-shot — the user re-clicks "Apply Mods Now" each game session.
 //!
 //! The mod manifest is just data — the renderer is free to render any
 //! preview / conflict UI it wants on top of it.
@@ -18,6 +24,21 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
+
+/// On-console mod-loader ELF. Built by the `build-mod-daemon` CI job from
+/// `mod-daemon/main.c` via prospero-clang; CI restores the artifact to this
+/// path before `cargo tauri build` runs (see release.yml's "Place mod-daemon
+/// ELF for include_bytes!" step). For local dev the file may be 0 bytes —
+/// `mods_apply_now` refuses to fire in that case rather than push a stub to
+/// the PS5. Embed (not network fetch): users hitting Apply Mods Now expect
+/// zero network round-trips, and the GitHub Releases endpoint can be offline
+/// or rate-limited — a missing embed is a build bug, not a runtime hiccup.
+const MOUNT_ONCE_ELF: &[u8] =
+    include_bytes!("../../../../mod-daemon/xenoking-mount-once.elf");
+
+/// Port the ps5upload management runtime listens on (small-file writes via
+/// the FsWriteBytes frame). Mirrors `PS5_PAYLOAD_PORT` in connection.ts.
+const PS5_MGMT_PORT: u16 = 9114;
 
 /// Elden Ring US title id — the only game v3.2.27 ships support for.
 /// Future versions add a `game: GameKey` field threaded through, and the
@@ -433,4 +454,102 @@ pub async fn mods_active_save(
     std::fs::write(&tmp, txt).map_err(|e| format!("write tmp: {e}"))?;
     super::replace_file(&tmp, &path).map_err(|e| format!("rename: {e}"))?;
     Ok(())
+}
+
+/// Summary returned by `mods_apply_now` so the renderer can render a tidy
+/// success notification: which mods went out, where the loader log lives on
+/// the PS5, how many bytes hit the wire.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApplyMountResult {
+    pub title_id: String,
+    pub active: Vec<String>,
+    pub state_bytes: usize,
+    pub elf_bytes: usize,
+    pub log_path: String,
+}
+
+/// One-shot mod loader: write the current active-mods state.json to the PS5,
+/// then stream `xenoking-mount-once.elf` to :9021 so it executes inside
+/// etaHEN's kstuff-lite context and unionfs-mounts each active mod's top
+/// directory over the running game's <sandbox>/app0/<subdir>.
+///
+/// Pre-requisite: the user must have launched Elden Ring already — the
+/// sandbox mount path only exists inside a running game session. The ELF
+/// logs to /data/xeno_mods/mount-once.log so the user can FTP-in and read
+/// what mounted (or what failed and why).
+#[tauri::command]
+pub async fn mods_apply_now(
+    app: AppHandle,
+    host: String,
+    title_id: Option<String>,
+) -> Result<ApplyMountResult, String> {
+    if MOUNT_ONCE_ELF.is_empty() {
+        return Err(
+            "xenoking-mount-once.elf was not embedded into this build — CI step \
+             'Place mod-daemon ELF for include_bytes!' did not run. Update the app."
+                .into(),
+        );
+    }
+    let host = host.trim().to_string();
+    if host.is_empty() {
+        return Err("no PS5 host set — connect first".into());
+    }
+    let tid = title_id.unwrap_or_else(|| ER_TITLE_ID.to_string());
+
+    // (1) Load the current active list and push it to the PS5 at the path
+    // the daemon hard-codes in main.c (STATE_FMT = /data/xeno_mods/<tid>/state.json).
+    let state = {
+        let path = state_path(&app, &tid)?;
+        if path.exists() {
+            let txt = std::fs::read_to_string(&path).map_err(|e| format!("read state: {e}"))?;
+            serde_json::from_str::<ModActiveState>(&txt)
+                .map_err(|e| format!("parse state: {e}"))?
+        } else {
+            ModActiveState { title_id: tid.clone(), active: vec![] }
+        }
+    };
+    if state.active.is_empty() {
+        return Err(
+            "no mods are marked active in My Mods — enable at least one before applying.".into(),
+        );
+    }
+    let state_json = serde_json::to_vec_pretty(&state).map_err(|e| format!("serialize state: {e}"))?;
+    let state_bytes_len = state_json.len();
+    let remote_state_path = format!("/data/xeno_mods/{}/state.json", tid);
+    let mgmt_addr = format!("{host}:{PS5_MGMT_PORT}");
+    {
+        let addr = mgmt_addr.clone();
+        let path = remote_state_path.clone();
+        let raw = state_json.clone();
+        tokio::task::spawn_blocking(move || {
+            ps5upload_core::diagnostics::fs_write_bytes(&addr, &path, &raw, false)
+        })
+        .await
+        .map_err(|e| format!("state write task: {e}"))?
+        .map_err(|e| format!("push state.json: {e}"))?;
+    }
+
+    // (2) Drop the embedded ELF to a tempfile and stream it to :9021 via the
+    // same path the rest of the app's payload-send flow uses. Tempfile is
+    // auto-cleaned when the handle drops.
+    let tmp_dir = std::env::temp_dir();
+    let elf_path = tmp_dir.join("xenoking-mount-once.elf");
+    std::fs::write(&elf_path, MOUNT_ONCE_ELF).map_err(|e| format!("stage elf tmp: {e}"))?;
+    let elf_bytes_len = MOUNT_ONCE_ELF.len();
+    super::probes::do_payload_send(
+        &host,
+        elf_path.to_string_lossy().as_ref(),
+        super::probes::PS5_LOADER_PORT,
+    )
+    .await?;
+    // Best-effort cleanup; not fatal.
+    let _ = std::fs::remove_file(&elf_path);
+
+    Ok(ApplyMountResult {
+        title_id: state.title_id,
+        active: state.active,
+        state_bytes: state_bytes_len,
+        elf_bytes: elf_bytes_len,
+        log_path: "/data/xeno_mods/mount-once.log".to_string(),
+    })
 }
