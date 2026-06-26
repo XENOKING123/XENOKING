@@ -26,7 +26,6 @@ on:
       - 'engine/**'
       - 'payload/**'
       - 'ps5-app/**'
-      - 'mod-daemon/**'
       - 'scripts/gen-updater-manifest.py'
       - 'scripts/update-version.js'
       - 'VERSION'
@@ -144,53 +143,10 @@ jobs:
           path: release/*
           if-no-files-found: error
 
-  # ── XENOKING mod loader (on-console payload) ───────────────────────────────
-  # Compiles mod-daemon/main.c into xenoking-mount-once.elf via the same
-  # pacbrew SDK used by build-ps5app. The desktop installer embeds this ELF
-  # via include_bytes! so the Mods tab's "Apply Mods Now" button can stream
-  # it to PS5:9021 without a network fetch.
-  build-mod-daemon:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: mod-daemon
-    env:
-      PS5_PAYLOAD_SDK: /opt/ps5-payload-sdk
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install PS5 payload SDK (pacbrew v0.36)
-        run: |
-          curl -fsSL \
-            "https://github.com/ps5-payload-dev/pacbrew-repo/releases/download/v0.36/ps5-payload-dev.tar.gz" \
-            | sudo tar -xzf - -C /
-          /opt/ps5-payload-sdk/bin/prospero-clang --version
-
-      - name: Build xenoking-mount-once.elf
-        # `make clean` first because the 0-byte placeholder ELF tracked in git
-        # (so include_bytes! resolves in local cargo builds) has a checkout
-        # timestamp that's newer than main.c — without the clean, make says
-        # "Nothing to be done for 'all'" and uploads the placeholder.
-        run: |
-          make clean
-          make PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk
-          # Hard guard: any build that silently produced no bytes must fail
-          # here, not 3 steps later in build-desktop where the error is opaque.
-          test -s xenoking-mount-once.elf || { echo "::error::build produced a zero-byte ELF"; exit 1; }
-          ls -la xenoking-mount-once.elf
-          file xenoking-mount-once.elf || true
-
-      - name: Upload mod-daemon artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: mod-daemon
-          path: mod-daemon/xenoking-mount-once.elf
-          if-no-files-found: error
 
   # ── Windows desktop installer (NSIS) + engine sidecar. ────────────────────
   build-desktop:
-    needs: [build-payload, build-mod-daemon]
+    needs: [build-payload]
     runs-on: windows-2022   # pinned for WebView2/MSVC reproducibility
     timeout-minutes: 45
     env:
@@ -281,23 +237,6 @@ jobs:
           test -s payload/ps5upload.elf.gz
           test -s payload/dpi/ezremote-dpi.elf.gz
 
-      - name: Restore mod-daemon artifact (xenoking-mount-once.elf)
-        uses: actions/download-artifact@v4
-        with:
-          name: mod-daemon
-          path: artifact-mod-daemon
-
-      - name: Place mod-daemon ELF for include_bytes!
-        shell: bash
-        run: |
-          # client/src-tauri/src/commands/mods.rs include_bytes!'s
-          # ../../../../mod-daemon/xenoking-mount-once.elf — copy it next to
-          # the project root so the build resolves it.
-          set -euo pipefail
-          mkdir -p mod-daemon
-          cp -v "$(find artifact-mod-daemon -name 'xenoking-mount-once.elf' -print -quit)" mod-daemon/xenoking-mount-once.elf
-          test -s mod-daemon/xenoking-mount-once.elf
-          ls -la mod-daemon/xenoking-mount-once.elf
 
       - name: Build engine sidecar binary
         working-directory: engine
@@ -368,7 +307,7 @@ jobs:
 
   # ── Assemble the complete, Latest release. ────────────────────────────────
   publish:
-    needs: [build-payload, build-ps5app, build-mod-daemon, build-desktop]
+    needs: [build-payload, build-ps5app, build-desktop]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -396,8 +335,7 @@ jobs:
           # Built this run — find regardless of artifact nesting.
           for n in \
             "XENO_TOOL_*_x64-setup.exe" \
-            "xeno-store.elf" "xeno-store-browser.elf" "XENO-Game-Store.zip" \
-            "xenoking-mount-once.elf"; do
+            "xeno-store.elf" "xeno-store-browser.elf" "XENO-Game-Store.zip"; do
             f="$(find artifacts -type f -name "$n" -print -quit)"
             if [ -n "$f" ]; then
               cp -v "$f" "release/$(basename "$f")"

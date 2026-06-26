@@ -25,7 +25,6 @@ import {
   Sparkles,
   ShoppingCart,
   Target,
-  Puzzle,
   Crosshair,
   HelpCircle,
   ScrollText,
@@ -110,7 +109,6 @@ const items: NavItem[] = [
     section: { key: "nav_section_xeno", fallback: "XENO" },
   },
   { to: "/trainers", key: "trainers", fallback: "Trainers", icon: Target, gold: true },
-  { to: "/mods", key: "mods", fallback: "Mods", icon: Puzzle, gold: true },
   {
     to: "/title-search",
     key: "title_search",

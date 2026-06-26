@@ -256,12 +256,6 @@ pub fn run() {
             commands::payloads_download,
             commands::payload_copy_to_favorites,
             commands::autoload_meta_for_filename,
-            commands::mods_extract_and_inspect,
-            commands::mods_list_staged,
-            commands::mods_remove_staged,
-            commands::mods_active_load,
-            commands::mods_active_save,
-            commands::mods_apply_now,
             // ── ShadowMount+ awareness (read-only) ──────────────────
             // `smp_status` collects the on-console SMP state — config,
             // autotune, mounted images, debug-log tail — so the
