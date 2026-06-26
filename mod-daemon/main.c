@@ -447,6 +447,30 @@ int main(int argc, char *argv[]) {
         ps5_notify("⚠ XENO TOOL · jail escape failed\nprison rc=%d rootdir rc=%d", prison_rc, rootdir_rc);
     }
 
+    // Smoke test mount onto a SAFE path under /data. v3.2.37 had full root
+    // ucred + jail escape but nmount STILL SIGKILL'd onto a /mnt/sandbox/
+    // target. If this safe-target mount succeeds, the kernel is specifically
+    // filtering /mnt/sandbox/* mounts (PS5 security). If this safe-target
+    // mount fails too, nmount itself is fundamentally blocked in our
+    // context and we need a different mechanism.
+    {
+        const char *smoke_src = "/data/xeno_mods";
+        const char *smoke_dst = "/data/xeno_test_mount";
+        mkdir(smoke_dst, 0777);   // best-effort; ignore EEXIST
+        llog("smoke test: unionfs %s -> %s", smoke_src, smoke_dst);
+        int smoke_rc = union_overlay(smoke_src, smoke_dst);
+        int smoke_errno = errno;
+        if (smoke_rc == 0) {
+            llog("  ✓ smoke test succeeded — nmount works in our ucred");
+            ps5_notify("⚔ XENO TOOL · smoke test mount succeeded\nnmount works — issue is sandbox-target specific");
+            // Best-effort unmount; we don't care if it fails (process will exit).
+            unmount(smoke_dst, 0);
+        } else {
+            llog("  ✗ smoke test failed: rc=%d errno=%d (%s)", smoke_rc, smoke_errno, strerror(smoke_errno));
+            ps5_notify("⚠ XENO TOOL · smoke test mount FAILED\nrc=%d errno=%d — nmount itself is blocked, not a sandbox issue", smoke_rc, smoke_errno);
+        }
+    }
+
     // Auto-detect the running ER title id from whichever CUSA folder is
     // staged AND has a matching running process.
     char title_id[16];
