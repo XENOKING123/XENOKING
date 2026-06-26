@@ -426,6 +426,27 @@ int main(int argc, char *argv[]) {
         llog("✓ root-debugger ucred + all caps acquired");
     }
 
+    // Jail escape. v3.2.36 had root authid + all caps but nmount STILL
+    // SIGKILL'd onto /mnt/sandbox/CUSA18723_000/app0/parts/. That's because
+    // FreeBSD's mount permission check also walks the calling thread's
+    // cr_prison and the proc's rootdir/jaildir vnodes — a jailed process
+    // can mount onto ITS own paths but not onto another sandbox's. Copy
+    // init's prison (= prison0, the un-jailed root) onto our ucred and
+    // point our rootdir/jaildir at the kernel's root vnode.
+    uint64_t prison0 = kernel_get_ucred_prison(1);   // init is always in prison0
+    uint64_t root_vnode = kernel_get_root_vnode();
+    int prison_rc = kernel_set_ucred_prison(my_pid, prison0);
+    int rootdir_rc = kernel_set_proc_rootdir(my_pid, root_vnode);
+    int jaildir_rc = kernel_set_proc_jaildir(my_pid, root_vnode);
+    llog("jail escape: prison0=0x%llx root_vnode=0x%llx (set_prison rc=%d rootdir rc=%d jaildir rc=%d)",
+         (unsigned long long)prison0, (unsigned long long)root_vnode,
+         prison_rc, rootdir_rc, jaildir_rc);
+    if (prison_rc == 0 && rootdir_rc == 0 && jaildir_rc == 0) {
+        llog("✓ jail escaped — can mount onto any sandbox");
+    } else {
+        ps5_notify("⚠ XENO TOOL · jail escape failed\nprison rc=%d rootdir rc=%d", prison_rc, rootdir_rc);
+    }
+
     // Auto-detect the running ER title id from whichever CUSA folder is
     // staged AND has a matching running process.
     char title_id[16];
