@@ -62,11 +62,17 @@ extern int sceKernelGetAppInfo(pid_t, app_info_t *);
 // rendered by SceShellCore which handles UTF-8, so emojis work. Layout is
 // the canonical scene struct; only `message` matters for our use case.
 
+// Canonical layout used by BinLoader / kpayload / BackPork etc — 45-byte
+// header padding then a 3075-byte message buffer. Total size 0xc30 = 3120,
+// which is the size value the kernel handler actually expects. v3.2.33 used
+// sizeof() = 4144 with an extra trailer buffer; the kernel quietly rejects
+// requests whose size doesn't match its expected 3120 so nothing rendered.
+#define NOTIFY_SIZE 0xc30
 typedef struct {
     char useless1[45];
     char message[3075];
-    char useless2[1024];
 } OrbisNotificationRequest;
+_Static_assert(sizeof(OrbisNotificationRequest) == NOTIFY_SIZE, "notify struct size mismatch");
 
 extern int sceKernelSendNotificationRequest(int, OrbisNotificationRequest *, size_t, int);
 
@@ -77,7 +83,7 @@ static void ps5_notify(const char *fmt, ...) {
     va_start(ap, fmt);
     vsnprintf(req.message, sizeof(req.message), fmt, ap);
     va_end(ap);
-    sceKernelSendNotificationRequest(0, &req, sizeof(req), 0);
+    sceKernelSendNotificationRequest(0, &req, NOTIFY_SIZE, 0);
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -222,18 +228,18 @@ static int parse_state(
     buf[sz] = '\0';
     fclose(f);
 
-    // title_id
+    // title_id — one too many strchr() steps in v3.2.34 made this empty
+    // (we were memcpy'ing the JSON whitespace between the value's closing
+    // quote and the NEXT key's opening quote). Fixed: just find the opening
+    // quote of the value, then its closing quote.
     const char *tk = strstr(buf, "\"title_id\"");
     if (tk) {
-        const char *q = strchr(tk + 10, '"');
-        if (q) {
-            q = strchr(q + 1, '"');
-            if (q) {
-                const char *end = strchr(q + 1, '"');
-                if (end && end - q - 1 < 15) {
-                    memcpy(title_id, q + 1, end - q - 1);
-                    title_id[end - q - 1] = '\0';
-                }
+        const char *open_q = strchr(tk + 10, '"');           // opening quote of value
+        if (open_q) {
+            const char *close_q = strchr(open_q + 1, '"');   // closing quote of value
+            if (close_q && close_q - open_q - 1 < 15) {
+                memcpy(title_id, open_q + 1, close_q - open_q - 1);
+                title_id[close_q - open_q - 1] = '\0';
             }
         }
     }
@@ -291,35 +297,40 @@ static int apply_one_mod(
     const char *sandbox_app0,
     int *mounts_out
 ) {
+    llog("    opendir(%s)", mod_root);
     DIR *d = opendir(mod_root);
     if (!d) {
-        llog("  open %s: %s", mod_root, strerror(errno));
+        llog("    open failed: %s", strerror(errno));
         return -1;
     }
+    llog("    opendir ok, iterating");
     int n = 0;
     struct dirent *e;
     while ((e = readdir(d)) != NULL) {
         if (e->d_name[0] == '.') continue;
+        llog("    > entry: %s", e->d_name);
         char src[MAX_PATH], dst[MAX_PATH];
         snprintf(src, sizeof(src), "%s/%s", mod_root, e->d_name);
         snprintf(dst, sizeof(dst), "%s/%s", sandbox_app0, e->d_name);
+        llog("    > src=%s", src);
+        llog("    > dst=%s", dst);
 
         struct stat sst;
         if (stat(src, &sst) != 0 || !S_ISDIR(sst.st_mode)) {
-            // src lives under /data/xeno_mods/ — our own staging dir, no
-            // jail/perm issues. A non-dir or missing src means user staged
-            // something weird (a flat file at mod root); skip it.
-            llog("  skip non-dir: %s", e->d_name);
+            llog("      skip non-dir (stat errno=%d): %s", errno, e->d_name);
             continue;
         }
         // v3.2.34: don't stat(dst) — same EACCES problem as resolve_sandbox_app0.
         // The BC sandbox refuses userspace stat() on a path nmount() will
         // happily traverse. Let nmount tell us if the dst doesn't exist.
-        if (union_overlay(src, dst) == 0) {
-            llog("  ✓ unionfs %s -> %s", e->d_name, dst);
+        llog("      calling union_overlay …");
+        int rc = union_overlay(src, dst);
+        int saved_errno = errno;
+        if (rc == 0) {
+            llog("      ✓ unionfs %s -> %s", e->d_name, dst);
             n++;
         } else {
-            llog("  ✗ unionfs %s -> %s: errno=%d (%s)", e->d_name, dst, errno, strerror(errno));
+            llog("      ✗ unionfs %s -> %s: rc=%d errno=%d (%s)", e->d_name, dst, rc, saved_errno, strerror(saved_errno));
         }
     }
     closedir(d);
