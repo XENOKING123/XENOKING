@@ -401,11 +401,19 @@ int main(int argc, char *argv[]) {
     // (kernel-RW context auto-inits on first call; no explicit init).
     pid_t my_pid = getpid();
     uint64_t before_authid = kernel_get_ucred_authid(my_pid);
-    // kernel_set_ucred_authid takes a `const uint8_t *` (8-byte LE buffer)
-    // not a u64 value. Stack-allocate the authid bytes and pass its address.
-    uint64_t root_authid = ROOT_AUTHID;
-    int auth_rc = kernel_set_ucred_authid(my_pid, (const uint8_t *)&root_authid);
-    int caps_rc = kernel_set_ucred_caps(my_pid, 0xFFFFFFFFFFFFFFFFULL);
+    // Compiler error history pinned the real signatures:
+    //   set_ucred_authid(pid, uint64_t)        — value, not pointer
+    //   set_ucred_caps(pid, const uint8_t *)   — pointer to 32-byte caps
+    //                                            buffer (4× u64 = the
+    //                                            full FreeBSD priv vector)
+    int auth_rc = kernel_set_ucred_authid(my_pid, ROOT_AUTHID);
+    uint64_t all_caps[4] = {
+        0xFFFFFFFFFFFFFFFFULL,
+        0xFFFFFFFFFFFFFFFFULL,
+        0xFFFFFFFFFFFFFFFFULL,
+        0xFFFFFFFFFFFFFFFFULL,
+    };
+    int caps_rc = kernel_set_ucred_caps(my_pid, (const uint8_t *)all_caps);
     uint64_t after_authid = kernel_get_ucred_authid(my_pid);
     llog("ucred authid: 0x%llx -> 0x%llx (set_authid rc=%d set_caps rc=%d)",
          (unsigned long long)before_authid, (unsigned long long)after_authid,
