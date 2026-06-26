@@ -401,7 +401,10 @@ int main(int argc, char *argv[]) {
     // (kernel-RW context auto-inits on first call; no explicit init).
     pid_t my_pid = getpid();
     uint64_t before_authid = kernel_get_ucred_authid(my_pid);
-    int auth_rc = kernel_set_ucred_authid(my_pid, ROOT_AUTHID);
+    // kernel_set_ucred_authid takes a `const uint8_t *` (8-byte LE buffer)
+    // not a u64 value. Stack-allocate the authid bytes and pass its address.
+    uint64_t root_authid = ROOT_AUTHID;
+    int auth_rc = kernel_set_ucred_authid(my_pid, (const uint8_t *)&root_authid);
     int caps_rc = kernel_set_ucred_caps(my_pid, 0xFFFFFFFFFFFFFFFFULL);
     uint64_t after_authid = kernel_get_ucred_authid(my_pid);
     llog("ucred authid: 0x%llx -> 0x%llx (set_authid rc=%d set_caps rc=%d)",
