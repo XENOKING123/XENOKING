@@ -27,6 +27,10 @@ export interface DownloadLink {
 export interface BundleMirror {
   host: string;
   url: string;
+  /** True when the URL is the game page itself (not the actual host) because
+   *  the mirror was listed as plain text with no href in the dlpsgame payload.
+   *  UI should dim these and show a tooltip guiding the user to the game page. */
+  indirect?: boolean;
 }
 export interface BundleUpdate {
   version: string;
@@ -574,8 +578,29 @@ const TERMINAL_HOSTS = [
   "send.cm", "rocketfile", "fireload", "krakenfiles", "1cloudfile",
   "userscloud", "drive.google", "clicknupload", "vikingfile", "filecrypt",
   "downloadmy.link", // pkg.games RAR archives
-  "filekeeper",      // superpsx.com primary host (filekeeper.net RAR direct links)
+  "filekeeper",      // superpsx.com primary host
   "rapidgator", "uploadhaven", "hexupload", "uploadrar", "turbobit",
+  // Hosts seen on dlpsgame 2024-2025 that weren't in the original list
+  "akia",        // akia.to
+  "vikiup",      // vikiup.net
+  "1file",       // 1file.net
+  "buznew",      // buznew.com
+  "letsupload",  // letsupload.io / .co
+  "multiup",     // multiup.us / .io
+  "hexload",     // hexload.com
+  "filespace",   // filespace.org
+  "bdupload",    // bdupload.info
+  "nopy",        // nopy.su
+  "uploadhub",   // uploadhub.net
+  "drop.download",
+  "uptobox",     // uptobox.com
+  "ddownload",   // ddownload.com
+  "sendit",      // sendit.cloud
+  "2shared",
+  "cloudfiles",
+  "katfile",     // katfile.com
+  "nitroflare",  // nitroflare.com
+  "rosefile",    // rosefile.net
 ];
 
 function hostOf(u: string): string {
@@ -749,6 +774,13 @@ export async function fetchDownloadLinks(
         landing.push([label, url]);
         add(label, url, "landing");
       } else if (B64_GATEWAYS.some((g) => host.includes(g))) add(label, url, "gateway");
+      // dlpsgame wraps every mirror in its own /go/ redirect (server-side hash,
+      // can't decode client-side). The label IS the host name (Rootz, Akia, etc.)
+      // — surface it as a gateway so the user sees all available mirrors and the
+      // browser follows the redirect when they click Open.
+      else if (host.includes("dlpsgame.com") && url.includes("/go/") && label && label.length >= 2 && label.length <= 30) {
+        add(label, url, "gateway");
+      }
     }
   }
 
@@ -813,8 +845,11 @@ export async function fetchDownloadBundle(pageUrl: string): Promise<GameDownload
   // Pair each data-payload with the preceding version-header heading so we
   // know which titleId/region/version each block belongs to before parsing.
   // The page layout is: <h?>CUSA12345 - REGION (v1.23)</h?> … data-payload="…"
+  // Region may carry a format modifier: "EUR (exFAT)", "USA (FAT32)", "JPN (Offline)".
+  // Capture the full "[A-Z]+ (modifier)" string so EUR and EUR (exFAT) appear as
+  // distinct version panels rather than both collapsing to just "EUR".
   const HEADER_RE =
-    /((?:CUSA|PPSA|PCAS)\s*\d{5})\s*[-–—]\s*([A-Z]{2,4})(?:\s*\(\s*v([0-9]+(?:\.[0-9]+){0,3})\s*\))?/gi;
+    /((?:CUSA|PPSA|PCAS)\s*\d{5})\s*[-–—]\s*([A-Z]{2,4}(?:\s*\([A-Za-z0-9\s]{1,15}\))?)(?:\s*\(\s*v([0-9]+(?:\.[0-9]+){0,3})\s*\))?/gi;
   const PAYLOAD_RE = /data-payload="([^"]+)"/g;
   type HeaderHit = { titleId: string; region: string; version?: string; idx: number };
   const headers: HeaderHit[] = [];
@@ -842,7 +877,7 @@ export async function fetchDownloadBundle(pageUrl: string): Promise<GameDownload
     } catch {
       continue;
     }
-    const parsed = parseBundleVersionBlock(decodedHtml, header);
+    const parsed = parseBundleVersionBlock(decodedHtml, header, pageUrl);
     if (parsed) versions.push(parsed);
   }
   if (versions.length === 0) return null;
@@ -862,8 +897,13 @@ function htmlEntitiesDecode(s: string): string {
 
 /** Extract {host, url} for every <a> in a fragment, deduping by URL and
  *  passing each href through decodeGateway() so shortener links resolve to
- *  the real terminal URL (gofile/1fichier/mega/mediafire/etc.). */
-function extractBundleMirrors(html: string): BundleMirror[] {
+ *  the real terminal URL (gofile/1fichier/mega/mediafire/etc.).
+ *
+ *  `fallbackUrl` is the dlpsgame game-page URL. When a section lists mirror
+ *  names as plain text with NO href (e.g. "Game : Rootz – Akia – 1File – Buznew")
+ *  we surface them as indirect mirrors pointing to the game page so the user
+ *  at least knows which hosts are available and can open the page to grab them. */
+function extractBundleMirrors(html: string, fallbackUrl?: string): BundleMirror[] {
   const out: BundleMirror[] = [];
   const seen = new Set<string>();
   const re = /<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
@@ -877,17 +917,47 @@ function extractBundleMirrors(html: string): BundleMirror[] {
     seen.add(url);
     out.push({ host: text || hostOf(url), url });
   }
+
+  // No linked mirrors found — scan the plain text for separator-delimited host
+  // names after the section colon (e.g. ": Rootz – Akia – 1File – Buznew").
+  // These appear when dlpsgame lists a host name without wrapping it in an <a>.
+  if (out.length === 0 && fallbackUrl) {
+    const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    const colonIdx = text.indexOf(":");
+    if (colonIdx !== -1) {
+      const hostPart = text.slice(colonIdx + 1);
+      const candidates = hostPart
+        .split(/\s*[–\-|\/,]\s*/)
+        .map((s) => s.trim())
+        .filter(
+          (s) =>
+            s.length >= 2 &&
+            s.length <= 24 &&
+            /^[A-Za-z0-9]+$/i.test(s) &&
+            // Exclude common non-host words that appear in these lines
+            !/^(v\d|fix|patch|here|click|link|dlc|update|game|password|works|voice|menu|screen|language|subtitle|region|thank|mega|here|free)/i.test(s),
+        );
+      for (const name of candidates) {
+        if (seen.has(name)) continue;
+        seen.add(name);
+        out.push({ host: name, url: fallbackUrl, indirect: true });
+      }
+    }
+  }
+
   return out;
 }
 
 function parseBundleVersionBlock(
   html: string,
   header: { titleId: string; region: string; version?: string } | null,
+  fallbackUrl?: string,
 ): GameBundleVersion | null {
   const decoded = htmlEntitiesDecode(html);
-  // Pull title-id/region from inline if not in header
+  // Pull title-id/region from inline if not in header.
+  // Also capture format modifiers like (exFAT) / (FAT32) so they appear in the region label.
   const idM = decoded.match(
-    /((?:C?USA|PPSA|PCAS)\d{5})\s*[-–—]\s*([A-Z]{2,4})/i,
+    /((?:C?USA|PPSA|PCAS)\d{5})\s*[-–—]\s*([A-Z]{2,4}(?:\s*\([^)]{1,15}\))?)/i,
   );
   const titleId = (header?.titleId || idM?.[1] || "").toUpperCase();
   const region = (header?.region || idM?.[2] || "").toUpperCase();
@@ -923,7 +993,7 @@ function parseBundleVersionBlock(
 
     // "Game : ..."
     if (/^Game\s*:/i.test(text)) {
-      const mirrors = extractBundleMirrors(raw);
+      const mirrors = extractBundleMirrors(raw, fallbackUrl);
       if (mirrors.length || !game) game = { mirrors };
       continue;
     }
@@ -934,7 +1004,7 @@ function parseBundleVersionBlock(
       updates.push({
         version: upM[1],
         compat: upM[3]?.trim() || undefined,
-        mirrors: extractBundleMirrors(raw),
+        mirrors: extractBundleMirrors(raw, fallbackUrl),
       });
       continue;
     }
@@ -942,7 +1012,7 @@ function parseBundleVersionBlock(
     // "DLC v3 (20) : ..." / "DLC (18) : ..." / "DLC : ..."
     if (/^DLC\b[^:]*:/i.test(text)) {
       const label = text.slice(0, text.indexOf(":")).trim();
-      const mirrors = extractBundleMirrors(raw);
+      const mirrors = extractBundleMirrors(raw, fallbackUrl);
       // Skip "DLC (NN) Contents : Here" — the Here link is a docs page, not a download.
       if (/contents\b/i.test(label)) continue;
       dlc.push({ label, mirrors });

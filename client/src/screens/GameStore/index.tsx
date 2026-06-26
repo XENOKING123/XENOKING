@@ -604,20 +604,34 @@ function BundleSection({ label, mirrors }: { label: string; mirrors: Array<{ hos
   );
 }
 
-function MirrorChips({ mirrors }: { mirrors: Array<{ host: string; url: string }> }) {
+function MirrorChips({ mirrors }: { mirrors: Array<{ host: string; url: string; indirect?: boolean }> }) {
   return (
     <div className="flex flex-wrap gap-1.5">
-      {mirrors.map((m, i) => (
-        <button
-          key={i}
-          title={m.url}
-          onClick={() => void openExternal(m.url)}
-          className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2.5 py-1 text-[11px] font-semibold hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)]"
-        >
-          {m.host}
-          <ExternalLink size={10} />
-        </button>
-      ))}
+      {mirrors.map((m, i) =>
+        m.indirect ? (
+          // Plain-text mirror — no direct link in the payload. Opens the game
+          // page so the user can grab the link manually.
+          <button
+            key={i}
+            title={`No direct link extracted — opens game page to find ${m.host} link`}
+            onClick={() => void openExternal(m.url)}
+            className="inline-flex items-center gap-1 rounded-full border border-dashed border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1 text-[11px] font-semibold text-[var(--color-muted)] opacity-70 hover:border-[var(--color-warn)] hover:text-[var(--color-warn)]"
+          >
+            {m.host}
+            <ExternalLink size={10} />
+          </button>
+        ) : (
+          <button
+            key={i}
+            title={m.url}
+            onClick={() => void openExternal(m.url)}
+            className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2.5 py-1 text-[11px] font-semibold hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)]"
+          >
+            {m.host}
+            <ExternalLink size={10} />
+          </button>
+        ),
+      )}
     </div>
   );
 }
