@@ -181,45 +181,17 @@ static int resolve_sandbox_app0(const char *title_id, char *out, size_t outsz) {
     if (best_n < 0) { llog("no /mnt/sandbox/%s_* — is ER running?", title_id); return -1; }
     llog("  best sandbox dir: %s", best_prefix);
 
-    // PS4 backwards-compat layout (CUSA18723 PS4 EU Elden Ring on PS5):
-    //   /mnt/sandbox/CUSAXXXXX_NNN/app0/   ← direct, no hash dir
-    // Use access(F_OK) instead of stat() — access doesn't dereference further
-    // into the mount stack so it survives the backwards-compat /app0/ being
-    // a tear-down-on-background dynamic mount on PS5 BC games. Some BC
-    // sandboxes also make stat() block waiting for SceShellCore.
-    {
-        char probe[MAX_PATH];
-        snprintf(probe, sizeof(probe), "%s/app0", best_prefix);
-        llog("  probing PS4-BC: %s", probe);
-        int rc = access(probe, F_OK);
-        if (rc == 0) {
-            llog("  ✓ PS4-BC direct app0 found");
-            snprintf(out, outsz, "%s", probe);
-            return 0;
-        }
-        llog("  PS4-BC probe: rc=%d errno=%d (%s)", rc, errno, strerror(errno));
-    }
-
-    // PS5-native layout:
-    //   /mnt/sandbox/CUSAXXXXX_NNN/<random_hash>/app0/   ← hash dir in between
-    llog("  scanning <random>/app0 layout under %s", best_prefix);
-    DIR *d2 = opendir(best_prefix);
-    if (!d2) { llog("  opendir %s: %s", best_prefix, strerror(errno)); return -1; }
-    while ((e = readdir(d2)) != NULL) {
-        if (e->d_name[0] == '.') continue;
-        char probe[MAX_PATH];
-        snprintf(probe, sizeof(probe), "%s/%s/app0", best_prefix, e->d_name);
-        llog("    probing: %s", probe);
-        if (access(probe, F_OK) == 0) {
-            llog("    ✓ found");
-            closedir(d2);
-            snprintf(out, outsz, "%s", probe);
-            return 0;
-        }
-    }
-    closedir(d2);
-    llog("no /app0 or <random>/app0 under %s — bring ER to the foreground (PS button → ER icon) and re-inject.", best_prefix);
-    return -1;
+    // v3.2.34: don't probe access(F_OK) — on PS5 BC sandboxes it returns
+    // EACCES even on a clearly-valid path because the userspace VFS check
+    // refuses to traverse through the BC's unionfs/jail boundary. The
+    // kernel-side nmount() syscall has no such limitation. We construct the
+    // canonical PS4-BC path and hand it back; the mount loop will report
+    // the real errno (ENOENT, EBUSY, EPERM …) from nmount itself, which is
+    // the only thing that matters anyway. Trying to "validate" the path
+    // first just throws away signal.
+    snprintf(out, outsz, "%s/app0", best_prefix);
+    llog("  using PS4-BC direct layout: %s (nmount will be the source of truth)", out);
+    return 0;
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -334,21 +306,20 @@ static int apply_one_mod(
 
         struct stat sst;
         if (stat(src, &sst) != 0 || !S_ISDIR(sst.st_mode)) {
-            // Top-level FILE in a mod root is unusual — skip (the staging
-            // already promoted Naruto-style bare partsbnd.dcx into parts/).
+            // src lives under /data/xeno_mods/ — our own staging dir, no
+            // jail/perm issues. A non-dir or missing src means user staged
+            // something weird (a flat file at mod root); skip it.
             llog("  skip non-dir: %s", e->d_name);
             continue;
         }
-        struct stat dst_st;
-        if (stat(dst, &dst_st) != 0) {
-            llog("  dst missing: %s (mod path the game doesn't have — skipping)", dst);
-            continue;
-        }
+        // v3.2.34: don't stat(dst) — same EACCES problem as resolve_sandbox_app0.
+        // The BC sandbox refuses userspace stat() on a path nmount() will
+        // happily traverse. Let nmount tell us if the dst doesn't exist.
         if (union_overlay(src, dst) == 0) {
             llog("  ✓ unionfs %s -> %s", e->d_name, dst);
             n++;
         } else {
-            llog("  ✗ unionfs %s -> %s: %s", e->d_name, dst, strerror(errno));
+            llog("  ✗ unionfs %s -> %s: errno=%d (%s)", e->d_name, dst, errno, strerror(errno));
         }
     }
     closedir(d);
