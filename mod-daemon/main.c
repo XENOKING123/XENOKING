@@ -33,20 +33,14 @@
 #include <stdint.h>
 #include <stdarg.h>
 
-// ps5-payload-dev SDK exposes the full kernel-RW + ucred elevation API.
-// Symbols verified present in v3.2.35 ELF (linked from the SDK):
-//   kernel_init_rw, kernel_set_ucred_authid, kernel_set_ucred_caps,
-//   kernel_get_ucred_authid, kernel_get_ucred_caps.
-// Try the canonical scene include first; if missing on the SDK image,
-// fall back to extern declarations that link against the same symbols.
-#if __has_include(<ps5/kernel.h>)
-#  include <ps5/kernel.h>
-#else
-extern int kernel_init_rw(void);
-extern int kernel_set_ucred_authid(pid_t pid, uint64_t authid);
-extern int kernel_set_ucred_caps(pid_t pid, uint64_t c1, uint64_t c2, uint64_t c3, uint64_t c4);
-extern int kernel_get_ucred_authid(pid_t pid, uint64_t *out);
-#endif
+// ps5-payload-dev SDK exposes the full ucred elevation API via
+// <ps5/kernel.h>. The kernel-RW context auto-initializes on first call
+// (no kernel_init_rw entry point in the public header). Real signatures:
+//   uint64_t kernel_get_ucred_authid(pid_t pid)     — returns value
+//   int      kernel_set_ucred_authid(pid_t, uint64) — 2 args
+//   int      kernel_set_ucred_caps(pid_t, uint64)   — 2 args (single
+//                                                     combined caps mask)
+#include <ps5/kernel.h>
 
 // Root-debugger authid. Same value every scene tool uses (SceShellCore +
 // debug-authority bit). Combined with all-caps below this gives nmount the
@@ -403,31 +397,18 @@ int main(int argc, char *argv[]) {
     // ucred elevation. v3.2.35 reached `calling union_overlay …` and the
     // kernel SIGKILL'd us before nmount could return — etaHEN's payload
     // runner gives us exec but not PRIV_VFS_MOUNT_NONUSER, which is what
-    // nmount onto /mnt/sandbox needs. Escalate via the SDK's kernel-RW API.
+    // nmount onto /mnt/sandbox needs. Escalate via the SDK's ucred API
+    // (kernel-RW context auto-inits on first call; no explicit init).
     pid_t my_pid = getpid();
-    int kinit_rc = kernel_init_rw();
-    llog("kernel_init_rw rc=%d", kinit_rc);
-    if (kinit_rc != 0) {
-        llog("kernel-RW init failed — nmount will SIGKILL on first call.");
-        ps5_notify("⚠ XENO TOOL · kstuff init failed\nis kstuff-lite ≥1.07 loaded? Send the kstuff payload before this one.");
-        log_close();
-        return 6;
-    }
-    uint64_t before_authid = 0;
-    kernel_get_ucred_authid(my_pid, &before_authid);
+    uint64_t before_authid = kernel_get_ucred_authid(my_pid);
     int auth_rc = kernel_set_ucred_authid(my_pid, ROOT_AUTHID);
-    int caps_rc = kernel_set_ucred_caps(
-        my_pid,
-        0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL,
-        0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL
-    );
-    uint64_t after_authid = 0;
-    kernel_get_ucred_authid(my_pid, &after_authid);
+    int caps_rc = kernel_set_ucred_caps(my_pid, 0xFFFFFFFFFFFFFFFFULL);
+    uint64_t after_authid = kernel_get_ucred_authid(my_pid);
     llog("ucred authid: 0x%llx -> 0x%llx (set_authid rc=%d set_caps rc=%d)",
          (unsigned long long)before_authid, (unsigned long long)after_authid,
          auth_rc, caps_rc);
     if (after_authid != ROOT_AUTHID) {
-        ps5_notify("⚠ XENO TOOL · ucred elevation failed\nauthid stayed 0x%llx", (unsigned long long)after_authid);
+        ps5_notify("⚠ XENO TOOL · ucred elevation failed\nauthid stayed 0x%llx — is kstuff-lite ≥1.07 loaded?", (unsigned long long)after_authid);
         // Continue anyway — the mount may still work if etaHEN already
         // elevated us via another mechanism.
     } else {
