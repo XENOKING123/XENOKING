@@ -9,8 +9,6 @@ name: release
 #
 #   • XENO_TOOL_<ver>_x64-setup.exe   — the desktop app installer (NSIS)
 #   • latest.json                     — in-app auto-updater manifest
-#   • xeno-store.elf / -browser.elf   — on-console Game Store servers
-#   • XENO-Game-Store.zip             — homebrew-launcher package
 #   • CheatRunner.elf                 — on-console cheat engine (carried fwd)
 #   • XENO_Trainer_Tool_v2.5.exe      — PS Trainer Viewer (carried fwd)
 #
@@ -25,7 +23,6 @@ on:
       - 'client/**'
       - 'engine/**'
       - 'payload/**'
-      - 'ps5-app/**'
       - 'scripts/gen-updater-manifest.py'
       - 'scripts/update-version.js'
       - 'VERSION'
@@ -103,46 +100,6 @@ jobs:
             payload/ps5upload.elf.gz
             payload/dpi/ezremote-dpi.elf.gz
           if-no-files-found: error
-
-  # ── On-console Game Store ELFs + homebrew package. ────────────────────────
-  build-ps5app:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: ps5-app
-    env:
-      PS5_PAYLOAD_SDK: /opt/ps5-payload-sdk
-    steps:
-      - uses: actions/checkout@v4
-
-      # Self-contained pacbrew SDK (real prospero-clang binary, no host-LLVM
-      # dependency) — same source the ELF build has always used.
-      - name: Install PS5 payload SDK (pacbrew v0.36)
-        run: |
-          curl -fsSL \
-            "https://github.com/ps5-payload-dev/pacbrew-repo/releases/download/v0.36/ps5-payload-dev.tar.gz" \
-            | sudo tar -xzf - -C /
-          /opt/ps5-payload-sdk/bin/prospero-clang --version
-
-      - name: Build ELFs + homebrew package
-        run: make all PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk
-
-      - name: Assemble PS5 app assets
-        run: |
-          mkdir -p ../release
-          cp xeno-store.elf          ../release/
-          cp xeno-store-browser.elf  ../release/
-          ( cd dist && zip -r ../../release/XENO-Game-Store.zip XENO-Game-Store )
-          ls -lh ../release
-
-      - name: Upload PS5 app artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ps5app
-          path: release/*
-          if-no-files-found: error
-
 
   # ── Windows desktop installer (NSIS) + engine sidecar. ────────────────────
   build-desktop:
@@ -307,7 +264,7 @@ jobs:
 
   # ── Assemble the complete, Latest release. ────────────────────────────────
   publish:
-    needs: [build-payload, build-ps5app, build-desktop]
+    needs: [build-payload, build-desktop]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -334,8 +291,7 @@ jobs:
           mkdir -p release
           # Built this run — find regardless of artifact nesting.
           for n in \
-            "XENO_TOOL_*_x64-setup.exe" \
-            "xeno-store.elf" "xeno-store-browser.elf" "XENO-Game-Store.zip"; do
+            "XENO_TOOL_*_x64-setup.exe"; do
             f="$(find artifacts -type f -name "$n" -print -quit)"
             if [ -n "$f" ]; then
               cp -v "$f" "release/$(basename "$f")"
