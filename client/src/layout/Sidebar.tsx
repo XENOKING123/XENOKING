@@ -35,6 +35,7 @@ import {
   LayoutDashboard,
   ShieldCheck,
   Bug,
+  MessageCircle,
 } from "lucide-react";
 import clsx from "clsx";
 import { useThemeStore } from "../state/theme";
@@ -236,6 +237,15 @@ const items: NavItem[] = [
     icon: SettingsIcon,
   },
   { to: "/about", key: "about", fallback: "About", icon: Info },
+
+  // ─ Community: live chat at the very bottom of the sidebar ─
+  {
+    to: "/chat",
+    key: "chat",
+    fallback: "Community Chat",
+    icon: MessageCircle,
+    section: { key: "nav_section_community", fallback: "Community" },
+  },
 ];
 
 /** XENO emoji icons per route — bolder + more playful than the line icons. */
