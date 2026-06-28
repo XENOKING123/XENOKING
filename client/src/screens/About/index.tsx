@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   Heart,
-  Coffee,
   Zap,
   HardDrive,
   Radio,
@@ -24,8 +23,6 @@ const URLS = {
   license: `${XENO_REPO}/blob/main/LICENSE`,
   changelog: `${XENO_REPO}/blob/main/CHANGELOG.md`,
   author: XENO_REPO,
-  coffee: XENO_REPO,
-  email: XENO_REPO,
 };
 
 /** Top-level feature cards — four one-sentence pitches of what the app
@@ -128,12 +125,7 @@ export default function AboutScreen() {
             label="XENOKING"
             onClick={() => openExternal(URLS.author)}
           />
-          <PrimaryLink
-            icon={<Coffee size={14} />}
-            label={tr("buy_coffee")}
-            accent
-            onClick={() => openExternal(URLS.coffee)}
-          />
+
         </div>
       </header>
 
@@ -290,8 +282,7 @@ function FeatureTile({
   );
 }
 
-/** Hero links are the shared Button primitive (md so they read as
- *  CTAs); `accent` maps to the primary variant for the coffee link. */
+/** Hero links are the shared Button primitive (md so they read as CTAs). */
 function PrimaryLink({
   icon,
   label,
