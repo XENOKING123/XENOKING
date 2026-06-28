@@ -3,9 +3,7 @@ import { MessageCircle, Send, Smile, Image as GifIcon, X, Users, Wifi, WifiOff, 
 
 // ─── Config ───────────────────────────────────────────────────────────────
 
-// After deploying chat-worker/ to Cloudflare, replace with your Worker URL:
-//   wrangler deploy  →  copy the URL printed  →  set VITE_CHAT_WS_URL in GitHub Secrets
-const CHAT_WS_URL: string = (import.meta as any).env?.VITE_CHAT_WS_URL ?? "";
+const CHAT_WS_URL = "wss://xeno-chat.alexhaha417.workers.dev";
 
 const TENOR_KEY = "LIVDSRZULELA"; // Tenor public demo key
 
