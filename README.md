@@ -211,11 +211,33 @@ Made entirely by **maj0r** (Discord: `callmemaj0r`).
 It is free, open-source, and constantly improving — the v0.14 update fixed freezing on some games
 and brought major PS5 browser performance upgrades.
 
-[![Support maj0r on Ko-fi](https://www.ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/maj0r)
-&nbsp;&nbsp;
 [![Join the CheatRunner Discord](https://img.shields.io/badge/Discord-CheatRunner-5865F2?logo=discord&logoColor=white)](https://discord.gg/E4g6fEqp46)
 
 > The latest **CheatRunner.elf** is always included in the [XENO Releases](../../releases/latest) so you can grab everything in one place.
+
+</div>
+
+---
+
+<div align="center">
+
+### Cheat Database — the cheat creators
+
+The **10,781+ cheats** in XENO TOOL are sourced from the **etaHEN PS5 Cheats** and **HEN Cheats Collection** repos,
+via the **etaHEN &amp; GoldHEN** Discord communities. Massive thanks to everyone who makes and maintains them:
+
+**LM** ([lightningmods](https://github.com/lightningmods)) &nbsp;•&nbsp;
+**Buzzer** ([buzzer-re](https://github.com/buzzer-re)) &nbsp;•&nbsp;
+**Super Death** &nbsp;•&nbsp;
+**GoldHEN Team** ([repo](https://github.com/GoldHEN/GoldHEN_Cheat_Repository)) &nbsp;•&nbsp;
+**Yharnam** &nbsp;•&nbsp;
+**PS4Trainer** &nbsp;•&nbsp; and all cheat creators in the scene.
+
+[![etaHEN PS5 Cheats](https://img.shields.io/badge/GitHub-etaHEN%2FPS5__Cheats-181717?logo=github&logoColor=white)](https://github.com/etaHEN/PS5_Cheats)
+&nbsp;&nbsp;
+[![HEN Cheats Collection](https://img.shields.io/badge/Web-HEN%20Cheats%20Collection-4c1?logo=vercel&logoColor=white)](https://hencheats.vercel.app/)
+
+> XENO TOOL does not create cheats — it bundles and applies the community's work. Please report cheat-specific issues to the original authors.
 
 </div>
 
