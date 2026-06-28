@@ -19,6 +19,11 @@ name: release
 
 on:
   push:
+    # Only main builds a release. Without this filter, Dependabot's PR
+    # branches (build(deps): bump …) trip the path globs below and each
+    # spins up a full, pointless release run that can fail at publish.
+    branches:
+      - main
     paths:
       - 'client/**'
       - 'engine/**'
@@ -382,7 +387,7 @@ jobs:
           printf 'Cheats sourced from the **etaHEN PS5 Cheats** and **HEN Cheats Collection** repos via the etaHEN & GoldHEN Discord communities.\n'
           printf 'Contributors: **LM (lightningmods)**, **Buzzer (buzzer-re)**, **Super Death**, **GoldHEN Team**, **Yharnam**, **PS4Trainer**, and all cheat creators in the scene.\n'
           printf '\n---\n'
-          printf '**v%s — whats new:** Added full cheat database contributor credits to About / Credits screen. Removed ps5app Game Store ELFs from release assets (v3.2.41).\n' "$VERSION"
+          printf '**v%s — whats new:** Added full cheat-database contributor credits (LM, Buzzer, Super Death, GoldHEN Team, Yharnam, PS4Trainer) to the in-app About screen and the README. Removed the Ko-fi button from both. Restricted release builds to the main branch so Dependabot PRs no longer trigger stray runs.\n' "$VERSION"
           } > /tmp/release-notes.md
           # Create or update the release, always writing the full notes body.
           if gh release view "$TAG" >/dev/null 2>&1; then
