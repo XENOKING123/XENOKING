@@ -184,6 +184,27 @@ export default function AboutScreen() {
                 <span className="font-medium text-[var(--color-accent)]">maj0r</span>{" "}
                 (Discord: callmemaj0r). XENO TOOL is a frontend for it; huge thanks for the tool.
               </div>
+              <div className="mt-3 rounded-md bg-[var(--color-surface-3)] px-3 py-2 text-xs leading-relaxed text-[var(--color-muted)]">
+                <span className="font-semibold text-[var(--color-text)]">Cheat Database</span>{" "}
+                — cheats sourced from the{" "}
+                <span className="font-medium text-[var(--color-accent)]">etaHEN PS5 Cheats</span>{" "}
+                and{" "}
+                <span className="font-medium text-[var(--color-accent)]">HEN Cheats Collection</span>{" "}
+                repos via the etaHEN &amp; GoldHEN Discord communities. Massive thanks to all
+                contributors:{" "}
+                <span className="font-medium text-[var(--color-text)]">LM (lightningmods)</span>
+                {", "}
+                <span className="font-medium text-[var(--color-text)]">Buzzer (buzzer-re)</span>
+                {", "}
+                <span className="font-medium text-[var(--color-text)]">Super Death</span>
+                {", "}
+                <span className="font-medium text-[var(--color-text)]">GoldHEN Team</span>
+                {", "}
+                <span className="font-medium text-[var(--color-text)]">Yharnam</span>
+                {", "}
+                <span className="font-medium text-[var(--color-text)]">PS4Trainer</span>
+                {", and all cheat creators in the scene."}
+              </div>
               <div className="mt-3 flex items-center gap-2 text-xs">
                 <span className="rounded-md bg-[var(--color-surface-3)] px-2 py-1 font-medium text-[var(--color-accent)]">
                   Discord: {DISCORD_NAME}
