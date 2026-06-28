@@ -339,8 +339,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          printf '%s\n' \
-            "XENO TOOL ${VERSION} — 10,781 cheats bundled, My Games crash fixed, full PS4/PS5 Game Store with auto cover art, payloads, saves, nanoDNS." \
+          printf 'XENO TOOL %s — 10,781+ cheats, Game Store, saves, payload sender, hardware view, nanoDNS.\n' "$VERSION" \
             > /tmp/notes.md
           python3 scripts/gen-updater-manifest.py \
             --release-dir release \
@@ -362,13 +361,36 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Ensure the release exists (don't clobber existing notes), and pin it Latest.
+          # Full release notes — ALL features every release; delta at the bottom.
+          {
+          printf 'XENO TOOL %s — complete all-in-one PS4/PS5 toolkit.\n\n' "$VERSION"
+          printf '## Desktop App — XENO_TOOL_%s_x64-setup.exe\n' "$VERSION"
+          printf -- '- **Fast Transfers** — FTX2 binary protocol + BLAKE3 shard verification + pack-small-files optimization.\n'
+          printf -- '- **Native Image Mount** — .exfat / .ffpkg images via MDIOCATTACH + nmount; no third-party helpers.\n'
+          printf -- '- **Payload Sender** — send any PS5 payload ELF over :9021.\n'
+          printf -- '- **Live Hardware View** — model, serial, uptime, CPU frequency, RAM, and fan-threshold control.\n'
+          printf -- '- **My Games** — live installed game library pulled from the console.\n'
+          printf -- '- **Cheats** — 10,781+ PS4/PS5 cheats (JSON / SHN / MC4) powered by CheatRunner (maj0r).\n'
+          printf -- '- **Game Store** — PS4/PS5 scraper with auto cover art, multi-mirror links, region + update support.\n'
+          printf -- '- **Save Manager** — browse and manage PS5 save files on-device.\n'
+          printf -- '- **nanoDNS** — built-in DNS helper for homebrew networking.\n'
+          printf -- '- **Auto-Updater** — one-click in-app update via latest.json.\n'
+          printf '\n## On-Console Tools (carried forward every release)\n'
+          printf -- '- **CheatRunner.elf** — on-console cheat engine by maj0r (Discord: callmemaj0r). XENO TOOL is a frontend for it.\n'
+          printf -- '- **XENO_Trainer_Tool_v2.5.exe** — PS Trainer Viewer.\n'
+          printf '\n## Cheat Database Credits\n'
+          printf 'Cheats sourced from the **etaHEN PS5 Cheats** and **HEN Cheats Collection** repos via the etaHEN & GoldHEN Discord communities.\n'
+          printf 'Contributors: **LM (lightningmods)**, **Buzzer (buzzer-re)**, **Super Death**, **GoldHEN Team**, **Yharnam**, **PS4Trainer**, and all cheat creators in the scene.\n'
+          printf '\n---\n'
+          printf '**v%s — whats new:** Added full cheat database contributor credits to About / Credits screen. Removed ps5app Game Store ELFs from release assets (v3.2.41).\n' "$VERSION"
+          } > /tmp/release-notes.md
+          # Create or update the release, always writing the full notes body.
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --latest
+            gh release edit "$TAG" --latest --notes-file /tmp/release-notes.md
           else
             gh release create "$TAG" \
               --title "XENO TOOL $TAG" \
-              --notes "XENO TOOL $VERSION — full all-in-one release. See assets below." \
+              --notes-file /tmp/release-notes.md \
               --latest
           fi
           # Upload every asset, replacing any older copy.
