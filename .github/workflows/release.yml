@@ -419,21 +419,42 @@ jobs:
         run: |
           set -euo pipefail
           XCODEPROJ="$(find src-tauri/gen/apple -name '*.xcodeproj' -maxdepth 2 -print -quit)"
-          # List all schemes; pick the first non-empty one (handles names with spaces)
+          echo "::notice::Project: $XCODEPROJ"
+
+          # Patch pbxproj to disable signing before xcodebuild sees it
+          PBXPROJ="$XCODEPROJ/project.pbxproj"
+          sed -i '' \
+            -e 's/DEVELOPMENT_TEAM = [^;]*;/DEVELOPMENT_TEAM = "";/g' \
+            -e 's/CODE_SIGN_IDENTITY = [^;]*;/CODE_SIGN_IDENTITY = "";/g' \
+            -e 's/CODE_SIGN_STYLE = [^;]*;/CODE_SIGN_STYLE = Manual;/g' \
+            -e 's/PROVISIONING_PROFILE_SPECIFIER = [^;]*;/PROVISIONING_PROFILE_SPECIFIER = "";/g' \
+            "$PBXPROJ"
+
+          # Extract first scheme (BSD awk-safe)
           SCHEME="$(xcodebuild -project "$XCODEPROJ" -list 2>&1 \
-            | awk '/Schemes:/{found=1; next} found && /^\s+\S/{gsub(/^[[:space:]]+/,"",$0); print; exit}')"
-          echo "Project: $XCODEPROJ"
-          echo "Scheme : $SCHEME"
+            | awk '/Schemes:/{f=1;next} f && /[^ \t]/{gsub(/^[ \t]+/,"",$0); print; exit}')"
+          echo "::notice::Scheme: '$SCHEME'"
+
           xcodebuild build \
             -project "$XCODEPROJ" \
             -scheme "$SCHEME" \
             -sdk iphoneos \
             -configuration Release \
             -derivedDataPath ../DerivedData \
+            CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            ONLY_ACTIVE_ARCH=NO
+            CODE_SIGN_ENTITLEMENTS="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            ONLY_ACTIVE_ARCH=NO \
+            2>&1 | tee /tmp/xcode.log || {
+              echo "::error::xcodebuild failed — last 60 lines:"
+              tail -60 /tmp/xcode.log | while IFS= read -r line; do echo "::error::$line"; done
+              exit 1
+            }
 
       - name: Package unsigned IPA
         run: |
