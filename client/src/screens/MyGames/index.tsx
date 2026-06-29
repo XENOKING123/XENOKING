@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Gamepad2, RefreshCw, Search, X, Zap, ZapOff, Play, Square, Upload,
-  Plug, PlugZap, ExternalLink, DownloadCloud,
+  Plug, PlugZap, ExternalLink, DownloadCloud, Trash2,
 } from "lucide-react";
 
 import { PageHeader, Button, EmptyState } from "../../components";
@@ -21,7 +21,7 @@ import {
 } from "../../lib/cheatRunner";
 import { friendlyCheatRunnerError } from "../../lib/cheatErrors";
 import { useGameCover } from "../../lib/covers";
-import { listTrainers, cheatSync, type TrainerRow } from "../../lib/trainers";
+import { listTrainers, cheatSync, deleteTrainer, type TrainerRow } from "../../lib/trainers";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 
 /**
@@ -208,6 +208,7 @@ function CheatsDialog({ host, game, onClose }: { host: string; game: CRGame; onC
   const [err, setErr] = useState("");
   const [pending, setPending] = useState<number | null>(null);
   const [installingPath, setInstallingPath] = useState<string | null>(null);
+  const [deletingPath, setDeletingPath] = useState<string | null>(null);
   const [attaching, setAttaching] = useState(false);
   const [detaching, setDetaching] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -277,6 +278,28 @@ function CheatsDialog({ host, game, onClose }: { host: string; game: CRGame; onC
       }
     }
   }, [host, game.titleId, game.name]);
+
+  const doDelete = useCallback(
+    async (row: TrainerRow) => {
+      if (deletingPath || installingPath) return;
+      setDeletingPath(row.path);
+      setErr("");
+      try {
+        await deleteTrainer(row.path);
+        if (alive.current) {
+          setLocalMatches((prev) => {
+            const next = (prev ?? []).filter((r) => r.path !== row.path);
+            return next.length > 0 ? next : null;
+          });
+        }
+      } catch (e) {
+        if (alive.current) setErr(`Delete failed: ${e}`);
+      } finally {
+        if (alive.current) setDeletingPath(null);
+      }
+    },
+    [deletingPath, installingPath],
+  );
 
   /** Push a local cheat file to the PS5 via CheatRunner /api/cheats/upload,
    *  then re-query so the live-cheats branch takes over with real toggles
@@ -537,16 +560,29 @@ function CheatsDialog({ host, game, onClose }: { host: string; game: CRGame; onC
                         {row.modder ? ` · ${row.modder}` : ""}
                       </div>
                     </div>
-                    <Button
-                      variant={installing ? "ghost" : "primary"}
-                      size="sm"
-                      leftIcon={<Upload size={13} />}
-                      loading={installing}
-                      disabled={anyInstalling}
-                      onClick={() => void installToConsole(row)}
-                    >
-                      {installing ? "Sending…" : "Install"}
-                    </Button>
+                    <div className="flex gap-1.5">
+                      <Button
+                        variant={installing ? "ghost" : "primary"}
+                        size="sm"
+                        leftIcon={<Upload size={13} />}
+                        loading={installing}
+                        disabled={anyInstalling || deletingPath !== null}
+                        onClick={() => void installToConsole(row)}
+                      >
+                        {installing ? "Sending…" : "Install"}
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        leftIcon={<Trash2 size={13} />}
+                        loading={deletingPath === row.path}
+                        disabled={anyInstalling || deletingPath !== null}
+                        onClick={() => void doDelete(row)}
+                        title="Delete this trainer file from your local library"
+                      >
+                        Delete
+                      </Button>
+                    </div>
                   </div>
                 );
               })}

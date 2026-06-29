@@ -1193,3 +1193,25 @@ pub async fn list_trainers(app: AppHandle) -> Result<Vec<TrainerRow>, String> {
     rows.sort_by(|a, b| a.game.to_lowercase().cmp(&b.game.to_lowercase()));
     Ok(rows)
 }
+
+/// Delete a local trainer file (and its sidecar .xml if present).
+/// Path must be inside the trainers directory — anything else is rejected.
+#[tauri::command]
+pub async fn delete_trainer(app: AppHandle, path: String) -> Result<(), String> {
+    let root = trainers_dir(&app)?;
+    let target = std::path::Path::new(&path);
+    // Security: must be a child of the trainers dir
+    if !target.starts_with(&root) {
+        return Err("Path outside trainers directory".into());
+    }
+    if !target.exists() {
+        return Ok(()); // already gone — treat as success
+    }
+    std::fs::remove_file(target).map_err(|e| format!("delete failed: {e}"))?;
+    // Also remove the sidecar .mc4.xml if one exists
+    let sidecar = std::path::PathBuf::from(format!("{}.xml", path));
+    if sidecar.exists() && sidecar.starts_with(&root) {
+        let _ = std::fs::remove_file(&sidecar);
+    }
+    Ok(())
+}

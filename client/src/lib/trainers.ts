@@ -37,6 +37,10 @@ export interface TitleInfo {
   cover: string;
 }
 
+export async function deleteTrainer(path: string): Promise<void> {
+  await invoke("delete_trainer", { path });
+}
+
 export async function resolveTitleOnline(id: string): Promise<TitleInfo> {
   try {
     return await invoke<TitleInfo>("title_resolve", { id });

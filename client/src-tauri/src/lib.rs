@@ -431,6 +431,7 @@ pub fn run() {
             commands::cheatrunner_upload,
             commands::cheat_sync,
             commands::list_trainers,
+            commands::delete_trainer,
             commands::ps5debug_attach,
             commands::cheat_apply,
             commands::title_resolve,
