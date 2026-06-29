@@ -603,6 +603,40 @@ fn seed_titles(app: &AppHandle) -> Result<(), String> {
 static TITLE_INDEX: std::sync::OnceLock<std::collections::HashMap<String, String>> =
     std::sync::OnceLock::new();
 
+// (TITLE_ID_UPPER, "mc4"|"shn"|"json") -> cheat name list from cheatslist.json
+static CHEAT_INDEX: std::sync::OnceLock<std::collections::HashMap<(String, String), Vec<String>>> =
+    std::sync::OnceLock::new();
+
+fn cheat_index(app: &AppHandle) -> &'static std::collections::HashMap<(String, String), Vec<String>> {
+    CHEAT_INDEX.get_or_init(|| {
+        let mut m = std::collections::HashMap::new();
+        if let Ok(dir) = app.path().app_data_dir() {
+            if let Ok(txt) = std::fs::read_to_string(dir.join("cheatslist.json")) {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt) {
+                    if let Some(entries) = v["entries"].as_array() {
+                        for e in entries {
+                            if let Some(id) = e["id"].as_str() {
+                                let key_id = id.to_uppercase();
+                                for fmt in ["mc4", "shn", "json"] {
+                                    if let Some(arr) = e["formats"][fmt]["cheats"].as_array() {
+                                        let names: Vec<String> = arr.iter()
+                                            .filter_map(|c| c.as_str().map(|s| s.to_string()))
+                                            .collect();
+                                        if !names.is_empty() {
+                                            m.insert((key_id.clone(), fmt.to_string()), names);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        m
+    })
+}
+
 fn title_index(app: &AppHandle) -> &'static std::collections::HashMap<String, String> {
     TITLE_INDEX.get_or_init(|| {
         let mut m = std::collections::HashMap::new();
@@ -1139,6 +1173,21 @@ pub async fn list_trainers(app: AppHandle) -> Result<Vec<TrainerRow>, String> {
             }
         }
     }
+
+    // Fill cheat names from cheatslist.json when sidecar was absent/empty
+    let cidx = cheat_index(&app);
+    for row in rows.iter_mut() {
+        if row.cheats.is_empty() {
+            let key = (row.title_id.to_uppercase(), row.format.to_lowercase());
+            if let Some(names) = cidx.get(&key) {
+                row.cheats = names.clone();
+            }
+        }
+    }
+
+    // Deduplicate: keep first seen row per (title_id, version, format)
+    let mut seen = std::collections::HashSet::new();
+    rows.retain(|r| seen.insert((r.title_id.clone(), r.version.clone(), r.format.clone())));
 
     rows.retain(|r| !r.title_id.is_empty() || !r.game.is_empty());
     rows.sort_by(|a, b| a.game.to_lowercase().cmp(&b.game.to_lowercase()));
