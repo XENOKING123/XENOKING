@@ -56,6 +56,7 @@ const MyGamesScreen = lazy(() => import("./screens/MyGames"));
 const TrainersScreen = lazy(() => import("./screens/Trainers"));
 const TitleSearchScreen = lazy(() => import("./screens/TitleSearch"));
 const ChatScreen = lazy(() => import("./screens/Chat"));
+const PluginManagerScreen = lazy(() => import("./screens/PluginManager"));
 
 /**
  * Suspense fallback. Deliberately minimal — a spinner would
@@ -217,6 +218,14 @@ export default function App() {
           element={
             <Suspense fallback={<ScreenLoader />}>
               <PayloadsScreen />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/plugin-manager"
+          element={
+            <Suspense fallback={<ScreenLoader />}>
+              <PluginManagerScreen />
             </Suspense>
           }
         />

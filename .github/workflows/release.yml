@@ -267,9 +267,192 @@ jobs:
           path: out/*
           if-no-files-found: error
 
+  # ── Android APK (arm64, direct-install). ─────────────────────────────────
+  build-android:
+    needs: [build-payload]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      RUST_TARGET: aarch64-linux-android
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android NDK r26b
+        run: |
+          echo y | sdkmanager "ndk;26.1.10909125" 2>/dev/null || true
+          echo "NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.1.10909125" >> "$GITHUB_ENV"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Sync version
+        run: node scripts/update-version.js
+
+      - name: Setup Rust with Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            client/src-tauri/target
+            engine/target
+          key: android-aarch64-v${{ hashFiles('VERSION') }}-${{ hashFiles('client/src-tauri/Cargo.lock', 'engine/Cargo.lock') }}
+
+      - name: Restore payload artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: payload
+          path: artifact-payload
+
+      - name: Place payload files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p payload/dpi
+          cp "$(find artifact-payload -name ps5upload.elf.gz    -print -quit)" payload/ps5upload.elf.gz
+          cp "$(find artifact-payload -name ezremote-dpi.elf.gz -print -quit)" payload/dpi/ezremote-dpi.elf.gz
+
+      - name: Install client deps
+        working-directory: client
+        run: npm ci --no-audit --no-fund
+
+      - name: Init Tauri Android project
+        working-directory: client
+        run: npx tauri android init
+
+      - name: Build Android APK (arm64)
+        working-directory: client
+        run: npx tauri android build --apk --target aarch64
+
+      - name: Collect APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          mkdir -p out
+          APK="$(find client/src-tauri/gen/android -name '*.apk' \
+                   -not -path '*/intermediates/*' -print -quit)"
+          if [ -z "$APK" ]; then
+            echo "::error::No APK produced under client/src-tauri/gen/android"
+            exit 1
+          fi
+          cp -v "$APK" "out/XENO_TOOL_${VERSION}_arm64.apk"
+
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: out/*
+          if-no-files-found: error
+
+  # ── iOS IPA (unsigned — install via Sideloadly). ─────────────────────────
+  build-ios:
+    needs: [build-payload]
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Sync version
+        run: node scripts/update-version.js
+
+      - name: Setup Rust with iOS targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,x86_64-apple-ios
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            client/src-tauri/target
+            engine/target
+          key: ios-aarch64-v${{ hashFiles('VERSION') }}-${{ hashFiles('client/src-tauri/Cargo.lock', 'engine/Cargo.lock') }}
+
+      - name: Restore payload artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: payload
+          path: artifact-payload
+
+      - name: Place payload files
+        run: |
+          set -euo pipefail
+          mkdir -p payload/dpi
+          cp "$(find artifact-payload -name ps5upload.elf.gz    -print -quit)" payload/ps5upload.elf.gz
+          cp "$(find artifact-payload -name ezremote-dpi.elf.gz -print -quit)" payload/dpi/ezremote-dpi.elf.gz
+
+      - name: Install client deps
+        working-directory: client
+        run: npm ci --no-audit --no-fund
+
+      - name: Init Tauri iOS project
+        working-directory: client
+        run: npx tauri ios init
+
+      - name: Build iOS archive (unsigned)
+        working-directory: client
+        run: |
+          set -euo pipefail
+          XCODEPROJ="$(find src-tauri/gen/apple -name '*.xcodeproj' -maxdepth 2 -print -quit)"
+          SCHEME="$(basename "$XCODEPROJ" .xcodeproj)"
+          xcodebuild archive \
+            -project "$XCODEPROJ" \
+            -scheme "$SCHEME" \
+            -sdk iphoneos \
+            -configuration Release \
+            -archivePath "../build/XENO-TOOL.xcarchive" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            ONLY_ACTIVE_ARCH=NO
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          APP="$(find build/XENO-TOOL.xcarchive -name '*.app' -maxdepth 4 -print -quit)"
+          mkdir -p Payload out
+          cp -r "$APP" Payload/
+          (cd Payload && zip -r "../out/XENO_TOOL_${VERSION}_iOS_unsigned.ipa" .)
+          ls -la out
+
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: out/*
+          if-no-files-found: error
+
   # ── Assemble the complete, Latest release. ────────────────────────────────
   publish:
-    needs: [build-payload, build-desktop]
+    needs: [build-payload, build-desktop, build-android, build-ios]
+    # Run even if mobile builds fail — desktop is the non-negotiable deliverable.
+    if: always() && needs.build-desktop.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -294,21 +477,25 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release
-          # Built this run — find regardless of artifact nesting.
-          for n in \
-            "XENO_TOOL_*_x64-setup.exe"; do
-            f="$(find artifacts -type f -name "$n" -print -quit)"
+
+          # Desktop installer — non-negotiable; abort if missing.
+          SETUP="$(find artifacts -type f -name 'XENO_TOOL_*_x64-setup.exe' -print -quit)"
+          if [ -z "$SETUP" ]; then
+            echo "::error::desktop installer missing from artifacts"
+            exit 1
+          fi
+          cp -v "$SETUP" "release/$(basename "$SETUP")"
+
+          # Mobile builds — include if built, skip silently if not.
+          for pat in "XENO_TOOL_*_arm64.apk" "XENO_TOOL_*_iOS_unsigned.ipa"; do
+            f="$(find artifacts -type f -name "$pat" -print -quit)"
             if [ -n "$f" ]; then
               cp -v "$f" "release/$(basename "$f")"
-            elif [[ "$n" == "XENO_TOOL_"* ]]; then
-              # The desktop installer is non-negotiable for a release; abort
-              # rather than carry a stale prior asset forward.
-              echo "::error::desktop installer missing from artifacts: $n"
-              exit 1
             else
-              echo "::warning::expected asset not found in artifacts: $n"
+              echo "::notice::Mobile asset not in this run: $pat"
             fi
           done
+
           ls -la release
 
       - name: Carry forward static third-party tools
@@ -369,7 +556,7 @@ jobs:
           # Full release notes — ALL features every release; delta at the bottom.
           {
           printf 'XENO TOOL %s — complete all-in-one PS4/PS5 toolkit.\n\n' "$VERSION"
-          printf '## Desktop App — XENO_TOOL_%s_x64-setup.exe\n' "$VERSION"
+          printf '## Desktop — XENO_TOOL_%s_x64-setup.exe\n' "$VERSION"
           printf -- '- **Fast Transfers** — FTX2 binary protocol + BLAKE3 shard verification + pack-small-files optimization.\n'
           printf -- '- **Native Image Mount** — .exfat / .ffpkg images via MDIOCATTACH + nmount; no third-party helpers.\n'
           printf -- '- **Payload Sender** — send any PS5 payload ELF over :9021.\n'
@@ -380,6 +567,13 @@ jobs:
           printf -- '- **Save Manager** — browse and manage PS5 save files on-device.\n'
           printf -- '- **nanoDNS** — built-in DNS helper for homebrew networking.\n'
           printf -- '- **Auto-Updater** — one-click in-app update via latest.json.\n'
+          printf '\n## Android — XENO_TOOL_%s_arm64.apk\n' "$VERSION"
+          printf -- '- **Direct install** — download the APK, enable "Unknown sources", install. No Play Store.\n'
+          printf -- '- Connect to PS5 over WiFi, run cheats, send payloads, browse trainers — full tool.\n'
+          printf '\n## iOS — XENO_TOOL_%s_iOS_unsigned.ipa\n' "$VERSION"
+          printf -- '- **Unsigned IPA** — install free via [Sideloadly](https://sideloadly.io) with your Apple ID.\n'
+          printf -- '- Re-signs every 7 days (free ID) or 1 year (paid Developer account).\n'
+          printf -- '- Full tool over WiFi: connect to PS5, cheats, payloads, XENO CHAT, trainers.\n'
           printf '\n## On-Console Tools (carried forward every release)\n'
           printf -- '- **CheatRunner.elf** — on-console cheat engine by maj0r (Discord: callmemaj0r). XENO TOOL is a frontend for it.\n'
           printf -- '- **XENO_Trainer_Tool_v2.5.exe** — PS Trainer Viewer.\n'
@@ -387,7 +581,7 @@ jobs:
           printf 'Cheats sourced from the **etaHEN PS5 Cheats** and **HEN Cheats Collection** repos via the etaHEN & GoldHEN Discord communities.\n'
           printf 'Contributors: **LM (lightningmods)**, **Buzzer (buzzer-re)**, **Super Death**, **GoldHEN Team**, **Yharnam**, **PS4Trainer**, and all cheat creators in the scene.\n'
           printf '\n---\n'
-          printf '**v%s — whats new:** Added full cheat-database contributor credits (LM, Buzzer, Super Death, GoldHEN Team, Yharnam, PS4Trainer) to the in-app About screen and the README. Removed the Ko-fi button from both. Restricted release builds to the main branch so Dependabot PRs no longer trigger stray runs.\n' "$VERSION"
+          printf '**v%s — whats new:** Plugin Manager — view all running homebrew on your PS5 and kill any process with one click. Android APK (direct download, no Play Store) + iOS IPA (Sideloadly, unsigned) — full tool on mobile: connect to PS5, run cheats, send payloads over WiFi.\n' "$VERSION"
           } > /tmp/release-notes.md
           # Create or update the release, always writing the full notes body.
           if gh release view "$TAG" >/dev/null 2>&1; then

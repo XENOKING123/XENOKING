@@ -36,6 +36,7 @@ import {
   ShieldCheck,
   Bug,
   MessageCircle,
+  Puzzle,
 } from "lucide-react";
 import clsx from "clsx";
 import { useThemeStore } from "../state/theme";
@@ -200,6 +201,7 @@ const items: NavItem[] = [
     icon: CircleUserRound,
   },
   { to: "/payloads", key: "payloads", fallback: "Payloads", icon: Boxes },
+  { to: "/plugin-manager", key: "plugin_manager", fallback: "Plugin Manager", icon: Puzzle },
   { to: "/nanodns", key: "nanodns", fallback: "nanoDNS", icon: Globe },
   { to: "/shell", key: "shell", fallback: "Shell", icon: TerminalSquare },
 
@@ -274,6 +276,7 @@ const EMOJI: Record<string, string> = {
   "/hardware": "🧩",
   "/profile": "👤",
   "/payloads": "🧨",
+  "/plugin-manager": "🧩",
   "/nanodns": "🌐",
   "/shell": "🐚",
   "/stats": "📈",

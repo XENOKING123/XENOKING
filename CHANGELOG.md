@@ -4,6 +4,14 @@ What's new in XENO TOOL, written for humans.
 
 ---
 
+## 3.2.55
+
+- **Plugin Manager.** New screen under System in the sidebar. Lists every recognised homebrew plugin running on your PS5 — ShadowMount+, CheatRunner, nanoDNS, etaHEN, GoldHEN, ps5-debug, FTP Server and more — with live PID display, a description for each, and a **Kill** button to stop any closeable process instantly. Auto-refreshes every 3 seconds. Core system processes (kstuff, GoldHEN, your XENO payload) are shown as **Protected** and cannot be terminated accidentally. All other user processes are visible under a collapsible "Show other" toggle.
+- **Android APK.** Full XENO TOOL now builds as a direct-install APK. Download from the GitHub release, enable "Install from unknown sources" once, and you're running. No Play Store. Connects to your PS5 over WiFi — cheats, payloads, trainers, XENO CHAT, everything.
+- **iOS IPA (Sideloadly).** Unsigned IPA ships alongside the APK. Install free via [Sideloadly](https://sideloadly.io) with any Apple ID. Re-signs every 7 days with a free ID (1 year with a paid Developer account). Full tool over WiFi — same feature set as Android.
+
+---
+
 ## 3.2.53
 
 - **Delete trainers from your local library.** In My Games → Cheats, each trainer in the "Install to console" list now has a red **Delete** button next to Install. One click removes the file (and its sidecar) from your PC library immediately — no need to dig through folders.
