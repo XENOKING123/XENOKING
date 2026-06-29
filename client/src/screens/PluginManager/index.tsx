@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 
 import { useConnectionStore } from "../../state/connection";
-import { procListGet, shellRunCmd, type ProcEntry } from "../../api/ps5";
+import { procListGet, shellRun, type ProcEntry } from "../../api/ps5";
 import {
   PageHeader,
   EmptyState,
@@ -33,23 +33,23 @@ interface PluginInfo {
 }
 
 const PLUGIN_MAP: Record<string, PluginInfo> = {
-  shadowmountplus: { label: "ShadowMount+",  desc: "PS5 game mod/patch mounter via unionfs",           closeable: true,  badge: "📂" },
-  shadowmount:     { label: "ShadowMount+",  desc: "PS5 game mod/patch mounter via unionfs",           closeable: true,  badge: "📂" },
-  kstuff:          { label: "kstuff",         desc: "Kernel exploit patches & privilege scaffolding",   closeable: false, badge: "⚙️" },
-  cheatrunner:     { label: "CheatRunner",   desc: "In-game cheat engine by maj0r",                    closeable: true,  badge: "🎯" },
-  nanodns:         { label: "nanoDNS",       desc: "DNS override for PS Store redirect",               closeable: true,  badge: "🌐" },
-  goldhen:         { label: "GoldHEN",       desc: "PS5 jailbreak framework",                          closeable: false, badge: "🔓" },
-  mira:            { label: "Mira",          desc: "Mira homebrew framework",                          closeable: false, badge: "🔧" },
-  elfloader:       { label: "ELF Loader",    desc: "ELF payload loader daemon",                        closeable: true,  badge: "📦" },
-  ftpd:            { label: "FTP Server",    desc: "FTP daemon for remote file access",                closeable: true,  badge: "🖥" },
-  ftpdaemon:       { label: "FTP Server",    desc: "FTP daemon for remote file access",                closeable: true,  badge: "🖥" },
-  ps5debug:        { label: "ps5-debug",     desc: "Process debugger and memory patcher",              closeable: true,  badge: "🔬" },
-  libdebug:        { label: "libdebug",      desc: "Debug library daemon",                             closeable: true,  badge: "🔬" },
-  ps5upload:       { label: "XENO Payload",  desc: "XENO TOOL payload — powers this app",              closeable: false, badge: "🧨" },
-  "payload.elf":   { label: "XENO Payload",  desc: "XENO TOOL payload — powers this app",              closeable: false, badge: "🧨" },
-  payload2:        { label: "XENO Payload",  desc: "XENO TOOL payload — powers this app",              closeable: false, badge: "🧨" },
-  etahen:          { label: "etaHEN",        desc: "etaHEN jailbreak exploit",                         closeable: false, badge: "🔓" },
-  "hen.elf":       { label: "HEN",           desc: "Homebrew enabler",                                 closeable: false, badge: "🔓" },
+  shadowmountplus: { label: "ShadowMount+",  desc: "PS5 game mod/patch mounter via unionfs",         closeable: true,  badge: "📂" },
+  shadowmount:     { label: "ShadowMount+",  desc: "PS5 game mod/patch mounter via unionfs",         closeable: true,  badge: "📂" },
+  kstuff:          { label: "kstuff",         desc: "Kernel exploit patches & privilege scaffolding", closeable: false, badge: "⚙️" },
+  cheatrunner:     { label: "CheatRunner",   desc: "In-game cheat engine by maj0r",                  closeable: true,  badge: "🎯" },
+  nanodns:         { label: "nanoDNS",       desc: "DNS override for PS Store redirect",             closeable: true,  badge: "🌐" },
+  goldhen:         { label: "GoldHEN",       desc: "PS5 jailbreak framework",                        closeable: false, badge: "🔓" },
+  mira:            { label: "Mira",          desc: "Mira homebrew framework",                        closeable: false, badge: "🔧" },
+  elfloader:       { label: "ELF Loader",    desc: "ELF payload loader daemon",                      closeable: true,  badge: "📦" },
+  ftpd:            { label: "FTP Server",    desc: "FTP daemon for remote file access",              closeable: true,  badge: "🖥" },
+  ftpdaemon:       { label: "FTP Server",    desc: "FTP daemon for remote file access",              closeable: true,  badge: "🖥" },
+  ps5debug:        { label: "ps5-debug",     desc: "Process debugger and memory patcher",            closeable: true,  badge: "🔬" },
+  libdebug:        { label: "libdebug",      desc: "Debug library daemon",                           closeable: true,  badge: "🔬" },
+  ps5upload:       { label: "XENO Payload",  desc: "XENO TOOL payload — powers this app",            closeable: false, badge: "🧨" },
+  "payload.elf":   { label: "XENO Payload",  desc: "XENO TOOL payload — powers this app",            closeable: false, badge: "🧨" },
+  payload2:        { label: "XENO Payload",  desc: "XENO TOOL payload — powers this app",            closeable: false, badge: "🧨" },
+  etahen:          { label: "etaHEN",        desc: "etaHEN jailbreak exploit",                       closeable: false, badge: "🔓" },
+  "hen.elf":       { label: "HEN",           desc: "Homebrew enabler",                               closeable: false, badge: "🔓" },
 };
 
 function matchPlugin(name: string): PluginInfo | null {
@@ -82,8 +82,8 @@ const AUTO_REFRESH_MS = 3000;
 
 export default function PluginManagerScreen() {
   const tr = useTr();
-  const { active } = useConnectionStore();
-  const addr = active ? mgmtAddr(active.host) : "";
+  const host = useConnectionStore((s) => s.host);
+  const addr = host ? mgmtAddr(host) : "";
 
   const [rows, setRows]               = useState<ProcRow[]>([]);
   const [loading, setLoading]         = useState(false);
@@ -93,7 +93,7 @@ export default function PluginManagerScreen() {
   const [showAll, setShowAll]         = useState(false);
   const [killing, setKilling]         = useState<number | null>(null);
   const intervalRef                   = useRef<ReturnType<typeof setInterval> | null>(null);
-  const confirm                       = useConfirm();
+  const { confirm, dialog }           = useConfirm();
 
   const load = useCallback(async () => {
     if (!addr) return;
@@ -126,18 +126,18 @@ export default function PluginManagerScreen() {
     async (pid: number, name: string) => {
       const ok = await confirm({
         title: `Kill: ${name}`,
-        description: `Send SIGKILL to PID ${pid}. The process will terminate immediately. You can restart it from the Payloads screen.`,
+        message: `Send SIGKILL to PID ${pid}. The process will terminate immediately. You can restart it from the Payloads screen.`,
         confirmLabel: "Kill",
-        variant: "danger",
+        destructive: true,
       });
       if (!ok) return;
       setKilling(pid);
       try {
-        await shellRunCmd(addr, `kill -9 ${pid}`);
-        pushNotification(`Killed ${name} (PID ${pid})`, "success");
+        await shellRun(addr, `kill -9 ${pid}`);
+        pushNotification("success", `Killed ${name} (PID ${pid})`);
         await load();
       } catch (e) {
-        pushNotification(`Kill failed: ${String(e)}`, "error");
+        pushNotification("error", `Kill failed: ${String(e)}`);
       } finally {
         setKilling(null);
       }
@@ -190,6 +190,8 @@ export default function PluginManagerScreen() {
           </div>
         }
       />
+
+      {dialog}
 
       <ConnectionGate>
         <div className="mx-auto max-w-2xl space-y-6">
