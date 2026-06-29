@@ -72,6 +72,7 @@ export class ChatRoom {
 
     let res: Response;
     if (url.pathname === "/register" && req.method === "POST") res = await this.handleRegister(req);
+    else if (url.pathname === "/claim-owner" && req.method === "POST") res = await this.handleClaimOwner(req);
     else if (url.pathname === "/login" && req.method === "POST") res = await this.handleLogin(req);
     else if (url.pathname.startsWith("/profile/") && req.method === "GET") res = await this.handleGetProfile(url.pathname.slice(9).toLowerCase());
     else if (url.pathname === "/profile" && req.method === "PATCH") res = await this.handleUpdateProfile(req);
@@ -122,6 +123,7 @@ export class ChatRoom {
     const password = String(body.password ?? "");
     const displayName = String(body.displayName ?? username).replace(/[<>"]/g, "").trim().slice(0, 32);
     const color = /^#[0-9a-fA-F]{6}$/.test(body.color) ? String(body.color) : "#f5c518";
+    if (username === OWNER) return this.json({ error: "That username is reserved." }, 403);
     if (username.length < 3) return this.json({ error: "Username: 3–20 chars (a-z, 0-9, _)" }, 400);
     if (password.length < 6) return this.json({ error: "Password: at least 6 characters" }, 400);
     if (!displayName) return this.json({ error: "Display name required" }, 400);
@@ -132,6 +134,23 @@ export class ChatRoom {
     await this.state.storage.put(`user:${username}`, profile);
     const token = this.tok();
     await this.state.storage.put(`session:${token}`, { username, expires: Date.now() + 30 * 86_400_000 });
+    return this.json({ token, profile: this.safe(profile) }, 201);
+  }
+
+  private async handleClaimOwner(req: Request): Promise<Response> {
+    if (await this.state.storage.get(`user:${OWNER}`)) return this.json({ error: "Owner account already exists. Log in instead." }, 409);
+    let body: any;
+    try { body = await req.json(); } catch { return this.json({ error: "Invalid JSON" }, 400); }
+    const password = String(body.password ?? "");
+    const displayName = String(body.displayName ?? "XENOKING").replace(/[<>"]/g, "").trim().slice(0, 32) || "XENOKING";
+    const color = /^#[0-9a-fA-F]{6}$/.test(body.color) ? String(body.color) : "#f5c518";
+    if (password.length < 6) return this.json({ error: "Password: at least 6 characters" }, 400);
+    const salt = this.tok().slice(0, 16);
+    const hash = await this.hashPw(password, salt);
+    const profile: UserProfile = { username: OWNER, displayName, passwordHash: `${hash}:${salt}`, color, bio: "", avatarUrl: "", bannerColor: "#1a1a2e", isOwner: true, joinedAt: Date.now() };
+    await this.state.storage.put(`user:${OWNER}`, profile);
+    const token = this.tok();
+    await this.state.storage.put(`session:${token}`, { username: OWNER, expires: Date.now() + 30 * 86_400_000 });
     return this.json({ token, profile: this.safe(profile) }, 201);
   }
 
