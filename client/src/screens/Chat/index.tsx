@@ -157,7 +157,7 @@ function AuthScreen({ onAuth }: { onAuth: (token: string, profile: Profile) => v
     setLoading(true); setErr("");
     try {
       const body = tab === "login" ? { username: form.username, password: form.password } : form;
-      const r = await fetch(`${API}/${tab}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const r = await fetch(`${API}/${tab === "login" ? "login" : "register"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const d = await r.json();
       if (!r.ok) setErr(d.error || "Something went wrong");
       else { localStorage.setItem(TOKEN_KEY, d.token); onAuth(d.token, d.profile); }
