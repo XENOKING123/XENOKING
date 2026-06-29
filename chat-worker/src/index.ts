@@ -229,6 +229,11 @@ export class ChatRoom {
       if (!p) { ws.send(JSON.stringify({ type: "auth_error", msg: "Account not found." })); return; }
       session.username = p.username; session.displayName = p.displayName; session.color = p.color; session.avatarUrl = p.avatarUrl; session.isOwner = p.isOwner || p.username === OWNER; session.authed = true;
       try { (ws as any).serializeAttachment?.({ username: p.username }); } catch {}
+      // Restore history from storage if DO woke from hibernation
+      if (this.history.length === 0) {
+        const stored = await this.state.storage.get<ChatMessage[]>("history");
+        if (stored?.length) this.history = stored;
+      }
       const pins = (await this.state.storage.get<PinnedMessage[]>("pins")) ?? [];
       ws.send(JSON.stringify({ type: "authed", profile: this.safe(p), history: this.history.slice(-100), pins }));
       this.broadcast({ type: "join", username: p.username, displayName: p.displayName, color: p.color, avatarUrl: p.avatarUrl, ts: Date.now() });
@@ -307,7 +312,11 @@ export class ChatRoom {
 
   async webSocketError(ws: WebSocket): Promise<void> { this.sessions.delete(ws); this.broadcastOnline(); }
 
-  private pushHistory(m: ChatMessage) { this.history.push(m); if (this.history.length > 200) this.history.shift(); }
+  private pushHistory(m: ChatMessage) {
+    this.history.push(m);
+    if (this.history.length > 200) this.history.shift();
+    this.state.storage.put("history", this.history); // persist so history survives hibernation
+  }
   private broadcast(m: unknown) { const j = JSON.stringify(m); for (const [ws] of this.sessions) { try { ws.send(j); } catch {} } }
   private broadcastOnline() {
     const users = [...this.sessions.values()].filter(s => s.authed).map(s => ({ username: s.username, displayName: s.displayName, color: s.color, avatarUrl: s.avatarUrl, isOwner: s.isOwner }));
