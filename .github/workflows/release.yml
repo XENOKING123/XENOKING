@@ -416,6 +416,12 @@ jobs:
 
       - name: Build iOS app (unsigned)
         working-directory: client
+        # Silence Homebrew tap-trust noise that floods the build log and
+        # buries the real compiler error.
+        env:
+          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
+          HOMEBREW_NO_INSTALL_FROM_API: "1"
+          HOMEBREW_NO_AUTO_UPDATE: "1"
         run: |
           set -euo pipefail
           XCODEPROJ="$(find src-tauri/gen/apple -name '*.xcodeproj' -maxdepth 2 -print -quit)"
@@ -435,6 +441,7 @@ jobs:
             | awk '/Schemes:/{f=1;next} f && /[^ \t]/{gsub(/^[ \t]+/,"",$0); print; exit}')"
           echo "::notice::Scheme: '$SCHEME'"
 
+          set +e
           xcodebuild build \
             -project "$XCODEPROJ" \
             -scheme "$SCHEME" \
@@ -450,11 +457,28 @@ jobs:
             PROVISIONING_PROFILE="" \
             PROVISIONING_PROFILE_SPECIFIER="" \
             ONLY_ACTIVE_ARCH=NO \
-            2>&1 | tee /tmp/xcode.log || {
-              echo "::error::xcodebuild failed — last 60 lines:"
-              tail -60 /tmp/xcode.log | while IFS= read -r line; do echo "::error::$line"; done
-              exit 1
-            }
+            > /tmp/xcode.log 2>&1
+          RC=$?
+          set -e
+          if [ $RC -ne 0 ]; then
+            echo "::group::Real build errors"
+            # Pull out the lines that actually describe the failure, skipping
+            # the brew/export noise. Cargo + clang + linker + xcodebuild.
+            grep -nE 'error(\[|:)|error\] |could not compile|cannot find|no such|Undefined symbol|ld: |BUILD FAILED|The following build commands failed|fatal error|failed with a nonzero' \
+              /tmp/xcode.log | tail -40 \
+              | while IFS= read -r line; do echo "::error::$line"; done
+            echo "::endgroup::"
+            echo "::error::xcodebuild exited $RC — see grouped errors above + uploaded xcode.log artifact"
+            exit 1
+          fi
+
+      - name: Upload xcode log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-xcode-log
+          path: /tmp/xcode.log
+          if-no-files-found: warn
 
       - name: Package unsigned IPA
         run: |
