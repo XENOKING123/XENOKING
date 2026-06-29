@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install payload toolchain (pinned LLVM 18)
         run: |
@@ -98,7 +98,7 @@ jobs:
           ls -la payload/ps5upload.elf.gz payload/dpi/ezremote-dpi.elf.gz
 
       - name: Upload payload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: payload
           path: |
@@ -114,10 +114,10 @@ jobs:
     env:
       RUST_TARGET: x86_64-pc-windows-msvc
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -132,7 +132,7 @@ jobs:
           targets: x86_64-pc-windows-msvc
 
       - name: Cache cargo + tauri target
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -182,7 +182,7 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: Restore payload artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: payload
           path: artifact-payload
@@ -261,7 +261,7 @@ jobs:
           Write-Host "OK — installer's inner EXE is genuinely $version"
 
       - name: Upload desktop artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: desktop
           path: out/*
@@ -273,7 +273,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Resolve tag from VERSION
         id: ver
@@ -284,7 +284,7 @@ jobs:
           echo "Resolved tag=v$VERSION"
 
       - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
