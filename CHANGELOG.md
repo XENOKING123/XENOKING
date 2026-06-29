@@ -1,6 +1,73 @@
 # Changelog
 
-What's new in ps5upload, written for humans.
+What's new in XENO TOOL, written for humans.
+
+---
+
+## 3.2.53
+
+- **Delete trainers from your local library.** In My Games → Cheats, each trainer in the "Install to console" list now has a red **Delete** button next to Install. One click removes the file (and its sidecar) from your PC library immediately — no need to dig through folders.
+
+---
+
+## 3.2.52
+
+- **Trainer cheat counts are now correct everywhere.** Games like Crimson Desert and Resident Evil Requiem were showing "0 cheats" even though the trainers were fully present on disk. The app now reads cheat names from its offline catalog when no sidecar file is found — so the correct count shows in both the Trainers browse screen and Title Search.
+- **No more duplicate rows for the same game.** If the same title had multiple trainer files pointing to the same ID and version, it showed up twice in search results. Duplicates are now collapsed into a single row.
+
+---
+
+## 3.2.51
+
+- **Chat history now survives server restarts.** XENO CHAT messages are written to persistent storage as they arrive, so the last 100 messages reload correctly even after the server has been idle overnight. Previously history lived only in RAM and was lost when the server hibernated.
+- **GIF search fixed in the installed app.** Switching to the Tenor v1 API in v3.2.50 fixed the search results, but the Tauri security policy was still blocking the new domain. Both the API call and the images now load correctly.
+
+---
+
+## 3.2.50
+
+- **GIFs working again.** The Tenor v2 API key was invalid, causing every GIF search to show "No results." Switched to the Tenor v1 endpoint which works correctly with the existing key.
+- **Profile banner always visible.** The banner area in profile popups was nearly invisible because the default color matched the card background. It now uses a gradient based on the user's name color, so every profile has a visible personalized banner.
+- **Owner account security locked.** The XENOKING owner account can now only be created once via a one-time claim endpoint. Attempting to register that username through normal signup is blocked.
+
+---
+
+## 3.2.47
+
+- **XENO CHAT — a full chat system built into the app.** A new Chat tab gives you a real-time chat room with:
+  - Username + password accounts with 30-day sessions — your login persists across restarts
+  - **XENOKING** is the permanent owner with a crown badge; owner can pin messages, delete any message, and ban users
+  - User profiles with display name, name color, profile picture, bio, and banner — click any user to see their card, or edit your own via the settings gear
+  - **@mentions** highlight the message in gold and play a ping sound for the named user
+  - GIF search and sharing, plus image sharing by pasting any HTTPS image URL
+  - Online sidebar showing who's currently in the room
+  - Right-click context menu on messages for quick actions
+
+---
+
+## 3.2.10
+
+- **Title Search.** A new screen indexes all 9,000+ trainers in the library by game name or title ID (CUSA / PPSA). Games with no embedded name are resolved automatically from the bundled title catalog and prosperopatches for PS5 cover art.
+
+---
+
+## 3.2.9
+
+- **Trainers browse screen.** Browse the full synced trainer library with cover art, cheat counts, version, format, and modder — all in one scrollable grid. Filter by platform, format, or search by name.
+- **Cheat sync.** One click pulls the latest trainers from the six GitHub cheat repos into your local library.
+
+---
+
+## 3.2.8
+
+- **My Games — CheatRunner integration.** The My Games tab connects to CheatRunner running on your PS5. See all your installed games, launch or close them, and open the Cheats panel to toggle trainers live on a running game. If the console has no cheats loaded for a game, the panel shows matching trainers from your local library with a one-click Install button to push them to the PS5.
+- **Attach / Detach / Sync GitHub** controls let you link CheatRunner to the running game, disable all active cheats at once, or pull fresh cheats from GitHub to both your PC and the console in one step.
+
+---
+
+## 3.2.4
+
+- **XENO TOOL.** Rebranded and extended from ps5upload. Same PS5 management core — upload, install, saves, file system, payloads, hardware — now extended with the full XENO trainer ecosystem (Trainers, Title Search, My Games cheat controls, and XENO CHAT).
 
 ---
 

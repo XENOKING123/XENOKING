@@ -48,7 +48,7 @@ export default function ChangelogScreen() {
         description={tr(
           "changelog_description",
           undefined,
-          "Release notes for ps5upload. Old versions live on GitHub; the most recent entries are bundled with the app.",
+          "Release notes for XENO TOOL. Old versions live on GitHub; the most recent entries are bundled with the app.",
         )}
         right={
           <Button
