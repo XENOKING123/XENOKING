@@ -414,18 +414,22 @@ jobs:
         working-directory: client
         run: npx tauri ios init
 
-      - name: Build iOS archive (unsigned)
+      - name: Build iOS app (unsigned)
         working-directory: client
         run: |
           set -euo pipefail
           XCODEPROJ="$(find src-tauri/gen/apple -name '*.xcodeproj' -maxdepth 2 -print -quit)"
-          SCHEME="$(basename "$XCODEPROJ" .xcodeproj)"
-          xcodebuild archive \
+          # List all schemes; pick the first non-empty one (handles names with spaces)
+          SCHEME="$(xcodebuild -project "$XCODEPROJ" -list 2>&1 \
+            | awk '/Schemes:/{found=1; next} found && /^\s+\S/{gsub(/^[[:space:]]+/,"",$0); print; exit}')"
+          echo "Project: $XCODEPROJ"
+          echo "Scheme : $SCHEME"
+          xcodebuild build \
             -project "$XCODEPROJ" \
             -scheme "$SCHEME" \
             -sdk iphoneos \
             -configuration Release \
-            -archivePath "../build/XENO-TOOL.xcarchive" \
+            -derivedDataPath ../DerivedData \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
@@ -435,7 +439,10 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="$(tr -d '[:space:]' < VERSION)"
-          APP="$(find build/XENO-TOOL.xcarchive -name '*.app' -maxdepth 4 -print -quit)"
+          APP="$(find DerivedData -name '*.app' \
+                   -not -path '*/Tests*' -not -path '*-simulator*' \
+                   -maxdepth 8 -print -quit)"
+          echo "Found .app: $APP"
           mkdir -p Payload out
           cp -r "$APP" Payload/
           (cd Payload && zip -r "../out/XENO_TOOL_${VERSION}_iOS_unsigned.ipa" .)
