@@ -50,23 +50,42 @@ function Avatar({ p, size = 36, onClick }: { p: { displayName: string; color: st
 
 // ─── Profile Modal ────────────────────────────────────────────────────────────
 function ProfileModal({ profile, myProfile, onClose, onBan }: { profile: Profile; myProfile: Profile; onClose: () => void; onBan: (u: string) => void }) {
+  const banner = profile.bannerColor && profile.bannerColor !== "#1a1a2e" ? profile.bannerColor : null;
+  const bannerBg = banner
+    ? `linear-gradient(135deg, ${banner} 0%, ${banner}bb 100%)`
+    : `linear-gradient(135deg, ${profile.color}55 0%, ${profile.color}11 100%)`;
+
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "#000a", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ width: 340, background: "#14141e", borderRadius: 16, overflow: "hidden", boxShadow: "0 20px 60px #0009", border: "1px solid #2a2a3a" }}>
-        <div style={{ height: 90, background: profile.bannerColor || "#1a1a2e", position: "relative" }}>
-          <button onClick={onClose} style={{ position: "absolute", top: 10, right: 10, background: "#0005", border: "none", color: "#fff", borderRadius: 6, padding: "2px 10px", cursor: "pointer", fontSize: 18 }}>×</button>
+    <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "#000b", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ width: 340, background: "#14141e", borderRadius: 18, overflow: "hidden", boxShadow: "0 24px 80px #000d, 0 0 0 1px #2a2a3a" }}>
+        {/* Banner */}
+        <div style={{ height: 100, background: bannerBg, position: "relative" }}>
+          <button onClick={onClose} style={{ position: "absolute", top: 10, right: 10, background: "#0008", border: "none", color: "#fff", borderRadius: "50%", width: 28, height: 28, cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
         </div>
-        <div style={{ padding: "0 20px 20px", marginTop: -36 }}>
-          <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: 10 }}>
-            <div style={{ padding: 3, background: "#14141e", borderRadius: "50%", display: "inline-flex" }}><Avatar p={profile} size={64} /></div>
-            {profile.isOwner && <span style={{ background: "#f5c51820", color: "#f5c518", border: "1px solid #f5c51840", borderRadius: 8, padding: "2px 8px", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}><Crown size={10} /> OWNER</span>}
+        {/* Body */}
+        <div style={{ padding: "0 20px 22px", marginTop: -44 }}>
+          <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: 14 }}>
+            {/* Avatar with colour-matched glow ring */}
+            <div style={{ padding: 4, background: "#14141e", borderRadius: "50%", display: "inline-flex", boxShadow: `0 0 0 3px ${profile.color}55` }}>
+              <Avatar p={profile} size={76} />
+            </div>
+            {profile.isOwner && (
+              <span style={{ background: "#f5c51818", color: "#f5c518", border: "1px solid #f5c51840", borderRadius: 8, padding: "4px 10px", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", gap: 5, marginBottom: 2 }}>
+                <Crown size={11} /> OWNER
+              </span>
+            )}
           </div>
-          <div style={{ color: profile.color, fontWeight: 800, fontSize: 18 }}>{profile.displayName}</div>
-          <div style={{ color: "#6b6b8a", fontSize: 12, marginTop: 2 }}>@{profile.username}</div>
-          {profile.bio && <div style={{ color: "#b0b0c8", fontSize: 13, marginTop: 10, lineHeight: 1.6 }}>{profile.bio}</div>}
-          <div style={{ color: "#4a4a6a", fontSize: 11, marginTop: 10 }}>Member since {fmtDate(profile.joinedAt)}</div>
+          <div style={{ color: profile.color, fontWeight: 900, fontSize: 20, letterSpacing: "0.01em" }}>{profile.displayName}</div>
+          <div style={{ color: "#4a4a6a", fontSize: 12, marginTop: 3, fontWeight: 500 }}>@{profile.username}</div>
+          {profile.bio && (
+            <div style={{ color: "#9090b0", fontSize: 13, marginTop: 12, lineHeight: 1.65, padding: "10px 14px", background: "#1a1a2a", borderRadius: 10, border: "1px solid #2a2a3a" }}>
+              {profile.bio}
+            </div>
+          )}
+          <div style={{ color: "#3a3a5a", fontSize: 11, marginTop: 12 }}>Member since {fmtDate(profile.joinedAt)}</div>
           {myProfile.isOwner && profile.username !== "xenoking" && profile.username !== myProfile.username && (
-            <button onClick={() => { onBan(profile.username); onClose(); }} style={{ marginTop: 16, width: "100%", background: "#ef444418", color: "#ef4444", border: "1px solid #ef444430", borderRadius: 8, padding: "8px 0", cursor: "pointer", fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            <button onClick={() => { onBan(profile.username); onClose(); }}
+              style={{ marginTop: 16, width: "100%", background: "#ef444412", color: "#ef4444", border: "1px solid #ef444428", borderRadius: 10, padding: "9px 0", cursor: "pointer", fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
               <Ban size={13} /> Ban User
             </button>
           )}
@@ -114,12 +133,12 @@ function SettingsModal({ profile, token, onClose, onSaved }: { profile: Profile;
         <div style={{ padding: "16px 24px 24px" }}>
           {/* Preview card */}
           <div style={{ marginBottom: 20, background: "#0d0d14", borderRadius: 12, overflow: "hidden", border: "1px solid #2a2a3a" }}>
-            <div style={{ height: 60, background: form.bannerColor }} />
-            <div style={{ padding: "0 14px 14px", marginTop: -22 }}>
-              <div style={{ padding: 2, background: "#0d0d14", borderRadius: "50%", display: "inline-flex" }}><Avatar p={{ displayName: form.displayName, color: form.color, avatarUrl: form.avatarUrl }} size={44} /></div>
-              <div style={{ color: form.color, fontWeight: 700, fontSize: 14, marginTop: 4 }}>{form.displayName || "Display Name"}</div>
-              <div style={{ color: "#4a4a6a", fontSize: 11 }}>@{profile.username}</div>
-              {form.bio && <div style={{ color: "#8888a8", fontSize: 12, marginTop: 4 }}>{form.bio}</div>}
+            <div style={{ height: 70, background: form.bannerColor && form.bannerColor !== "#1a1a2e" ? `linear-gradient(135deg, ${form.bannerColor} 0%, ${form.bannerColor}bb 100%)` : `linear-gradient(135deg, ${form.color}55 0%, ${form.color}11 100%)` }} />
+            <div style={{ padding: "0 14px 14px", marginTop: -26 }}>
+              <div style={{ padding: 3, background: "#0d0d14", borderRadius: "50%", display: "inline-flex", boxShadow: `0 0 0 3px ${form.color}44` }}><Avatar p={{ displayName: form.displayName, color: form.color, avatarUrl: form.avatarUrl }} size={50} /></div>
+              <div style={{ color: form.color, fontWeight: 800, fontSize: 15, marginTop: 6 }}>{form.displayName || "Display Name"}</div>
+              <div style={{ color: "#4a4a6a", fontSize: 11, marginTop: 2 }}>@{profile.username}</div>
+              {form.bio && <div style={{ color: "#8888a8", fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>{form.bio}</div>}
             </div>
           </div>
           {field("Display Name", "displayName", "text", "Your display name")}
@@ -321,12 +340,12 @@ export default function ChatScreen() {
     const t = setTimeout(async () => {
       setGifLoading(true);
       try {
-        const r = await fetch(`https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(gifQ)}&key=${TENOR_KEY}&limit=15&media_filter=gif,tinygif`);
+        const r = await fetch(`https://api.tenor.com/v1/search?q=${encodeURIComponent(gifQ)}&key=${TENOR_KEY}&limit=15&media_filter=minimal`);
         const d = await r.json();
         setGifs((d.results ?? []).map((g: any) => ({
           id: g.id,
-          preview: g.media_formats?.tinygif?.url || g.media_formats?.gif?.url || "",
-          url: g.media_formats?.gif?.url || g.media_formats?.tinygif?.url || "",
+          preview: g.media?.[0]?.tinygif?.url || g.media?.[0]?.gif?.url || "",
+          url: g.media?.[0]?.gif?.url || g.media?.[0]?.tinygif?.url || "",
         })).filter((g: GifResult) => g.url));
       } catch { setGifs([]); }
       setGifLoading(false);
