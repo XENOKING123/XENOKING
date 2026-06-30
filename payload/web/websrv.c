@@ -512,6 +512,25 @@ static int handle_api(int fd, const char *method, const char *path,
                   "{\"error\":\"CheatRunner (port 9999) not reachable — load it first\"}");
         return 1;
     }
+    /* Cheat game icon — proxy the image bytes from CheatRunner's
+     * /appdb/icon?id=<title>. Served as PNG (CheatRunner's icon format). */
+    if (strcmp(path, "/api/cr/icon") == 0) {
+        char id[256];
+        query_param(query, "id", id, sizeof(id));
+        char cr_path[320];
+        snprintf(cr_path, sizeof(cr_path), "/appdb/icon?id=%s", id);
+        char *out = NULL;
+        uint32_t outlen = 0;
+        if (web_http_get(9999, cr_path, &out, &outlen) == 0 && out && outlen > 0) {
+            send_response(fd, "200 OK", "image/png", 0,
+                          (const unsigned char *)out, outlen);
+            free(out);
+            return 1;
+        }
+        if (out) free(out);
+        send_text(fd, "404 Not Found", "text/plain", "no icon");
+        return 1;
+    }
     if (strcmp(method, "POST") == 0) {
         for (size_t i = 0; i < sizeof(WEB_POST_ROUTES) / sizeof(WEB_POST_ROUTES[0]); i++)
             if (strcmp(path, WEB_POST_ROUTES[i].path) == 0)

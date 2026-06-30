@@ -4,6 +4,12 @@ What's new in XENO TOOL, written for humans.
 
 ---
 
+## 3.2.65
+
+- **Cheat game icons show on the on-console web.** Game artwork in My Games now loads — the ELF proxies each icon from CheatRunner so the cards look like the desktop app.
+
+---
+
 ## 3.2.64
 
 - **Trainers + Title Search now work on the on-console web** — the full library (every game with cheats: names, versions, modders, and the cheat list per format) loads from data bundled with the app. **3,765 trainers across 1,703 games**, browsable from your phone. You apply them from My Games while the game runs, same as always.

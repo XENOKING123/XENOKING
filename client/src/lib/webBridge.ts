@@ -26,6 +26,9 @@ interface Route {
   /** Post-process the parsed JSON into the shape the UI expects (e.g.
    *  build TrainerRow[] from the bundled cheatslist). */
   transform?: (json: unknown) => unknown;
+  /** Compute the return value directly without any fetch (e.g. return a
+   *  URL string the UI drops straight into <img src>). */
+  value?: (a: Args) => unknown;
 }
 
 /** Build the desktop `list_trainers` TrainerRow[] shape from the bundled
@@ -108,6 +111,9 @@ const ROUTES: Record<string, Route> = {
   // Cheats — the ELF forwards to CheatRunner's own HTTP daemon (:9999).
   // Returns CheatRunner's raw body; cheatRunner.ts parses it itself.
   cheatrunner_get:     { method: "GET", raw: true, path: (a) => `/api/cr/get?path=${encodeURIComponent(String(a?.path ?? "/"))}` },
+  // Cheat game icon — return a URL the <img> loads; the ELF proxies the
+  // image from CheatRunner's /appdb/icon. (No fetch here.)
+  cheatrunner_icon:    { method: "GET", path: () => "", value: (a) => `/api/cr/icon?id=${encodeURIComponent(String(a?.id ?? ""))}` },
   // Changelog — served as the embedded CHANGELOG.md (raw markdown).
   changelog_load:      { method: "GET", raw: true, path: () => "/CHANGELOG.md" },
   // Payloads catalog — the curated homebrew list, generated from the Rust
@@ -204,6 +210,8 @@ export async function webInvoke<T>(cmd: string, args?: Args): Promise<T> {
   if (!route) {
     throw new Error(`"${cmd}" isn't available in XENO TOOL Web yet`);
   }
+  // Pure value routes resolve locally (no network) — e.g. an icon URL.
+  if (route.value) return route.value(args) as T;
   const init: RequestInit = { method: route.method };
   if (route.method === "POST") {
     init.headers = { "Content-Type": "application/json" };
