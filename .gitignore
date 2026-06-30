@@ -213,3 +213,4 @@ PS5Upload-android.apk.idsig
 *.pepk
 *.pfx
 key.properties
+client/public/cheatslist.json

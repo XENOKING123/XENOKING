@@ -110,6 +110,9 @@ jobs:
       - name: Regenerate payloads catalog JSON (keep in sync with Rust const)
         run: python3 payload/web/gen_payloads_catalog.py client/src-tauri/src/commands/payloads.rs client/public/payloads-catalog.json
 
+      - name: Extract cheatslist.json for the on-console Trainers/Title Search
+        run: unzip -o client/src-tauri/resources/titles-seed.zip cheatslist.json -d client/public/
+
       - name: Build frontend (dist/) for the web ELF
         working-directory: client
         run: |

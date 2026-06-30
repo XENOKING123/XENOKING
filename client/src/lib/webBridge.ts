@@ -23,6 +23,52 @@ interface Route {
   /** Return the response body as a raw string instead of JSON-parsing it
    *  (e.g. CheatRunner passthrough, CHANGELOG.md markdown). */
   raw?: boolean;
+  /** Post-process the parsed JSON into the shape the UI expects (e.g.
+   *  build TrainerRow[] from the bundled cheatslist). */
+  transform?: (json: unknown) => unknown;
+}
+
+/** Build the desktop `list_trainers` TrainerRow[] shape from the bundled
+ *  cheatslist.json (the offline catalog of every game that has cheats —
+ *  title, version, modders, and the cheat names per format). This is what
+ *  powers the Trainers + Title Search tabs in web mode; the 9,200 actual
+ *  trainer files aren't needed to browse — applying happens via CheatRunner
+ *  (My Games). */
+function cheatslistToRows(json: unknown): unknown {
+  const data = json as {
+    entries?: Array<{
+      id: string;
+      version?: string;
+      title?: string;
+      creators?: string[];
+      formats?: Record<string, { hasFile?: boolean; cheats?: string[] }>;
+    }>;
+  };
+  const rows: Array<{
+    game: string;
+    titleId: string;
+    version: string;
+    format: string;
+    modder: string;
+    cheats: string[];
+    path: string;
+  }> = [];
+  for (const e of data.entries ?? []) {
+    const modder = (e.creators ?? []).join(", ");
+    for (const [fmt, info] of Object.entries(e.formats ?? {})) {
+      if (!info?.hasFile) continue;
+      rows.push({
+        game: e.title || e.id,
+        titleId: e.id,
+        version: e.version || "",
+        format: fmt.toUpperCase(),
+        modder,
+        cheats: info.cheats ?? [],
+        path: "",
+      });
+    }
+  }
+  return rows;
 }
 
 /** Build a `?k=v&…` query string, skipping null/undefined values. */
@@ -67,6 +113,9 @@ const ROUTES: Record<string, Route> = {
   // Payloads catalog — the curated homebrew list, generated from the Rust
   // const into a static JSON bundled in dist (and pullable from GitHub).
   payloads_catalog:    { method: "GET", path: () => "/payloads-catalog.json" },
+  // Trainers + Title Search — built from the bundled cheatslist (every
+  // game with cheats: title, version, modders, cheat names per format).
+  list_trainers:       { method: "GET", path: () => "/cheatslist.json", transform: cheatslistToRows },
   // Profile writes — POST forwards the JSON body to the payload's frame.
   profile_set_username: { method: "POST", path: () => "/api/ps5/profile/set-username" },
   profile_rename_user:  { method: "POST", path: () => "/api/ps5/profile/rename-user" },
@@ -86,10 +135,12 @@ const ROUTES: Record<string, Route> = {
  * returns true.
  */
 export function isWebMode(): boolean {
+  // `__XENO_WEB__` is set by webShim.ts when there's no real Tauri. We use
+  // it (not the absence of `__TAURI_INTERNALS__`) because the shim itself
+  // installs a `__TAURI_INTERNALS__` to capture raw invoke() calls.
   return (
     typeof window !== "undefined" &&
-    !("__TAURI_INTERNALS__" in window) &&
-    !("__TAURI__" in window)
+    (window as unknown as { __XENO_WEB__?: boolean }).__XENO_WEB__ === true
   );
 }
 
@@ -139,6 +190,11 @@ export function webSupports(cmd: string): boolean {
  * show an error state instead of crashing.
  */
 export async function webInvoke<T>(cmd: string, args?: Args): Promise<T> {
+  // Tauri's own plugin commands (events, window, webview, path, …) have no
+  // backend in web mode. No-op them so `listen()`/window calls degrade
+  // quietly instead of throwing and crashing a screen on mount.
+  if (cmd.startsWith("plugin:")) return undefined as T;
+
   // On-console connectivity probes resolve synthetically — the server is
   // the PS5, so it's always reachable.
   const synth = onConsoleSynthetic(cmd);
@@ -160,5 +216,6 @@ export async function webInvoke<T>(cmd: string, args?: Args): Promise<T> {
   }
   const text = await res.text();
   if (route.raw) return text as unknown as T;
-  return (text ? JSON.parse(text) : undefined) as T;
+  const parsed = text ? JSON.parse(text) : undefined;
+  return (route.transform ? route.transform(parsed) : parsed) as T;
 }

@@ -1,3 +1,7 @@
+// MUST be first: installs the browser Tauri-IPC shim (XENO TOOL Web) so
+// every invoke() — including raw @tauri-apps/api/core ones — routes to the
+// HTTP bridge instead of crashing. No-op inside the real Tauri app.
+import "./lib/webShim";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";

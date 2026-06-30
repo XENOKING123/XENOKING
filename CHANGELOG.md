@@ -4,6 +4,13 @@ What's new in XENO TOOL, written for humans.
 
 ---
 
+## 3.2.64
+
+- **Trainers + Title Search now work on the on-console web** — the full library (every game with cheats: names, versions, modders, and the cheat list per format) loads from data bundled with the app. **3,765 trainers across 1,703 games**, browsable from your phone. You apply them from My Games while the game runs, same as always.
+- **Big under-the-hood fix that lights up more of the web app.** Several screens were quietly bypassing the web layer and failing. They now route correctly, so cheats, the changelog, screenshots and other tabs behave properly in the browser instead of erroring.
+
+---
+
 ## 3.2.63
 
 - **Payloads work on the on-console web.** The curated payload **Catalog** now loads (the list is pulled from data bundled with the app, kept in sync with the desktop). And a new browser-native **Send file** flow lets you pick any payload (.elf/.bin) right from your phone and fire it at your PS5 — the ELF streams it straight to the console's loader (port 9021) and it runs, exactly like the desktop app. No PC in the middle.
