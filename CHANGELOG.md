@@ -4,6 +4,12 @@ What's new in XENO TOOL, written for humans.
 
 ---
 
+## 3.2.57
+
+- **On-console web ELF (`xeno-web.elf`) — the CheatRunner/garlic model.** Inject one ELF on your jailbroken PS5 and it pops a toast with its address (`http://<your-ps5-ip>:6969`). Open that from any browser on your network — phone, tablet, PC — and the full XENO TOOL UI loads, served straight from the console. The entire web UI is embedded inside the single ELF, so there's nothing else to copy. This is phase 1: the UI loads from the console and the toast/address flow works; the on-console API (so each screen pulls live data from the PS5) is being wired up screen by screen. You also still get the **XENO TOOL Web host** zips (Windows + Linux) for running the same thing from an always-on PC with broader feature coverage today.
+
+---
+
 ## 3.2.56
 
 - **XENO TOOL Web — the full tool in a browser.** New `XENO_TOOL_Web` download (Windows + Linux). Run the launcher on any always-on machine (PC, mini-PC, Pi-class box) and open `http://<that-machine's-IP>:6969` from **any** browser — phone, tablet, laptop — with no install. It's the same app as the desktop version: enter your PS5's IP and use it. The local server hosts the React UI and bridges every action to the engine's HTTP API automatically. Core PS5 screens (Dashboard, Hardware, Installed Apps, Plugin Manager, Volumes, File browser) work today; more screens light up as their commands get wired to the web API. A true PS5-hosted ELF isn't possible (the tool's engine is Rust and the console SDK is C-only), so the web server runs on a host and talks to the PS5 over the network — exactly like the desktop app does.

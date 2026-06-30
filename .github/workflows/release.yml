@@ -97,6 +97,33 @@ jobs:
           test -s payload/dpi/ezremote-dpi.elf.gz
           ls -la payload/ps5upload.elf.gz payload/dpi/ezremote-dpi.elf.gz
 
+      # ── XENO TOOL Web ELF (xeno-web.elf): on-console web server that
+      #    serves the embedded React UI. Needs the built frontend (dist/)
+      #    plus the prospero toolchain already set up above. ──────────────
+      - name: Setup Node (for the embedded web UI)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Build frontend (dist/) for the web ELF
+        working-directory: client
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build:vite
+
+      - name: Build XENO TOOL Web ELF
+        env:
+          PS5_PAYLOAD_SDK: /opt/ps5-payload-sdk
+        run: make -C payload/web
+
+      - name: Verify web ELF
+        run: |
+          test -s payload/web/xeno-web.elf
+          test -s payload/web/xeno-web.elf.gz
+          ls -la payload/web/xeno-web.elf payload/web/xeno-web.elf.gz
+
       - name: Upload payload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -104,6 +131,8 @@ jobs:
           path: |
             payload/ps5upload.elf.gz
             payload/dpi/ezremote-dpi.elf.gz
+            payload/web/xeno-web.elf
+            payload/web/xeno-web.elf.gz
           if-no-files-found: error
 
   # ── Windows desktop installer (NSIS) + engine sidecar. ────────────────────
@@ -654,7 +683,8 @@ jobs:
 
           # Mobile + web builds — include if built, skip silently if not.
           for pat in "XENO_TOOL_*_arm64.apk" "XENO_TOOL_*_iOS_unsigned.ipa" \
-                     "XENO_TOOL_Web_*_windows_x64.zip" "XENO_TOOL_Web_*_linux_x64.zip"; do
+                     "XENO_TOOL_Web_*_windows_x64.zip" "XENO_TOOL_Web_*_linux_x64.zip" \
+                     "xeno-web.elf"; do
             f="$(find artifacts -type f -name "$pat" -print -quit)"
             if [ -n "$f" ]; then
               cp -v "$f" "release/$(basename "$f")"
@@ -744,6 +774,9 @@ jobs:
           printf '\n## Web — XENO_TOOL_Web_%s_windows_x64.zip / _linux_x64.zip\n' "$VERSION"
           printf -- '- **Run the full tool in a browser.** Launch the server on any always-on PC/mini-PC, open `http://<host-ip>:6969` from any phone, tablet or laptop — no install.\n'
           printf -- '- Same app as desktop: connect to PS5, hardware view, installed apps, plugin manager, file browser. Enter your PS5 IP in the UI.\n'
+          printf '\n## On-Console Web ELF — xeno-web.elf\n'
+          printf -- '- **Inject one ELF, open in a browser.** Send `xeno-web.elf` to your jailbroken PS5; it pops a toast with its URL (`http://<ps5-ip>:6969`). Open that from any browser — the full UI is embedded in the ELF, nothing else to copy. Same model as CheatRunner/garlic web.\n'
+          printf -- '- Phase 1: the UI loads from the console and the on-console API is being expanded screen by screen.\n'
           printf '\n## On-Console Tools (carried forward every release)\n'
           printf -- '- **CheatRunner.elf** — on-console cheat engine by maj0r (Discord: callmemaj0r). XENO TOOL is a frontend for it.\n'
           printf -- '- **XENO_Trainer_Tool_v2.5.exe** — PS Trainer Viewer.\n'
@@ -751,7 +784,7 @@ jobs:
           printf 'Cheats sourced from the **etaHEN PS5 Cheats** and **HEN Cheats Collection** repos via the etaHEN & GoldHEN Discord communities.\n'
           printf 'Contributors: **LM (lightningmods)**, **Buzzer (buzzer-re)**, **Super Death**, **GoldHEN Team**, **Yharnam**, **PS4Trainer**, and all cheat creators in the scene.\n'
           printf '\n---\n'
-          printf '**v%s — whats new:** XENO TOOL Web — run the full tool from any browser at `host-ip:6969` (Windows + Linux server zips), no install. Plugin Manager — view all running homebrew on your PS5 and kill any process with one click. Android APK (direct download, no Play Store) + iOS IPA (Sideloadly, unsigned) — full tool on mobile over WiFi.\n' "$VERSION"
+          printf '**v%s — whats new:** On-console web ELF (xeno-web.elf) — inject one file, get a toast with the URL, open the full UI in any browser straight from the PS5 (CheatRunner/garlic-style). Plus XENO TOOL Web host zips (Windows + Linux) for running it from a PC. Plugin Manager, Android APK, and iOS IPA (Sideloadly) all included.\n' "$VERSION"
           } > /tmp/release-notes.md
           # Create or update the release, always writing the full notes body.
           if gh release view "$TAG" >/dev/null 2>&1; then
