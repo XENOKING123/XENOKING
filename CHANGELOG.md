@@ -4,6 +4,12 @@ What's new in XENO TOOL, written for humans.
 
 ---
 
+## 3.2.63
+
+- **Payloads work on the on-console web.** The curated payload **Catalog** now loads (the list is pulled from data bundled with the app, kept in sync with the desktop). And a new browser-native **Send file** flow lets you pick any payload (.elf/.bin) right from your phone and fire it at your PS5 — the ELF streams it straight to the console's loader (port 9021) and it runs, exactly like the desktop app. No PC in the middle.
+
+---
+
 ## 3.2.62
 
 - **Cheats now work from the on-console web.** Applying cheats forwards to CheatRunner's own on-console service, so you can list games and toggle cheats live straight from your phone's browser — same as the desktop app. (Cheat icons and uploading new cheat files to CheatRunner come next.)

@@ -107,6 +107,9 @@ jobs:
           cache: npm
           cache-dependency-path: client/package-lock.json
 
+      - name: Regenerate payloads catalog JSON (keep in sync with Rust const)
+        run: python3 payload/web/gen_payloads_catalog.py client/src-tauri/src/commands/payloads.rs client/public/payloads-catalog.json
+
       - name: Build frontend (dist/) for the web ELF
         working-directory: client
         run: |

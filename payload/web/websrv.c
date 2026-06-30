@@ -524,6 +524,88 @@ static int handle_api(int fd, const char *method, const char *path,
     return 0;
 }
 
+/* ── Payload send: POST raw ELF bytes → forward to the loader (:9021) ─────
+ * The browser downloads a payload from GitHub (or the user picks a file)
+ * and POSTs the bytes here; we stream them to the on-console payload
+ * loader on 127.0.0.1:9021, which runs it — exactly like the desktop app
+ * sending to the PS5's loader. Body can be MiB-sized, so we read the full
+ * Content-Length (the first read already holds the headers + a head
+ * chunk). */
+#define PS5_LOADER_PORT 9021
+#define PAYLOAD_MAX (16 * 1024 * 1024)
+
+static long parse_content_length(const char *req) {
+    const char *p = strstr(req, "Content-Length:");
+    if (!p) p = strstr(req, "content-length:");
+    if (!p) return -1;
+    p += 15;
+    while (*p == ' ') p++;
+    return atol(p);
+}
+
+static void handle_payload_send(int fd, char *req, ssize_t got) {
+    long clen = parse_content_length(req);
+    char *hdr_end = strstr(req, "\r\n\r\n");
+    if (!hdr_end || clen <= 0 || clen > PAYLOAD_MAX) {
+        send_text(fd, "400 Bad Request", "application/json; charset=utf-8",
+                  "{\"ok\":false,\"error\":\"missing/oversized payload body\"}");
+        return;
+    }
+    char *body_start = hdr_end + 4;
+    size_t have = (size_t)((req + got) - body_start);
+    char *buf = (char *)malloc((size_t)clen);
+    if (!buf) {
+        send_text(fd, "500 Internal Server Error", "application/json; charset=utf-8",
+                  "{\"ok\":false,\"error\":\"out of memory\"}");
+        return;
+    }
+    if (have > (size_t)clen) have = (size_t)clen;
+    memcpy(buf, body_start, have);
+    size_t total = have;
+    while (total < (size_t)clen) {
+        ssize_t r = read(fd, buf + total, (size_t)clen - total);
+        if (r <= 0) break;
+        total += (size_t)r;
+    }
+    if (total != (size_t)clen) {
+        free(buf);
+        send_text(fd, "400 Bad Request", "application/json; charset=utf-8",
+                  "{\"ok\":false,\"error\":\"short read on payload body\"}");
+        return;
+    }
+
+    int lf = socket(AF_INET, SOCK_STREAM, 0);
+    if (lf < 0) {
+        free(buf);
+        send_text(fd, "503 Service Unavailable", "application/json; charset=utf-8",
+                  "{\"ok\":false,\"error\":\"socket failed\"}");
+        return;
+    }
+    struct timeval tv = { 5, 0 };
+    setsockopt(lf, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof(a));
+    a.sin_family = AF_INET;
+    a.sin_port = htons(PS5_LOADER_PORT);
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (connect(lf, (struct sockaddr *)&a, sizeof(a)) != 0) {
+        close(lf);
+        free(buf);
+        send_text(fd, "503 Service Unavailable", "application/json; charset=utf-8",
+                  "{\"ok\":false,\"error\":\"loader (port 9021) not reachable\"}");
+        return;
+    }
+    int ok = (write_all(lf, buf, total) == 0);
+    /* Closing our end signals EOF; the loader reads to EOF then runs it. */
+    close(lf);
+    free(buf);
+    if (ok)
+        send_text(fd, "200 OK", "application/json; charset=utf-8", "{\"ok\":true}");
+    else
+        send_text(fd, "502 Bad Gateway", "application/json; charset=utf-8",
+                  "{\"ok\":false,\"error\":\"loader write failed\"}");
+}
+
 /* ── Per-connection handler ──────────────────────────────────────────── */
 
 static void handle_client(int fd) {
@@ -537,6 +619,13 @@ static void handle_client(int fd) {
     else if (strncmp(req, "HEAD ", 5) == 0) method = "HEAD";
     else if (strncmp(req, "POST ", 5) == 0) method = "POST";
     else { send_text(fd, "405 Method Not Allowed", "text/plain", "method"); return; }
+
+    /* Binary payload upload → loader. Handled before the generic parse
+     * (which truncates `req` and can't deal with a MiB body). */
+    if (strncmp(req, "POST /api/payload/send", 22) == 0) {
+        handle_payload_send(fd, req, got);
+        return;
+    }
 
     /* Capture the request body (after the blank line) BEFORE we punch a
      * '\0' into the request line below — strstr would otherwise stop at

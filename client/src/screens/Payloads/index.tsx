@@ -4,7 +4,9 @@ import TabbedShell, { type TabbedShellTab } from "../../layout/TabbedShell";
 import { useTr } from "../../state/lang";
 import CatalogPanel from "./CatalogPanel";
 import SendPanel from "./SendPanel";
+import WebSendPanel from "./WebSendPanel";
 import FavoritesPanel from "./FavoritesPanel";
+import { isOnConsole } from "../../lib/webBridge";
 
 /**
  * Payloads screen — two URL-routed tabs:
@@ -70,7 +72,13 @@ export default function PayloadsScreen() {
       titleFallback="Payloads"
       tabs={tabs}
       renderPanel={(id) =>
-        id === "send" ? <SendPanel /> : id === "favorites" ? <FavoritesPanel /> : <CatalogPanel />
+        id === "send"
+          ? isOnConsole()
+            ? <WebSendPanel />
+            : <SendPanel />
+          : id === "favorites"
+            ? <FavoritesPanel />
+            : <CatalogPanel />
       }
     />
   );

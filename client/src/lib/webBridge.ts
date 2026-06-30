@@ -64,6 +64,9 @@ const ROUTES: Record<string, Route> = {
   cheatrunner_get:     { method: "GET", raw: true, path: (a) => `/api/cr/get?path=${encodeURIComponent(String(a?.path ?? "/"))}` },
   // Changelog — served as the embedded CHANGELOG.md (raw markdown).
   changelog_load:      { method: "GET", raw: true, path: () => "/CHANGELOG.md" },
+  // Payloads catalog — the curated homebrew list, generated from the Rust
+  // const into a static JSON bundled in dist (and pullable from GitHub).
+  payloads_catalog:    { method: "GET", path: () => "/payloads-catalog.json" },
   // Profile writes — POST forwards the JSON body to the payload's frame.
   profile_set_username: { method: "POST", path: () => "/api/ps5/profile/set-username" },
   profile_rename_user:  { method: "POST", path: () => "/api/ps5/profile/rename-user" },
