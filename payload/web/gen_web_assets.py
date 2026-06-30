@@ -32,6 +32,7 @@ CTYPES = {
     ".ttf":  "font/ttf",
     ".map":  "application/json; charset=utf-8",
     ".txt":  "text/plain; charset=utf-8",
+    ".md":   "text/markdown; charset=utf-8",
     ".wasm": "application/wasm",
     ".wav":  "audio/wav",
     ".mp3":  "audio/mpeg",

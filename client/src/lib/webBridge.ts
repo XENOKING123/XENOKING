@@ -20,6 +20,9 @@ interface Route {
   path: (a: Args) => string;
   /** For POST: the JSON body. Defaults to the raw args object. */
   body?: (a: Args) => unknown;
+  /** Return the response body as a raw string instead of JSON-parsing it
+   *  (e.g. CheatRunner passthrough, CHANGELOG.md markdown). */
+  raw?: boolean;
 }
 
 /** Build a `?k=v&…` query string, skipping null/undefined values. */
@@ -56,6 +59,16 @@ const ROUTES: Record<string, Route> = {
   power_telemetry_get: { method: "GET", path: () => "/api/ps5/power/telemetry" },
   screenshots_list:    { method: "GET", path: () => "/api/ps5/list-screenshots" },
   screenshot_list:     { method: "GET", path: () => "/api/ps5/list-screenshots" },
+  // Cheats — the ELF forwards to CheatRunner's own HTTP daemon (:9999).
+  // Returns CheatRunner's raw body; cheatRunner.ts parses it itself.
+  cheatrunner_get:     { method: "GET", raw: true, path: (a) => `/api/cr/get?path=${encodeURIComponent(String(a?.path ?? "/"))}` },
+  // Changelog — served as the embedded CHANGELOG.md (raw markdown).
+  changelog_load:      { method: "GET", raw: true, path: () => "/CHANGELOG.md" },
+  // Profile writes — POST forwards the JSON body to the payload's frame.
+  profile_set_username: { method: "POST", path: () => "/api/ps5/profile/set-username" },
+  profile_rename_user:  { method: "POST", path: () => "/api/ps5/profile/rename-user" },
+  profile_activate:     { method: "POST", path: () => "/api/ps5/profile/activate" },
+  profile_clear_slot:   { method: "POST", path: () => "/api/ps5/profile/clear-slot" },
   // Write ops the engine already exposes (POST, body = args).
   app_launch:         { method: "POST", path: () => "/api/ps5/app/launch" },
   ps5_fs_delete:      { method: "POST", path: () => "/api/ps5/fs/delete" },
@@ -143,5 +156,6 @@ export async function webInvoke<T>(cmd: string, args?: Args): Promise<T> {
     throw new Error(`${cmd} → HTTP ${res.status}${detail ? `: ${detail}` : ""}`);
   }
   const text = await res.text();
+  if (route.raw) return text as unknown as T;
   return (text ? JSON.parse(text) : undefined) as T;
 }

@@ -4,6 +4,15 @@ What's new in XENO TOOL, written for humans.
 
 ---
 
+## 3.2.62
+
+- **Cheats now work from the on-console web.** Applying cheats forwards to CheatRunner's own on-console service, so you can list games and toggle cheats live straight from your phone's browser — same as the desktop app. (Cheat icons and uploading new cheat files to CheatRunner come next.)
+- **Profile editing works on-console.** Rename a console user, set/activate/clear an offline-account slot — all save to the console live. (Avatar upload, which stages image files, comes next.)
+- **"What's new" loads on-console.** The Changelog is embedded in the ELF and renders in the browser.
+- **No more pointless "Send helper" step on-console.** When you open the tool from the on-console ELF, the helper is already running (it *is* the ELF), so the Connection screen skips that step instead of showing a "bundled helper not available" error.
+
+---
+
 ## 3.2.61
 
 - **Most on-console web tabs now pull live PS5 data.** The XENO-AIO web server gained a generic bridge to the payload, so these screens now show real data from the console (not "not wired yet"): **Plugin Manager, Hardware, Profile, Volumes, Installed Apps, Saves, Screenshots, File System, Users, Syslog, Power**. Hardware text is converted to proper JSON so temps/clocks/storage render correctly. Still to come on-console: Cheats (CheatRunner), the Payloads catalog and Changelog (those read host-side data), and the profile write actions.

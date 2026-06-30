@@ -18,6 +18,7 @@ import {
   type DiscoveredHost,
 } from "../../api/ps5";
 import { pollUntilReady, type PollHandle } from "../../lib/pollUntilReady";
+import { isOnConsole } from "../../lib/webBridge";
 import { parsePS5Firmware } from "../../lib/ps5Firmware";
 import { compareVersions } from "../../lib/semver";
 import {
@@ -605,7 +606,7 @@ export default function ConnectionScreen() {
           </p>
         </StepCard>
 
-        {step1 === "ok" && (
+        {step1 === "ok" && !isOnConsole() && (
           <StepCard
             index={2}
             title={tr("connection_step2_title", undefined, "Send the XENO TOOL helper to your PS5")}

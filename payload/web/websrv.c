@@ -143,6 +143,65 @@ static int web_ftx2_call(uint16_t frame_type, const void *body,
     return 0;
 }
 
+/* ── HTTP client → CheatRunner on localhost:9999 ─────────────────────────
+ * CheatRunner is a separate on-console HTTP daemon (port 9999). The
+ * desktop app applies cheats with `GET /api/cheats/...`; on-console we
+ * forward the same request to 127.0.0.1:9999 and return its body (the
+ * HTTP headers stripped). Caller frees *out. */
+static int web_http_get(int port, const char *path, char **out, uint32_t *out_len) {
+    *out = NULL;
+    *out_len = 0;
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    struct timeval tv = { 4, 0 };
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof(a));
+    a.sin_family = AF_INET;
+    a.sin_port = htons((uint16_t)port);
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (connect(fd, (struct sockaddr *)&a, sizeof(a)) != 0) { close(fd); return -1; }
+
+    char req[2300];
+    int n = snprintf(req, sizeof(req),
+                     "GET %s HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+                     "Connection: close\r\n\r\n", path);
+    if (n <= 0 || write_all(fd, req, (size_t)n) != 0) { close(fd); return -1; }
+
+    size_t cap = 64 * 1024, len = 0;
+    char *buf = (char *)malloc(cap);
+    if (!buf) { close(fd); return -1; }
+    for (;;) {
+        if (len + 4096 + 1 > cap) {
+            cap *= 2;
+            char *nb = (char *)realloc(buf, cap);
+            if (!nb) { free(buf); close(fd); return -1; }
+            buf = nb;
+        }
+        ssize_t r = read(fd, buf + len, 4096);
+        if (r <= 0) break;
+        len += (size_t)r;
+        if (len > (1u << 20)) break;
+    }
+    close(fd);
+    buf[len] = '\0';
+    /* Strip HTTP headers — body starts after the first blank line. */
+    char *body = strstr(buf, "\r\n\r\n");
+    if (body) {
+        body += 4;
+        size_t blen = len - (size_t)(body - buf);
+        memmove(buf, body, blen);
+        buf[blen] = '\0';
+        *out = buf;
+        *out_len = (uint32_t)blen;
+    } else {
+        *out = buf;
+        *out_len = (uint32_t)len;
+    }
+    return 0;
+}
+
 /* ── Local LAN IPv4 discovery (for the toast + /api/netinfo) ──────────── */
 
 static void local_ipv4(char *out, size_t out_len) {
@@ -380,7 +439,38 @@ static int proxy_route(int fd, const web_proxy_route_t *r, const char *query) {
     return 1;
 }
 
-static int handle_api(int fd, const char *path, const char *query) {
+/* POST routes: forward the request body verbatim as the FTX2 frame body.
+ * The profile-write handlers parse the same JSON the desktop sends
+ * (extra fields like `addr` are ignored), so no reshaping is needed. */
+typedef struct {
+    const char *path;
+    uint16_t    frame;
+} web_post_route_t;
+
+static const web_post_route_t WEB_POST_ROUTES[] = {
+    { "/api/ps5/profile/set-username", 152u }, /* PROFILE_SET_USERNAME {slot,name} */
+    { "/api/ps5/profile/rename-user",  160u }, /* PROFILE_SET_LOCAL_USERNAME {uid,name} */
+    { "/api/ps5/profile/activate",     154u }, /* PROFILE_ACTIVATE {slot,id?} */
+    { "/api/ps5/profile/clear-slot",   158u }, /* PROFILE_CLEAR_SLOT {slot} */
+};
+
+static int post_route(int fd, const web_post_route_t *r, const char *body, uint32_t blen) {
+    char *out = NULL;
+    uint32_t outlen = 0;
+    if (web_ftx2_call(r->frame, body, blen, &out, &outlen) == 0 && out) {
+        send_response(fd, "200 OK", "application/json; charset=utf-8",
+                      0, (const unsigned char *)out, outlen);
+        free(out);
+        return 1;
+    }
+    if (out) free(out);
+    send_text(fd, "503 Service Unavailable", "application/json; charset=utf-8",
+              "{\"ok\":false,\"error\":\"mgmt server not reachable\"}");
+    return 1;
+}
+
+static int handle_api(int fd, const char *method, const char *path,
+                      const char *query, const char *body, uint32_t blen) {
     if (strcmp(path, "/api/version") == 0) {
         send_text(fd, "200 OK", "application/json; charset=utf-8",
                   "{\"app\":\"XENO-AIO\",\"version\":\"" PS5UPLOAD2_VERSION
@@ -395,12 +485,37 @@ static int handle_api(int fd, const char *path, const char *query) {
         /* on_console:true → the React app auto-connects to this console. */
         char ip[64];
         local_ipv4(ip, sizeof(ip));
-        char body[224];
-        snprintf(body, sizeof(body),
+        char nb[224];
+        snprintf(nb, sizeof(nb),
                  "{\"ip\":\"%s\",\"port\":%d,\"on_console\":true,"
                  "\"version\":\"" PS5UPLOAD2_VERSION "\"}", ip, WEB_PORT);
-        send_text(fd, "200 OK", "application/json; charset=utf-8", body);
+        send_text(fd, "200 OK", "application/json; charset=utf-8", nb);
         return 1;
+    }
+    /* Cheats: forward to CheatRunner's own HTTP daemon on localhost:9999.
+     * `path` query param is the CheatRunner path (e.g.
+     * /api/cheats/toggle?titleId=..&index=..&on=1). */
+    if (strcmp(path, "/api/cr/get") == 0) {
+        char cr_path[1600];
+        query_param(query, "path", cr_path, sizeof(cr_path));
+        if (cr_path[0] == '\0') snprintf(cr_path, sizeof(cr_path), "/");
+        char *out = NULL;
+        uint32_t outlen = 0;
+        if (web_http_get(9999, cr_path, &out, &outlen) == 0 && out) {
+            send_response(fd, "200 OK", "application/json; charset=utf-8",
+                          0, (const unsigned char *)out, outlen);
+            free(out);
+            return 1;
+        }
+        if (out) free(out);
+        send_text(fd, "503 Service Unavailable", "application/json; charset=utf-8",
+                  "{\"error\":\"CheatRunner (port 9999) not reachable — load it first\"}");
+        return 1;
+    }
+    if (strcmp(method, "POST") == 0) {
+        for (size_t i = 0; i < sizeof(WEB_POST_ROUTES) / sizeof(WEB_POST_ROUTES[0]); i++)
+            if (strcmp(path, WEB_POST_ROUTES[i].path) == 0)
+                return post_route(fd, &WEB_POST_ROUTES[i], body, blen);
     }
     for (size_t i = 0; i < sizeof(WEB_PROXY_ROUTES) / sizeof(WEB_PROXY_ROUTES[0]); i++) {
         if (strcmp(path, WEB_PROXY_ROUTES[i].path) == 0)
@@ -417,10 +532,24 @@ static void handle_client(int fd) {
     if (got <= 0) return;
     req[got] = '\0';
 
-    if (strncmp(req, "GET ", 4) != 0 && strncmp(req, "HEAD ", 5) != 0) {
-        send_text(fd, "405 Method Not Allowed", "text/plain", "method");
-        return;
+    const char *method;
+    if      (strncmp(req, "GET ",  4) == 0) method = "GET";
+    else if (strncmp(req, "HEAD ", 5) == 0) method = "HEAD";
+    else if (strncmp(req, "POST ", 5) == 0) method = "POST";
+    else { send_text(fd, "405 Method Not Allowed", "text/plain", "method"); return; }
+
+    /* Capture the request body (after the blank line) BEFORE we punch a
+     * '\0' into the request line below — strstr would otherwise stop at
+     * that terminator and never reach the body. Bodies are small JSON
+     * (profile writes); they arrive in this single read. */
+    const char *body = NULL;
+    uint32_t blen = 0;
+    char *hdr_end = strstr(req, "\r\n\r\n");
+    if (hdr_end) {
+        body = hdr_end + 4;
+        blen = (uint32_t)((req + got) - (hdr_end + 4));
     }
+
     char *sp = strchr(req, ' ');
     if (!sp) { send_text(fd, "400 Bad Request", "text/plain", "bad"); return; }
     char *path = sp + 1;
@@ -432,7 +561,7 @@ static void handle_client(int fd) {
     if (q) { *q = '\0'; query = q + 1; }
 
     if (strncmp(path, "/api/", 5) == 0) {
-        if (handle_api(fd, path, query)) return;
+        if (handle_api(fd, method, path, query, body, blen)) return;
         send_text(fd, "404 Not Found", "application/json; charset=utf-8",
                   "{\"error\":\"not wired in web yet\"}");
         return;
