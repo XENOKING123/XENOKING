@@ -414,7 +414,11 @@ jobs:
         working-directory: client
         run: npx tauri ios init
 
-      - name: Build iOS app (unsigned)
+      - name: Build frontend (dist/) — Tauri's beforeBuildCommand
+        working-directory: client
+        run: npm run build:vite
+
+      - name: Build iOS app (unsigned, release)
         working-directory: client
         # Silence Homebrew tap-trust noise that floods the build log and
         # buries the real compiler error.
@@ -441,12 +445,18 @@ jobs:
             | awk '/Schemes:/{f=1;next} f && /[^ \t]/{gsub(/^[ \t]+/,"",$0); print; exit}')"
           echo "::notice::Scheme: '$SCHEME'"
 
+          # CRITICAL: Tauri names its generated build configs LOWERCASE
+          # ("debug"/"release"). Passing "Release" silently falls back to
+          # the default (debug), and debug mode makes the Rust xcode-script
+          # expect a running dev server (the "-server-addr" file), which
+          # doesn't exist in CI → panic. "release" bundles the dist/ we
+          # just built and compiles Rust standalone.
           set +e
           xcodebuild build \
             -project "$XCODEPROJ" \
             -scheme "$SCHEME" \
             -sdk iphoneos \
-            -configuration Release \
+            -configuration release \
             -derivedDataPath ../DerivedData \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="" \
@@ -462,11 +472,15 @@ jobs:
           set -e
           if [ $RC -ne 0 ]; then
             echo "::group::Real build errors"
-            # Pull out the lines that actually describe the failure, skipping
-            # the brew/export noise. Cargo + clang + linker + xcodebuild.
-            grep -nE 'error(\[|:)|error\] |could not compile|cannot find|no such|Undefined symbol|ld: |BUILD FAILED|The following build commands failed|fatal error|failed with a nonzero' \
-              /tmp/xcode.log | tail -40 \
-              | while IFS= read -r line; do echo "::error::$line"; done
+            # Print the 25 lines around the first panic / failure marker,
+            # plus any compiler errors — skip the brew/export noise.
+            FIRST="$(grep -nE 'panicked at|error(\[|:)|could not compile|Undefined symbol|ld: |BUILD FAILED|PhaseScriptExecution failed|The following build commands failed|fatal error' \
+              /tmp/xcode.log | head -1 | cut -d: -f1)"
+            if [ -n "$FIRST" ]; then
+              START=$(( FIRST > 12 ? FIRST - 12 : 1 ))
+              sed -n "${START},$(( FIRST + 12 ))p" /tmp/xcode.log \
+                | while IFS= read -r line; do echo "::error::$line"; done
+            fi
             echo "::endgroup::"
             echo "::error::xcodebuild exited $RC — see grouped errors above + uploaded xcode.log artifact"
             exit 1
