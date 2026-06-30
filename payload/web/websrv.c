@@ -16,9 +16,9 @@
  *  - Assets are stored gzip-compressed and served with
  *    `Content-Encoding: gzip`, so the browser inflates them and the ELF
  *    stays ~3 MB instead of ~10 MB.
- *  - The JSON API (/api/*) starts minimal (version/ping/netinfo) and
- *    grows; the React bridge (client/src/lib/webBridge.ts) calls these
- *    same paths.
+ *  - The JSON API (the /api routes) starts minimal (version/ping/
+ *    netinfo) and grows; the React bridge
+ *    (client/src/lib/webBridge.ts) calls these same paths.
  */
 #include <sys/types.h>
 #include <sys/socket.h>
