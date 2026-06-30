@@ -4,6 +4,12 @@ What's new in XENO TOOL, written for humans.
 
 ---
 
+## 3.2.61
+
+- **Most on-console web tabs now pull live PS5 data.** The XENO-AIO web server gained a generic bridge to the payload, so these screens now show real data from the console (not "not wired yet"): **Plugin Manager, Hardware, Profile, Volumes, Installed Apps, Saves, Screenshots, File System, Users, Syslog, Power**. Hardware text is converted to proper JSON so temps/clocks/storage render correctly. Still to come on-console: Cheats (CheatRunner), the Payloads catalog and Changelog (those read host-side data), and the profile write actions.
+
+---
+
 ## 3.2.59
 
 - **`XENO-AIO.elf` is now a true all-in-one — and pulls live console data.** The on-console ELF now bundles the **complete payload runtime AND the web server in one process**. You inject the single ELF, it runs the normal servers (so the desktop app still connects) **and** serves the web UI at `http://<ps5-ip>:6969`. Open it from any browser — Safari, Chrome, your phone — and it auto-connects. The web screens now talk to the console for real: the Plugin Manager lists the **actual homebrew running on your PS5**, pulled live, because the web API forwards to the payload's own engine internally (no operation is reimplemented — it reuses the exact same code the desktop app uses). More screens light up with live data from here.

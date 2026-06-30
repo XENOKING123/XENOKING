@@ -261,6 +261,55 @@ static void json_escape(const char *src, char *dst, size_t dstlen) {
     dst[di] = '\0';
 }
 
+static int all_digits(const char *s, size_t len) {
+    if (len == 0) return 0;
+    for (size_t i = 0; i < len; i++)
+        if (s[i] < '0' || s[i] > '9') return 0;
+    return 1;
+}
+
+/* Convert the payload's `key=value\n` hardware text into a JSON object.
+ * Numeric values (all-digit) become JSON numbers so the UI's byte/temp
+ * math works; everything else is a JSON string. Matches the shape the
+ * engine produces, so the React HwInfo/HwTemps/etc. types parse cleanly. */
+static void kv_text_to_json(const char *text, char *out, size_t outcap) {
+    size_t di = 0;
+    if (di + 1 < outcap) out[di++] = '{';
+    int first = 1;
+    const char *p = text;
+    while (p && *p) {
+        const char *nl = strchr(p, '\n');
+        const char *line_end = nl ? nl : p + strlen(p);
+        const char *eq = NULL;
+        for (const char *c = p; c < line_end; c++) { if (*c == '=') { eq = c; break; } }
+        if (eq && eq > p) {
+            size_t klen = (size_t)(eq - p);
+            const char *vs = eq + 1;
+            size_t vlen = (size_t)(line_end - vs);
+            if (!first && di + 1 < outcap) out[di++] = ',';
+            first = 0;
+            if (di + 1 < outcap) out[di++] = '"';
+            for (size_t i = 0; i < klen && di + 1 < outcap; i++) out[di++] = p[i];
+            if (di + 2 < outcap) { out[di++] = '"'; out[di++] = ':'; }
+            if (all_digits(vs, vlen)) {
+                for (size_t i = 0; i < vlen && di + 1 < outcap; i++) out[di++] = vs[i];
+            } else {
+                if (di + 1 < outcap) out[di++] = '"';
+                for (size_t i = 0; i < vlen && di + 2 < outcap; i++) {
+                    unsigned char c = (unsigned char)vs[i];
+                    if (c == '"' || c == '\\') { out[di++] = '\\'; out[di++] = (char)c; }
+                    else if (c >= 0x20) out[di++] = (char)c;
+                }
+                if (di + 1 < outcap) out[di++] = '"';
+            }
+        }
+        if (!nl) break;
+        p = nl + 1;
+    }
+    if (di + 1 < outcap) out[di++] = '}';
+    out[di] = '\0';
+}
+
 /* ── JSON API ────────────────────────────────────────────────────────────
  * Native endpoints (version/ping/netinfo) answer locally. Everything else
  * is a table-driven proxy: forward the mapped FTX2 frame to the in-process
@@ -271,19 +320,25 @@ typedef struct {
     const char *path;    /* URL path (matched exactly) */
     uint16_t    frame;   /* FTX2 frame type to forward */
     const char *qparam;  /* query key → request body field, or NULL for none */
+    int         xform;   /* 0 = pass JSON through; 1 = key=value text → JSON */
 } web_proxy_route_t;
 
 static const web_proxy_route_t WEB_PROXY_ROUTES[] = {
-    { "/api/ps5/proc/list",       74u,  NULL },   /* PROC_LIST */
-    { "/api/ps5/profile/info",    150u, NULL },   /* PROFILE_INFO */
-    { "/api/ps5/volumes",         34u,  NULL },   /* FS_LIST_VOLUMES */
-    { "/api/ps5/apps/installed",  62u,  NULL },   /* APP_LIST_REGISTERED */
-    { "/api/ps5/list-saves",      92u,  NULL },   /* LIST_SAVES */
-    { "/api/ps5/users",           90u,  NULL },   /* USER_LIST */
-    { "/api/ps5/syslog/tail",     144u, NULL },   /* SYSLOG_TAIL */
-    { "/api/ps5/power/telemetry", 88u,  NULL },   /* POWER_TELEMETRY */
-    { "/api/ps5/list-screenshots",94u,  NULL },   /* LIST_SCREENSHOTS */
-    { "/api/ps5/list-dir",        36u,  "path" }, /* FS_LIST_DIR (needs path) */
+    { "/api/ps5/proc/list",       74u,  NULL,   0 }, /* PROC_LIST */
+    { "/api/ps5/profile/info",    150u, NULL,   0 }, /* PROFILE_INFO */
+    { "/api/ps5/volumes",         34u,  NULL,   0 }, /* FS_LIST_VOLUMES */
+    { "/api/ps5/apps/installed",  62u,  NULL,   0 }, /* APP_LIST_REGISTERED */
+    { "/api/ps5/list-saves",      92u,  NULL,   0 }, /* LIST_SAVES */
+    { "/api/ps5/users",           90u,  NULL,   0 }, /* USER_LIST */
+    { "/api/ps5/syslog/tail",     144u, NULL,   0 }, /* SYSLOG_TAIL */
+    { "/api/ps5/power/telemetry", 88u,  NULL,   0 }, /* POWER_TELEMETRY */
+    { "/api/ps5/list-screenshots",94u,  NULL,   0 }, /* LIST_SCREENSHOTS */
+    { "/api/ps5/list-dir",        36u,  "path", 0 }, /* FS_LIST_DIR (needs path) */
+    /* Hardware: payload returns key=value text → convert to JSON. */
+    { "/api/ps5/hw/info",         64u,  NULL,   1 }, /* HW_INFO */
+    { "/api/ps5/hw/temps",        66u,  NULL,   1 }, /* HW_TEMPS */
+    { "/api/ps5/hw/power",        68u,  NULL,   1 }, /* HW_POWER */
+    { "/api/ps5/hw/storage",      80u,  NULL,   1 }, /* HW_STORAGE */
 };
 
 static int proxy_route(int fd, const web_proxy_route_t *r, const char *query) {
@@ -302,6 +357,18 @@ static int proxy_route(int fd, const web_proxy_route_t *r, const char *query) {
     char *out = NULL;
     uint32_t outlen = 0;
     if (web_ftx2_call(r->frame, reqbody, reqlen, &out, &outlen) == 0 && out) {
+        if (r->xform == 1) {
+            size_t cap = (size_t)outlen * 2 + 256;
+            char *json = (char *)malloc(cap);
+            if (json) {
+                kv_text_to_json(out, json, cap);
+                send_response(fd, "200 OK", "application/json; charset=utf-8",
+                              0, (const unsigned char *)json, strlen(json));
+                free(json);
+                free(out);
+                return 1;
+            }
+        }
         send_response(fd, "200 OK", "application/json; charset=utf-8",
                       0, (const unsigned char *)out, outlen);
         free(out);
