@@ -5,6 +5,7 @@ import {
 } from "@tauri-apps/api/core";
 
 import { log } from "../state/logs";
+import { isWebMode, webInvoke } from "./webBridge";
 
 /**
  * Drop-in replacement for Tauri's `invoke` that leaves a log breadcrumb for
@@ -30,11 +31,15 @@ export async function invoke<T>(
   options?: InvokeOptions,
 ): Promise<T> {
   try {
-    // Forward only the args we were given — passing a trailing `undefined`
-    // options arg would change the observable call shape (and break tests /
-    // any arg-arity-sensitive code).
-    const result =
-      options === undefined
+    // XENO TOOL Web: in a plain browser (no Tauri IPC) route the command
+    // to the engine's HTTP API instead. Desktop + mobile webviews keep
+    // the native IPC path untouched (isWebMode() is false there).
+    const result = isWebMode()
+      ? await webInvoke<T>(cmd, args as Record<string, unknown> | undefined)
+      : // Forward only the args we were given — passing a trailing
+        // `undefined` options arg would change the observable call shape
+        // (and break tests / any arg-arity-sensitive code).
+        options === undefined
         ? await rawInvoke<T>(cmd, args)
         : await rawInvoke<T>(cmd, args, options);
     // Cheap, name-only at trace — the value/args could be large (manifests,

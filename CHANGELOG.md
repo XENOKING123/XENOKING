@@ -4,6 +4,12 @@ What's new in XENO TOOL, written for humans.
 
 ---
 
+## 3.2.56
+
+- **XENO TOOL Web — the full tool in a browser.** New `XENO_TOOL_Web` download (Windows + Linux). Run the launcher on any always-on machine (PC, mini-PC, Pi-class box) and open `http://<that-machine's-IP>:6969` from **any** browser — phone, tablet, laptop — with no install. It's the same app as the desktop version: enter your PS5's IP and use it. The local server hosts the React UI and bridges every action to the engine's HTTP API automatically. Core PS5 screens (Dashboard, Hardware, Installed Apps, Plugin Manager, Volumes, File browser) work today; more screens light up as their commands get wired to the web API. A true PS5-hosted ELF isn't possible (the tool's engine is Rust and the console SDK is C-only), so the web server runs on a host and talks to the PS5 over the network — exactly like the desktop app does.
+
+---
+
 ## 3.2.55
 
 - **Plugin Manager.** New screen under System in the sidebar. Lists every recognised homebrew plugin running on your PS5 — ShadowMount+, CheatRunner, nanoDNS, etaHEN, GoldHEN, ps5-debug, FTP Server and more — with live PID display, a description for each, and a **Kill** button to stop any closeable process instantly. Auto-refreshes every 3 seconds. Core system processes (kstuff, GoldHEN, your XENO payload) are shown as **Protected** and cannot be terminated accidentally. All other user processes are visible under a collapsible "Show other" toggle.

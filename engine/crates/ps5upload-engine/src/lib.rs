@@ -461,6 +461,16 @@ async fn loopback_guard(
     req: Request,
     next: Next,
 ) -> impl IntoResponse {
+    // Web mode (XENO TOOL Web): when the operator opts in by setting
+    // PS5UPLOAD_WEB_MODE, the engine is intentionally a LAN-served web
+    // app — the whole point is to open `host-ip:6969` from a phone or
+    // another PC. In that mode the loopback gate is disabled for the UI
+    // and API. This is OFF by default; the desktop sidecar / mobile
+    // in-process engine never set it, so their "API is local-only"
+    // posture is preserved verbatim.
+    if web_mode_enabled() {
+        return next.run(req).await.into_response();
+    }
     // Whitelisted off-loopback path prefixes. Keep this list tight.
     const OFF_LOOPBACK_ALLOWED: &[&str] = &["/pkg-host/"];
     let path = req.uri().path();
@@ -472,6 +482,39 @@ async fn loopback_guard(
     }
     eprintln!("[ps5upload-engine] refusing off-loopback request to {path} from {peer}");
     (StatusCode::FORBIDDEN, "loopback only").into_response()
+}
+
+/// True when XENO TOOL Web mode is enabled (env `PS5UPLOAD_WEB_MODE`
+/// set to anything non-empty). Lets the engine serve the bundled UI to
+/// the whole LAN and relaxes the loopback gate. Read live (not cached)
+/// so tests can toggle it; the env lookup is trivially cheap.
+fn web_mode_enabled() -> bool {
+    std::env::var("PS5UPLOAD_WEB_MODE")
+        .map(|v| !v.is_empty() && v != "0")
+        .unwrap_or(false)
+}
+
+/// Resolve the directory of the bundled web UI (`dist/`) for XENO TOOL
+/// Web. Source order:
+///   1. `PS5UPLOAD_WEB_DIST` env (explicit override / launcher sets it)
+///   2. a `dist/` folder next to the engine executable (the shipped
+///      "XENO TOOL Web" zip layout: `xeno-web[.exe]` + `dist/`)
+/// Returns `None` if neither exists, in which case the engine keeps its
+/// built-in status page and 404 behavior. Never panics.
+fn web_dist_dir() -> Option<std::path::PathBuf> {
+    if let Ok(p) = std::env::var("PS5UPLOAD_WEB_DIST") {
+        let pb = std::path::PathBuf::from(p);
+        if pb.is_dir() {
+            return Some(pb);
+        }
+    }
+    let next_to_exe = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|d| d.join("dist")));
+    match next_to_exe {
+        Some(d) if d.is_dir() => Some(d),
+        _ => None,
+    }
 }
 
 /// Walk a directory and return `(total_bytes, planned_files)` — collects
@@ -5508,7 +5551,27 @@ async fn run(cfg: EngineConfig) -> anyhow::Result<()> {
         // so the pkg routes share the same listener + CORS + body limit.
         .merge(pkg_install::router(std::sync::Arc::new(
             pkg_install::PkgInstallState::default(),
-        )))
+        )));
+
+    // XENO TOOL Web: when PS5UPLOAD_WEB_DIST points at a built React
+    // `dist/`, serve it as the UI with SPA fallback — any path that
+    // isn't an `/api/*` route falls through to the static server, and
+    // any missing static path falls back to index.html so client-side
+    // (react-router) deep links resolve. Gated on the env var, so the
+    // desktop/mobile builds (which never set it) keep the tiny built-in
+    // status page at `/` and their previous 404 behavior, unchanged.
+    let app = match web_dist_dir() {
+        Some(dir) => {
+            let index = dir.join("index.html");
+            let serve = tower_http::services::ServeDir::new(&dir)
+                .fallback(tower_http::services::ServeFile::new(index));
+            println!("[ps5upload-engine] web UI: serving {} (SPA)", dir.display());
+            app.fallback_service(serve)
+        }
+        None => app,
+    };
+
+    let app = app
         // Permissive CORS — the only off-loopback route that ever
         // sees a real request is `/pkg-host/*` (PS5 server-side fetch,
         // no browser, no CORS preflight). For loopback Tauri-API hits,
