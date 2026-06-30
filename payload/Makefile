@@ -76,6 +76,30 @@ all: $(ELF) $(ELF).gz
 $(ELF): $(SRCS) $(HEADERS)
 	$(CC) $(CFLAGS) -o $@ $(SRCS) $(LIBS)
 
+# ── XENO-AIO.elf: the full payload PLUS the embedded web server. One
+#    ELF the user injects to get the FTX2 servers (desktop app) AND a
+#    browser UI at :6969 that proxies to the in-process mgmt server for
+#    real console data. Built with `make aio`; deliberately NOT part of
+#    `all`, so ps5upload.elf (embedded in the desktop exe) stays lean and
+#    free of the ~3 MB web bundle. ────────────────────────────────────
+WEB_DIR   := web
+WEB_DIST  := ../client/dist
+WEB_GEN_C := $(WEB_DIR)/web_assets.c
+WEB_GEN_H := $(WEB_DIR)/web_assets.h
+AIO_ELF   := XENO-AIO.elf
+
+aio: $(AIO_ELF) $(AIO_ELF).gz
+
+# Embed the built React UI (regenerated when dist's index.html changes).
+$(WEB_GEN_C) $(WEB_GEN_H): $(WEB_DIR)/gen_web_assets.py $(WEB_DIST)/index.html
+	python3 $(WEB_DIR)/gen_web_assets.py $(WEB_DIST) $(WEB_GEN_C) $(WEB_GEN_H)
+
+$(AIO_ELF): $(SRCS) $(WEB_DIR)/websrv.c $(WEB_GEN_C) $(HEADERS) $(WEB_DIR)/websrv.h $(WEB_GEN_H)
+	$(CC) $(CFLAGS) -DWITH_WEBSRV -I$(WEB_DIR) -o $@ $(SRCS) $(WEB_DIR)/websrv.c $(WEB_GEN_C) $(LIBS)
+
+$(AIO_ELF).gz: $(AIO_ELF)
+	gzip -kf $<
+
 # Gzipped copy for the Tauri bundle resource. linuxdeploy (Linux
 # AppImage bundler) walks every ELF in the AppDir and tries to
 # resolve its .so deps via `patchelf --print-needed`. The PS5
@@ -88,11 +112,11 @@ $(ELF).gz: $(ELF)
 	gzip -kf $<
 
 clean:
-	rm -f $(ELF) $(ELF).gz
+	rm -f $(ELF) $(ELF).gz $(AIO_ELF) $(AIO_ELF).gz $(WEB_GEN_C) $(WEB_GEN_H)
 
 send: $(ELF)
 	@echo "Sending $(ELF) to $(PS5_HOST):$(PS5_PORT) ..."
 	nc -w 1 $(PS5_HOST) $(PS5_PORT) < $(ELF)
 	@echo "Sent — wait for PS5 notification before testing"
 
-.PHONY: all clean send
+.PHONY: all aio clean send

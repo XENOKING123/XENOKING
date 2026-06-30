@@ -179,6 +179,11 @@ ps5upload.elf.gz.blake3.tmp
 # the dev experience for fresh clones is still clean.
 payload/ps5upload.elf
 payload/ps5upload.elf.gz
+# XENO-AIO.elf (full payload + embedded web UI) + its generated assets.
+payload/XENO-AIO.elf
+payload/XENO-AIO.elf.gz
+payload/web/web_assets.c
+payload/web/web_assets.h
 
 # ─── Personal scratch + notes ───────────────────────────────────────────
 # Anything in /scratch or /notes-local that a dev wants to keep

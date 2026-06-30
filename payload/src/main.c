@@ -11,6 +11,9 @@
 #include "config.h"
 #include "runtime.h"
 #include "register.h"
+#ifdef WITH_WEBSRV
+#include "websrv.h"   /* XENO-AIO build: embedded web server entry point */
+#endif
 #include "shellui_rpc.h"
 #include "hw_guard.h"
 #include "kernel_rw_lock.h"
@@ -480,6 +483,14 @@ int main(void) {
     }
     state.mgmt_thread_started = 1;
     startup_trace("MGMT_THREAD_SPAWNED");
+
+#ifdef WITH_WEBSRV
+    /* XENO-AIO build only: start the embedded web server now that the
+     * mgmt listener (:9114) is up — the web API proxies to it. Pops a
+     * toast with http://<console-ip>:6969 and serves the React UI. */
+    websrv_start();
+    startup_trace("WEBSRV_STARTED");
+#endif
 
     rc = runtime_server_loop(&state);
     startup_trace("SERVER_LOOP_EXITED");

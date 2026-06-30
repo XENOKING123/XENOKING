@@ -10,7 +10,7 @@ name: release
 #   • XENO_TOOL_<ver>_x64-setup.exe   — the desktop app installer (NSIS)
 #   • latest.json                     — in-app auto-updater manifest
 #   • CheatRunner.elf                 — on-console cheat engine (carried fwd)
-#   • XENO_Trainer_Tool_v2.5.exe      — PS Trainer Viewer (carried fwd)
+#   • XENO-AIO.elf                    — on-console all-in-one (payload + web UI)
 #
 # This replaces the old split (ps5-app.yml built only the ELFs; the desktop
 # installer was uploaded by hand and went stale). The auto-updater reads
@@ -113,16 +113,16 @@ jobs:
           npm ci --no-audit --no-fund
           npm run build:vite
 
-      - name: Build XENO TOOL Web ELF
+      - name: Build XENO-AIO ELF (full payload + embedded web server)
         env:
           PS5_PAYLOAD_SDK: /opt/ps5-payload-sdk
-        run: make -C payload/web
+        run: make -C payload aio
 
-      - name: Verify web ELF
+      - name: Verify XENO-AIO ELF
         run: |
-          test -s payload/web/XENO-AIO.elf
-          test -s payload/web/XENO-AIO.elf.gz
-          ls -la payload/web/XENO-AIO.elf payload/web/XENO-AIO.elf.gz
+          test -s payload/XENO-AIO.elf
+          test -s payload/XENO-AIO.elf.gz
+          ls -la payload/XENO-AIO.elf payload/XENO-AIO.elf.gz
 
       - name: Upload payload artifact
         uses: actions/upload-artifact@v4
@@ -131,8 +131,8 @@ jobs:
           path: |
             payload/ps5upload.elf.gz
             payload/dpi/ezremote-dpi.elf.gz
-            payload/web/XENO-AIO.elf
-            payload/web/XENO-AIO.elf.gz
+            payload/XENO-AIO.elf
+            payload/XENO-AIO.elf.gz
           if-no-files-found: error
 
   # ── Windows desktop installer (NSIS) + engine sidecar. ────────────────────
@@ -702,9 +702,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # CheatRunner.elf (maj0r) and the PS Trainer Viewer exe aren't built
-          # by CI. Pull each from the newest prior release that still has it so
-          # every release stays complete without committing 70+ MB to git.
+          # CheatRunner.elf (maj0r) isn't built by CI. Pull it from the
+          # newest prior release that still has it so every release stays
+          # complete without committing it to git. (The standalone PS
+          # Trainer Viewer exe is no longer shipped — the desktop setup app
+          # already includes everything it did.)
           carry() {
             local name="$1"
             if [ -f "release/$name" ]; then echo "$name already present"; return 0; fi
@@ -718,7 +720,6 @@ jobs:
             echo "::warning::could not carry $name from any prior release"
           }
           carry CheatRunner.elf
-          carry XENO_Trainer_Tool_v2.5.exe
           ls -la release
 
       - name: Generate latest.json updater manifest
@@ -776,10 +777,9 @@ jobs:
           printf -- '- Same app as desktop: connect to PS5, hardware view, installed apps, plugin manager, file browser. Enter your PS5 IP in the UI.\n'
           printf '\n## On-Console Web ELF — XENO-AIO.elf\n'
           printf -- '- **Inject one ELF, open in a browser — already connected.** Send `XENO-AIO.elf` to your jailbroken PS5; it pops a toast with its URL (`http://<ps5-ip>:6969`). Open that from any browser and it **auto-connects to the console instantly** — no "enter IP + click connect" step like the desktop app. The full UI is embedded in the ELF, nothing else to copy. Same model as CheatRunner/garlic web.\n'
-          printf -- '- The on-console API is being expanded screen by screen.\n'
+          printf -- '- One ELF runs the full payload AND the web UI: the web screens pull LIVE console data (e.g. Plugin Manager lists the real homebrew running on your PS5) by forwarding to the payload internally. More screens light up each release.\n'
           printf '\n## On-Console Tools (carried forward every release)\n'
           printf -- '- **CheatRunner.elf** — on-console cheat engine by maj0r (Discord: callmemaj0r). XENO TOOL is a frontend for it.\n'
-          printf -- '- **XENO_Trainer_Tool_v2.5.exe** — PS Trainer Viewer.\n'
           printf '\n## Cheat Database Credits\n'
           printf 'Cheats sourced from the **etaHEN PS5 Cheats** and **HEN Cheats Collection** repos via the etaHEN & GoldHEN Discord communities.\n'
           printf 'Contributors: **LM (lightningmods)**, **Buzzer (buzzer-re)**, **Super Death**, **GoldHEN Team**, **Yharnam**, **PS4Trainer**, and all cheat creators in the scene.\n'
@@ -813,4 +813,17 @@ jobs:
             [ "$tag" = "$THIS_TAG" ] && continue
             gh release delete-asset "$tag" latest.json -y 2>/dev/null \
               && echo "scrubbed stale latest.json from $tag" || true
+          done
+
+      - name: Retire the standalone PS Trainer Viewer exe
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The desktop setup app now includes everything the standalone
+          # PS Trainer Viewer did, so drop it from every release.
+          for tag in $(gh release list --limit 25 --json tagName -q '.[].tagName'); do
+            gh release delete-asset "$tag" XENO_Trainer_Tool_v2.5.exe -y 2>/dev/null \
+              && echo "removed XENO_Trainer_Tool_v2.5.exe from $tag" || true
           done
