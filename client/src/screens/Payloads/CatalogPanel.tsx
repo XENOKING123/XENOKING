@@ -12,6 +12,8 @@ import {
   BookmarkPlus,
 } from "lucide-react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
+import WebCatalogAction from "./WebCatalogAction";
+import { isOnConsole } from "../../lib/webBridge";
 import { useConnectionStore } from "../../state/connection";
 import { pushNotification } from "../../state/notifications";
 import { withConsolePrefix } from "../../state/roster";
@@ -499,7 +501,11 @@ function PayloadCard({
                 </select>
               </label>
             )}
-            {release && release.picked_asset_url && (
+            {/* On-console web: pull the latest release from GitHub and send
+                it to the loader in one tap (the desktop download/local flow
+                doesn't apply in the browser). */}
+            {isOnConsole() && <WebCatalogAction info={info} />}
+            {!isOnConsole() && release && release.picked_asset_url && (
               <Button
                 variant={updateAvailable || !local ? "primary" : "secondary"}
                 size="sm"

@@ -201,6 +201,25 @@ export async function webInvoke<T>(cmd: string, args?: Args): Promise<T> {
   // quietly instead of throwing and crashing a screen on mount.
   if (cmd.startsWith("plugin:")) return undefined as T;
 
+  // ── Game Store fetches ─────────────────────────────────────────────────
+  // The store scraper (scrapePage/scrapeCatalog) parses HTML in the browser;
+  // only the fetch needs a CORS bypass. r.jina.ai is a CORS-friendly reader
+  // that returns the rendered page, so the browser fetches it directly — no
+  // server proxy needed. Covers/images load straight into <img> (images
+  // aren't CORS-gated for display), so we just hand back the URL.
+  if (cmd === "xeno_http_get") {
+    const url = String(args?.url ?? "");
+    if (!url) throw new Error("xeno_http_get: missing url");
+    const res = await fetch(`https://r.jina.ai/${url}`, {
+      headers: { "X-Return-Format": "html" },
+    });
+    if (!res.ok) throw new Error(`store fetch ${res.status}`);
+    return (await res.text()) as T;
+  }
+  if (cmd === "xeno_image_fetch") {
+    return String(args?.url ?? "") as T;
+  }
+
   // On-console connectivity probes resolve synthetically — the server is
   // the PS5, so it's always reachable.
   const synth = onConsoleSynthetic(cmd);

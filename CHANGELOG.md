@@ -4,6 +4,13 @@ What's new in XENO TOOL, written for humans.
 
 ---
 
+## 3.2.66
+
+- **Game Store works on the on-console web.** Browse the full PS4/PS5 catalog from your phone — the store now loads its pages through a reader that browsers are allowed to use, so the same listings + covers you get on desktop show up on the web.
+- **One-tap "Download & Send" for catalog payloads.** On the Payloads → Catalog tab, each payload now has a single button that pulls the latest release straight from GitHub and fires it at your PS5's loader — no manual steps. (The manual Send-file flow is still there too.)
+
+---
+
 ## 3.2.65
 
 - **Cheat game icons show on the on-console web.** Game artwork in My Games now loads — the ELF proxies each icon from CheatRunner so the cards look like the desktop app.
