@@ -170,11 +170,18 @@ static int handle_api(int fd, const char *path) {
         return 1;
     }
     if (strcmp(path, "/api/netinfo") == 0) {
+        /* `on_console:true` is the signal the React app uses to AUTO-
+         * CONNECT: when the UI is served by this ELF (running ON the
+         * PS5) it skips the manual "enter IP + connect" flow and binds
+         * straight to the local console. The PC host server has no such
+         * route, so the browser there falls back to the normal flow. */
         char ip[64];
         local_ipv4(ip, sizeof(ip));
-        char body[160];
+        char body[224];
         snprintf(body, sizeof(body),
-                 "{\"ip\":\"%s\",\"port\":%d}", ip, WEB_PORT);
+                 "{\"ip\":\"%s\",\"port\":%d,\"on_console\":true,"
+                 "\"version\":\"" XENO_WEB_VERSION "\"}",
+                 ip, WEB_PORT);
         send_text(fd, "200 OK", "application/json; charset=utf-8", body);
         return 1;
     }

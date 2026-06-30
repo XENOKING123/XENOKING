@@ -4,6 +4,12 @@ What's new in XENO TOOL, written for humans.
 
 ---
 
+## 3.2.58
+
+- **The on-console ELF is now `XENO-AIO.elf` and auto-connects.** Renamed to XENO-AIO (All-In-One). The big change: when you open the URL it shows, the app **connects to your PS5 automatically** — no "type the IP and click Connect" step like the desktop app. You inject the ELF, open the link from the toast, and land on a live, already-connected app with every screen ready. (On the PC host version, you still enter your PS5's IP, since it talks to a remote console.)
+
+---
+
 ## 3.2.57
 
 - **On-console web ELF (`xeno-web.elf`) — the CheatRunner/garlic model.** Inject one ELF on your jailbroken PS5 and it pops a toast with its address (`http://<your-ps5-ip>:6969`). Open that from any browser on your network — phone, tablet, PC — and the full XENO TOOL UI loads, served straight from the console. The entire web UI is embedded inside the single ELF, so there's nothing else to copy. This is phase 1: the UI loads from the console and the toast/address flow works; the on-console API (so each screen pulls live data from the PS5) is being wired up screen by screen. You also still get the **XENO TOOL Web host** zips (Windows + Linux) for running the same thing from an always-on PC with broader feature coverage today.

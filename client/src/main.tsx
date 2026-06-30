@@ -60,6 +60,12 @@ void hydrateFromUserConfig();
 // non-Tauri / Android. See preventAccidentalReload.ts for the dev/prod split.
 installAccidentalReloadGuard();
 
+// XENO-AIO web ELF: if this UI is being served by the on-console ELF,
+// auto-connect to the local PS5 so the user lands on a live app with no
+// manual "enter IP + connect" step. No-ops in the desktop/mobile apps
+// and on the PC host server. Fire-and-forget before first paint.
+import("./lib/webAutoConnect").then((m) => void m.webAutoConnect());
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <RootErrorBoundary>

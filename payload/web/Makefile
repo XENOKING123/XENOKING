@@ -8,7 +8,7 @@ else
     $(error PS5_PAYLOAD_SDK is undefined)
 endif
 
-ELF     := xeno-web.elf
+ELF     := XENO-AIO.elf
 VERSION := $(shell tr -d '[:space:]' < ../../VERSION)
 DIST    := ../../client/dist
 

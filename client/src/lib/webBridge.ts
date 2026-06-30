@@ -69,6 +69,40 @@ export function isWebMode(): boolean {
   );
 }
 
+// ── On-console mode (served by XENO-AIO.elf) ─────────────────────────────
+// When the UI is served by the on-console ELF, the server IS the PS5, so
+// the connection is definitionally live — there's nothing to probe over
+// the network. `webAutoConnect` records that here; the bridge then
+// answers the connectivity probes (`payload_check`) synthetically so the
+// AppShell poller keeps the console "up" instead of overwriting it
+// "down". On the PC host server this stays null and probes run for real.
+let consoleInfo: { ip: string; version: string | null } | null = null;
+
+export function setOnConsole(info: { ip: string; version: string | null } | null): void {
+  consoleInfo = info;
+}
+export function isOnConsole(): boolean {
+  return consoleInfo !== null;
+}
+
+/** Synthetic responses for connectivity probes when on-console. Returns
+ *  `undefined` for commands that should still go through the HTTP bridge. */
+function onConsoleSynthetic(cmd: string): unknown | undefined {
+  if (!consoleInfo) return undefined;
+  if (cmd === "payload_check") {
+    return {
+      reachable: true,
+      loaded: true,
+      status: {
+        version: consoleInfo.version ?? undefined,
+        ucred_elevated: true,
+        max_transfer_streams: 4,
+      },
+    };
+  }
+  return undefined;
+}
+
 /** Commands with a known engine route — used by callers that want to
  *  feature-detect before invoking (optional). */
 export function webSupports(cmd: string): boolean {
@@ -81,6 +115,11 @@ export function webSupports(cmd: string): boolean {
  * show an error state instead of crashing.
  */
 export async function webInvoke<T>(cmd: string, args?: Args): Promise<T> {
+  // On-console connectivity probes resolve synthetically — the server is
+  // the PS5, so it's always reachable.
+  const synth = onConsoleSynthetic(cmd);
+  if (synth !== undefined) return synth as T;
+
   const route = ROUTES[cmd];
   if (!route) {
     throw new Error(`"${cmd}" isn't available in XENO TOOL Web yet`);

@@ -2,5 +2,5 @@
 web_assets.c
 web_assets.h
 # Build outputs.
-xeno-web.elf
-xeno-web.elf.gz
+XENO-AIO.elf
+XENO-AIO.elf.gz
