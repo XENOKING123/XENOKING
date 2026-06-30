@@ -204,9 +204,116 @@ static const web_asset_t *index_asset(void) {
     return NULL;
 }
 
-/* ── JSON API ────────────────────────────────────────────────────────── */
+/* ── Query-string + JSON helpers ─────────────────────────────────────── */
 
-static int handle_api(int fd, const char *path) {
+static int hexval(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static void url_decode(const char *src, char *dst, size_t dstlen) {
+    size_t di = 0;
+    for (size_t si = 0; src[si] && di + 1 < dstlen; si++) {
+        if (src[si] == '%' && src[si + 1] && src[si + 2]) {
+            int hi = hexval(src[si + 1]), lo = hexval(src[si + 2]);
+            if (hi >= 0 && lo >= 0) { dst[di++] = (char)((hi << 4) | lo); si += 2; continue; }
+        }
+        if (src[si] == '+') { dst[di++] = ' '; continue; }
+        dst[di++] = src[si];
+    }
+    dst[di] = '\0';
+}
+
+/* Extract one `key=value` from a `&`-joined query string, URL-decoded. */
+static void query_param(const char *query, const char *key, char *out, size_t outlen) {
+    out[0] = '\0';
+    if (!query) return;
+    size_t klen = strlen(key);
+    const char *p = query;
+    while (p && *p) {
+        const char *amp = strchr(p, '&');
+        if (strncmp(p, key, klen) == 0 && p[klen] == '=') {
+            const char *vs = p + klen + 1;
+            const char *ve = amp ? amp : vs + strlen(vs);
+            char raw[1024];
+            size_t n = 0;
+            for (const char *c = vs; c < ve && n + 1 < sizeof(raw); c++) raw[n++] = *c;
+            raw[n] = '\0';
+            url_decode(raw, out, outlen);
+            return;
+        }
+        if (!amp) break;
+        p = amp + 1;
+    }
+}
+
+/* Minimal JSON string-escape (quotes, backslash, control chars). */
+static void json_escape(const char *src, char *dst, size_t dstlen) {
+    size_t di = 0;
+    for (size_t si = 0; src[si] && di + 2 < dstlen; si++) {
+        unsigned char c = (unsigned char)src[si];
+        if (c == '"' || c == '\\') { dst[di++] = '\\'; dst[di++] = (char)c; }
+        else if (c == '\n') { dst[di++] = '\\'; dst[di++] = 'n'; }
+        else if (c >= 0x20) { dst[di++] = (char)c; }
+    }
+    dst[di] = '\0';
+}
+
+/* ── JSON API ────────────────────────────────────────────────────────────
+ * Native endpoints (version/ping/netinfo) answer locally. Everything else
+ * is a table-driven proxy: forward the mapped FTX2 frame to the in-process
+ * mgmt server and return its JSON body verbatim. `qparam` (when set) is
+ * pulled from the URL query, JSON-escaped, and sent as `{"<qparam>":..}`
+ * in the request body (e.g. list-dir's path). */
+typedef struct {
+    const char *path;    /* URL path (matched exactly) */
+    uint16_t    frame;   /* FTX2 frame type to forward */
+    const char *qparam;  /* query key → request body field, or NULL for none */
+} web_proxy_route_t;
+
+static const web_proxy_route_t WEB_PROXY_ROUTES[] = {
+    { "/api/ps5/proc/list",       74u,  NULL },   /* PROC_LIST */
+    { "/api/ps5/profile/info",    150u, NULL },   /* PROFILE_INFO */
+    { "/api/ps5/volumes",         34u,  NULL },   /* FS_LIST_VOLUMES */
+    { "/api/ps5/apps/installed",  62u,  NULL },   /* APP_LIST_REGISTERED */
+    { "/api/ps5/list-saves",      92u,  NULL },   /* LIST_SAVES */
+    { "/api/ps5/users",           90u,  NULL },   /* USER_LIST */
+    { "/api/ps5/syslog/tail",     144u, NULL },   /* SYSLOG_TAIL */
+    { "/api/ps5/power/telemetry", 88u,  NULL },   /* POWER_TELEMETRY */
+    { "/api/ps5/list-screenshots",94u,  NULL },   /* LIST_SCREENSHOTS */
+    { "/api/ps5/list-dir",        36u,  "path" }, /* FS_LIST_DIR (needs path) */
+};
+
+static int proxy_route(int fd, const web_proxy_route_t *r, const char *query) {
+    char body[1200];
+    const char *reqbody = NULL;
+    uint32_t reqlen = 0;
+    if (r->qparam) {
+        char val[1024];
+        query_param(query, r->qparam, val, sizeof(val));
+        char esc[1024];
+        json_escape(val, esc, sizeof(esc));
+        snprintf(body, sizeof(body), "{\"%s\":\"%s\"}", r->qparam, esc);
+        reqbody = body;
+        reqlen = (uint32_t)strlen(body);
+    }
+    char *out = NULL;
+    uint32_t outlen = 0;
+    if (web_ftx2_call(r->frame, reqbody, reqlen, &out, &outlen) == 0 && out) {
+        send_response(fd, "200 OK", "application/json; charset=utf-8",
+                      0, (const unsigned char *)out, outlen);
+        free(out);
+        return 1;
+    }
+    if (out) free(out);
+    send_text(fd, "503 Service Unavailable", "application/json; charset=utf-8",
+              "{\"ok\":false,\"error\":\"mgmt server not reachable\"}");
+    return 1;
+}
+
+static int handle_api(int fd, const char *path, const char *query) {
     if (strcmp(path, "/api/version") == 0) {
         send_text(fd, "200 OK", "application/json; charset=utf-8",
                   "{\"app\":\"XENO-AIO\",\"version\":\"" PS5UPLOAD2_VERSION
@@ -228,23 +335,9 @@ static int handle_api(int fd, const char *path) {
         send_text(fd, "200 OK", "application/json; charset=utf-8", body);
         return 1;
     }
-    /* Real console data: proxy the matching FTX2 frame to the in-process
-     * mgmt server and return its JSON body verbatim (proc_list already
-     * emits the {ok,procs[{pid,name}]} shape the UI expects). */
-    if (strcmp(path, "/api/ps5/proc/list") == 0) {
-        char *body = NULL;
-        uint32_t blen = 0;
-        if (web_ftx2_call(WEB_FRAME_PROC_LIST, NULL, 0, &body, &blen) == 0 && body) {
-            send_response(fd, "200 OK", "application/json; charset=utf-8",
-                          0, (const unsigned char *)body, blen);
-            free(body);
-            return 1;
-        }
-        if (body) free(body);
-        send_text(fd, "503 Service Unavailable",
-                  "application/json; charset=utf-8",
-                  "{\"ok\":false,\"error\":\"mgmt server not reachable\"}");
-        return 1;
+    for (size_t i = 0; i < sizeof(WEB_PROXY_ROUTES) / sizeof(WEB_PROXY_ROUTES[0]); i++) {
+        if (strcmp(path, WEB_PROXY_ROUTES[i].path) == 0)
+            return proxy_route(fd, &WEB_PROXY_ROUTES[i], query);
     }
     return 0;
 }
@@ -268,10 +361,11 @@ static void handle_client(int fd) {
     if (!sp2) { send_text(fd, "400 Bad Request", "text/plain", "bad"); return; }
     *sp2 = '\0';
     char *q = strchr(path, '?');
-    if (q) *q = '\0';
+    const char *query = NULL;
+    if (q) { *q = '\0'; query = q + 1; }
 
     if (strncmp(path, "/api/", 5) == 0) {
-        if (handle_api(fd, path)) return;
+        if (handle_api(fd, path, query)) return;
         send_text(fd, "404 Not Found", "application/json; charset=utf-8",
                   "{\"error\":\"not wired in web yet\"}");
         return;

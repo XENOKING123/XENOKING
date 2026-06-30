@@ -48,6 +48,14 @@ const ROUTES: Record<string, Route> = {
   ps5_volumes:        { method: "GET", path: (a) => `/api/ps5/volumes${q({ addr: a?.addr })}` },
   ps5_list_dir:       { method: "GET", path: (a) => `/api/ps5/list-dir${q({ addr: a?.addr, path: a?.path })}` },
   ps5_syslog_tail:    { method: "GET", path: (a) => `/api/ps5/syslog/tail${q({ addr: a?.addr })}` },
+  // On-console ELF passthrough endpoints (proxied to the payload's mgmt
+  // server). The host engine exposes the same paths.
+  profile_info:        { method: "GET", path: () => "/api/ps5/profile/info" },
+  saves_list:          { method: "GET", path: () => "/api/ps5/list-saves" },
+  user_list_get:       { method: "GET", path: () => "/api/ps5/users" },
+  power_telemetry_get: { method: "GET", path: () => "/api/ps5/power/telemetry" },
+  screenshots_list:    { method: "GET", path: () => "/api/ps5/list-screenshots" },
+  screenshot_list:     { method: "GET", path: () => "/api/ps5/list-screenshots" },
   // Write ops the engine already exposes (POST, body = args).
   app_launch:         { method: "POST", path: () => "/api/ps5/app/launch" },
   ps5_fs_delete:      { method: "POST", path: () => "/api/ps5/fs/delete" },
