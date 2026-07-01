@@ -4,6 +4,15 @@ What's new in XENO TOOL, written for humans.
 
 ---
 
+## 3.2.67
+
+- **Killed the error spam across the on-console web.** A bunch of tabs (Library, Install Package, Disk usage, Hardware's SMP/network/health cards, the Payloads catalog cache, FAQ) were throwing "isn't available" / "not valid JSON" cards. They now show their data or a clean empty state instead of an error.
+- **FAQ loads on-console** (it's embedded like the changelog).
+- **kstuff is now killable in Plugin Manager** — so you can swap kstuff versions without a reboot.
+- **Payloads → Favorites is hidden on the web** (it's a pick-a-folder-on-your-PC feature that doesn't apply on the console; Catalog + Send file are what you want there).
+
+---
+
 ## 3.2.66
 
 - **Game Store works on the on-console web.** Browse the full PS4/PS5 catalog from your phone — the store now loads its pages through a reader that browsers are allowed to use, so the same listings + covers you get on desktop show up on the web.

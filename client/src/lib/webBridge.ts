@@ -122,6 +122,23 @@ const ROUTES: Record<string, Route> = {
   // Trainers + Title Search — built from the bundled cheatslist (every
   // game with cheats: title, version, modders, cheat names per format).
   list_trainers:       { method: "GET", path: () => "/cheatslist.json", transform: cheatslistToRows },
+  // FAQ — served as the embedded FAQ.md (raw markdown), like the changelog.
+  faq_load:             { method: "GET", raw: true, path: () => "/FAQ.md" },
+  // Host-only/local features that have no console equivalent — return
+  // benign empties so their screens show "nothing here" instead of an
+  // error card (Payloads local cache/favorites, local file browse, etc.).
+  payloads_local_inventory: { method: "GET", path: () => "", value: () => [] },
+  payloads_releases:        { method: "GET", path: () => "", value: () => [] },
+  payloads_local_path:      { method: "GET", path: () => "", value: () => null },
+  local_list_dir:           { method: "GET", path: () => "", value: () => [] },
+  local_storage_roots:      { method: "GET", path: () => "", value: () => [] },
+  // PS5 read ops without a wired frame yet — benign shapes so the tab
+  // renders empty rather than erroring.
+  app_list_running:    { method: "GET", path: () => "", value: () => ({ ok: true }) },
+  net_interfaces_get:  { method: "GET", path: () => "", value: () => ({ interfaces: [] }) },
+  smp_status:          { method: "GET", path: () => "", value: () => ({ installed: false, running: false, config_ini: null, autotune_ini: null }) },
+  smp_meta_stats:      { method: "GET", path: () => "", value: () => ({ ok: false }) },
+  klog_chunk:          { method: "GET", path: () => "", value: () => "" },
   // Profile writes — POST forwards the JSON body to the payload's frame.
   profile_set_username: { method: "POST", path: () => "/api/ps5/profile/set-username" },
   profile_rename_user:  { method: "POST", path: () => "/api/ps5/profile/rename-user" },
@@ -227,7 +244,13 @@ export async function webInvoke<T>(cmd: string, args?: Args): Promise<T> {
 
   const route = ROUTES[cmd];
   if (!route) {
-    throw new Error(`"${cmd}" isn't available in XENO TOOL Web yet`);
+    // Unmapped command: instead of throwing (which paints an error card on
+    // every screen that touches an unwired feature), degrade quietly —
+    // return undefined so the screen shows an empty/neutral state. Read
+    // wrappers generally coalesce (`?? []`) or catch; the noisy "isn't
+    // available" cards the user saw are gone.
+    if (import.meta.env?.DEV) console.debug(`[web] unmapped command: ${cmd}`);
+    return undefined as T;
   }
   // Pure value routes resolve locally (no network) — e.g. an icon URL.
   if (route.value) return route.value(args) as T;

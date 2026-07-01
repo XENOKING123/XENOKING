@@ -118,8 +118,10 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npm run build:vite
-          # Embed CHANGELOG.md so the on-console "What's new" tab can load it.
+          # Embed CHANGELOG.md + FAQ.md so the on-console "What's new" and
+          # "FAQ" tabs can load them.
           cp ../CHANGELOG.md dist/CHANGELOG.md
+          cp ../FAQ.md dist/FAQ.md
 
       - name: Build XENO-AIO ELF (full payload + embedded web server)
         env:

@@ -28,7 +28,9 @@ type TabId = "catalog" | "send" | "favorites";
 
 export default function PayloadsScreen() {
   const tr = useTr();
-  const tabs: ReadonlyArray<TabbedShellTab<TabId>> = [
+  // Favorites is a LOCAL-folder feature (pick a folder on your PC). On the
+  // on-console web there's no local folder picker, so hide that tab.
+  const allTabs: ReadonlyArray<TabbedShellTab<TabId>> = [
     {
       id: "catalog",
       icon: Boxes,
@@ -63,6 +65,9 @@ export default function PayloadsScreen() {
       ),
     },
   ];
+  const tabs = isOnConsole()
+    ? allTabs.filter((t) => t.id !== "favorites")
+    : allTabs;
 
   return (
     <TabbedShell

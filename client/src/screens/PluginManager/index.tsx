@@ -35,7 +35,7 @@ interface PluginInfo {
 const PLUGIN_MAP: Record<string, PluginInfo> = {
   shadowmountplus: { label: "ShadowMount+",  desc: "PS5 game mod/patch mounter via unionfs",         closeable: true,  badge: "📂" },
   shadowmount:     { label: "ShadowMount+",  desc: "PS5 game mod/patch mounter via unionfs",         closeable: true,  badge: "📂" },
-  kstuff:          { label: "kstuff",         desc: "Kernel exploit patches & privilege scaffolding", closeable: false, badge: "⚙️" },
+  kstuff:          { label: "kstuff",         desc: "Kernel exploit patches & privilege scaffolding", closeable: true,  badge: "⚙️" },
   cheatrunner:     { label: "CheatRunner",   desc: "In-game cheat engine by maj0r",                  closeable: true,  badge: "🎯" },
   nanodns:         { label: "nanoDNS",       desc: "DNS override for PS Store redirect",             closeable: true,  badge: "🌐" },
   goldhen:         { label: "GoldHEN",       desc: "PS5 jailbreak framework",                        closeable: false, badge: "🔓" },
