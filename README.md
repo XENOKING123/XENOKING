@@ -14,8 +14,8 @@
 
 <br/><br/>
 
-![version](https://img.shields.io/badge/version-3.2.59-F7C948?style=for-the-badge)
-![platform](https://img.shields.io/badge/Windows%20%C2%B7%20Android%20%C2%B7%20iOS%20%C2%B7%20Web-0078D6?style=for-the-badge)
+![version](https://img.shields.io/badge/version-3.2.68-F7C948?style=for-the-badge)
+![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?style=for-the-badge&logo=windows&logoColor=white)
 ![trainers](https://img.shields.io/badge/trainers-9%2C200%2B-2ea043?style=for-the-badge&logo=target&logoColor=white)
 ![license](https://img.shields.io/badge/license-GPL--3.0-4c6ef5?style=for-the-badge)
 
@@ -76,22 +76,6 @@
 | 💾 | **Saves** | Backup & restore save data over the network — no USB. |
 | 📦 | **Install** | Drop a `.pkg` and send it straight to your PS5. |
 | 📁 | **Files / HW / Volumes** | Full file system, hardware info, volumes, disk usage, screenshots. |
-
----
-
-## 📲 Run it anywhere — Desktop · Web · Phone · On-console
-
-XENO TOOL isn't just a Windows app anymore. The **exact same tool** now runs five ways:
-
-| Where | How | Notes |
-|:--|:--|:--|
-| 🖥️ **Desktop** | `XENO_TOOL_<ver>_x64-setup.exe` | The full Windows app. |
-| 🤖 **Android** | `XENO_TOOL_<ver>_arm64.apk` | Download, allow "unknown sources", install. No Play Store. |
-| 🍎 **iOS** | `XENO_TOOL_<ver>_iOS_unsigned.ipa` | Sideload free with [Sideloadly](https://sideloadly.io) + your Apple ID. |
-| 🌐 **Web (host)** | `XENO_TOOL_Web_<ver>_{windows,linux}_x64.zip` | Run the launcher on any always-on PC/mini-PC, open `http://<host-ip>:6969` from **any** browser — phone, tablet, laptop. |
-| 🎮 **On-console** | `XENO-AIO.elf` | **Inject one ELF on your jailbroken PS5** — it pops a toast with `http://<ps5-ip>:6969`. Open it in any browser (Safari, Chrome, …) and it **auto-connects** to the console instantly. The whole UI is embedded in the ELF; nothing else to copy. |
-
-> 💡 **XENO-AIO.elf** is the all-in-one on-console build: it runs the normal payload servers **and** serves the web UI, so the desktop app can still connect *and* you can drive everything from your phone's browser. Same model as CheatRunner/garlic web — one inject, open the link, done.
 
 ---
 

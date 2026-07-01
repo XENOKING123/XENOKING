@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { gameIcon } from "./cheatRunner";
+import { fetchTitleInfo } from "./titleDetails";
 
 /** Local bundled cover for a title id (the ~937 CUSA/PPSA jpgs we ship), as an
  *  asset URL the <img> can load, or null. Offline + broad for PS4. */
@@ -93,7 +94,24 @@ export function useGameCover(host: string, titleId: string, gameName: string): s
       }
       if (host?.trim() && titleId) {
         const icon = await gameIcon(host, titleId);
-        if (!cancelled && icon) setCover(icon);
+        if (cancelled) return;
+        if (icon) {
+          setCover(icon);
+          return;
+        }
+      }
+      // Last resort: official cover art by title id from the patches sites —
+      // orbispatches (PS4 CUSA) / prosperopatches (PS5 PPSA). Works with no
+      // console connected and fills the long tail that the offline covers.json
+      // + bundled jpgs miss (the "trainers missing photos" gap).
+      const id = (titleId || "").split("_")[0].toUpperCase();
+      if (id) {
+        try {
+          const info = await fetchTitleInfo(id);
+          if (!cancelled && info?.coverImageUrl) setCover(info.coverImageUrl);
+        } catch {
+          /* offline or no match — caller shows a letter tile */
+        }
       }
     })();
     return () => {

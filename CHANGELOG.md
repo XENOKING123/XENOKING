@@ -4,78 +4,23 @@ What's new in XENO TOOL, written for humans.
 
 ---
 
-## 3.2.67
+## 3.2.68
 
-- **Killed the error spam across the on-console web.** A bunch of tabs (Library, Install Package, Disk usage, Hardware's SMP/network/health cards, the Payloads catalog cache, FAQ) were throwing "isn't available" / "not valid JSON" cards. They now show their data or a clean empty state instead of an error.
-- **FAQ loads on-console** (it's embedded like the changelog).
-- **kstuff is now killable in Plugin Manager** — so you can swap kstuff versions without a reboot.
-- **Payloads → Favorites is hidden on the web** (it's a pick-a-folder-on-your-PC feature that doesn't apply on the console; Catalog + Send file are what you want there).
+- **Fixed missing cover art in the Game Store (PS4).** A big chunk of the PS4 catalog was showing blank tiles because those (mostly older) listings host their cover on a different image server than the newer ones — the app only looked at one. It now finds the cover wherever the listing puts it, so the PS4 grid fills in like PS5 already did.
+- **Fixed missing cover art in Trainers.** Games whose art wasn't in the bundled set showed a plain letter tile. Trainers now pull official box art by title ID as a last resort (PS4 and PS5), so far more cards show a real cover — even with no console connected.
+- **4 new cheats added.** A Plague Tale: Requiem, A Plague Tale: Innocence, DOOM Eternal, and Exodemon (cheats by Talixme) are now in the bundled library — apply them from My Games while the game runs, same as always.
 
 ---
 
 ## 3.2.66
 
-- **Game Store works on the on-console web.** Browse the full PS4/PS5 catalog from your phone — the store now loads its pages through a reader that browsers are allowed to use, so the same listings + covers you get on desktop show up on the web.
 - **One-tap "Download & Send" for catalog payloads.** On the Payloads → Catalog tab, each payload now has a single button that pulls the latest release straight from GitHub and fires it at your PS5's loader — no manual steps. (The manual Send-file flow is still there too.)
-
----
-
-## 3.2.65
-
-- **Cheat game icons show on the on-console web.** Game artwork in My Games now loads — the ELF proxies each icon from CheatRunner so the cards look like the desktop app.
-
----
-
-## 3.2.64
-
-- **Trainers + Title Search now work on the on-console web** — the full library (every game with cheats: names, versions, modders, and the cheat list per format) loads from data bundled with the app. **3,765 trainers across 1,703 games**, browsable from your phone. You apply them from My Games while the game runs, same as always.
-- **Big under-the-hood fix that lights up more of the web app.** Several screens were quietly bypassing the web layer and failing. They now route correctly, so cheats, the changelog, screenshots and other tabs behave properly in the browser instead of erroring.
-
----
-
-## 3.2.63
-
-- **Payloads work on the on-console web.** The curated payload **Catalog** now loads (the list is pulled from data bundled with the app, kept in sync with the desktop). And a new browser-native **Send file** flow lets you pick any payload (.elf/.bin) right from your phone and fire it at your PS5 — the ELF streams it straight to the console's loader (port 9021) and it runs, exactly like the desktop app. No PC in the middle.
-
----
-
-## 3.2.62
-
-- **Cheats now work from the on-console web.** Applying cheats forwards to CheatRunner's own on-console service, so you can list games and toggle cheats live straight from your phone's browser — same as the desktop app. (Cheat icons and uploading new cheat files to CheatRunner come next.)
-- **Profile editing works on-console.** Rename a console user, set/activate/clear an offline-account slot — all save to the console live. (Avatar upload, which stages image files, comes next.)
-- **"What's new" loads on-console.** The Changelog is embedded in the ELF and renders in the browser.
-- **No more pointless "Send helper" step on-console.** When you open the tool from the on-console ELF, the helper is already running (it *is* the ELF), so the Connection screen skips that step instead of showing a "bundled helper not available" error.
-
----
-
-## 3.2.61
-
-- **Most on-console web tabs now pull live PS5 data.** The XENO-AIO web server gained a generic bridge to the payload, so these screens now show real data from the console (not "not wired yet"): **Plugin Manager, Hardware, Profile, Volumes, Installed Apps, Saves, Screenshots, File System, Users, Syslog, Power**. Hardware text is converted to proper JSON so temps/clocks/storage render correctly. Still to come on-console: Cheats (CheatRunner), the Payloads catalog and Changelog (those read host-side data), and the profile write actions.
 
 ---
 
 ## 3.2.59
 
-- **`XENO-AIO.elf` is now a true all-in-one — and pulls live console data.** The on-console ELF now bundles the **complete payload runtime AND the web server in one process**. You inject the single ELF, it runs the normal servers (so the desktop app still connects) **and** serves the web UI at `http://<ps5-ip>:6969`. Open it from any browser — Safari, Chrome, your phone — and it auto-connects. The web screens now talk to the console for real: the Plugin Manager lists the **actual homebrew running on your PS5**, pulled live, because the web API forwards to the payload's own engine internally (no operation is reimplemented — it reuses the exact same code the desktop app uses). More screens light up with live data from here.
 - **Retired the standalone PS Trainer Viewer (`XENO_Trainer_Tool_v2.5.exe`).** The desktop setup app already does everything it did, so it's removed from the release to keep downloads clean.
-
----
-
-## 3.2.58
-
-- **The on-console ELF is now `XENO-AIO.elf` and auto-connects.** Renamed to XENO-AIO (All-In-One). The big change: when you open the URL it shows, the app **connects to your PS5 automatically** — no "type the IP and click Connect" step like the desktop app. You inject the ELF, open the link from the toast, and land on a live, already-connected app with every screen ready. (On the PC host version, you still enter your PS5's IP, since it talks to a remote console.)
-
----
-
-## 3.2.57
-
-- **On-console web ELF (`xeno-web.elf`) — the CheatRunner/garlic model.** Inject one ELF on your jailbroken PS5 and it pops a toast with its address (`http://<your-ps5-ip>:6969`). Open that from any browser on your network — phone, tablet, PC — and the full XENO TOOL UI loads, served straight from the console. The entire web UI is embedded inside the single ELF, so there's nothing else to copy. This is phase 1: the UI loads from the console and the toast/address flow works; the on-console API (so each screen pulls live data from the PS5) is being wired up screen by screen. You also still get the **XENO TOOL Web host** zips (Windows + Linux) for running the same thing from an always-on PC with broader feature coverage today.
-
----
-
-## 3.2.56
-
-- **XENO TOOL Web — the full tool in a browser.** New `XENO_TOOL_Web` download (Windows + Linux). Run the launcher on any always-on machine (PC, mini-PC, Pi-class box) and open `http://<that-machine's-IP>:6969` from **any** browser — phone, tablet, laptop — with no install. It's the same app as the desktop version: enter your PS5's IP and use it. The local server hosts the React UI and bridges every action to the engine's HTTP API automatically. Core PS5 screens (Dashboard, Hardware, Installed Apps, Plugin Manager, Volumes, File browser) work today; more screens light up as their commands get wired to the web API. A true PS5-hosted ELF isn't possible (the tool's engine is Rust and the console SDK is C-only), so the web server runs on a host and talks to the PS5 over the network — exactly like the desktop app does.
 
 ---
 

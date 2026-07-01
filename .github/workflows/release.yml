@@ -10,7 +10,6 @@ name: release
 #   • XENO_TOOL_<ver>_x64-setup.exe   — the desktop app installer (NSIS)
 #   • latest.json                     — in-app auto-updater manifest
 #   • CheatRunner.elf                 — on-console cheat engine (carried fwd)
-#   • XENO-AIO.elf                    — on-console all-in-one (payload + web UI)
 #
 # This replaces the old split (ps5-app.yml built only the ELFs; the desktop
 # installer was uploaded by hand and went stale). The auto-updater reads
@@ -97,43 +96,6 @@ jobs:
           test -s payload/dpi/ezremote-dpi.elf.gz
           ls -la payload/ps5upload.elf.gz payload/dpi/ezremote-dpi.elf.gz
 
-      # ── XENO TOOL Web ELF (XENO-AIO.elf): on-console web server that
-      #    serves the embedded React UI. Needs the built frontend (dist/)
-      #    plus the prospero toolchain already set up above. ──────────────
-      - name: Setup Node (for the embedded web UI)
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: client/package-lock.json
-
-      - name: Regenerate payloads catalog JSON (keep in sync with Rust const)
-        run: python3 payload/web/gen_payloads_catalog.py client/src-tauri/src/commands/payloads.rs client/public/payloads-catalog.json
-
-      - name: Extract cheatslist.json for the on-console Trainers/Title Search
-        run: unzip -o client/src-tauri/resources/titles-seed.zip cheatslist.json -d client/public/
-
-      - name: Build frontend (dist/) for the web ELF
-        working-directory: client
-        run: |
-          npm ci --no-audit --no-fund
-          npm run build:vite
-          # Embed CHANGELOG.md + FAQ.md so the on-console "What's new" and
-          # "FAQ" tabs can load them.
-          cp ../CHANGELOG.md dist/CHANGELOG.md
-          cp ../FAQ.md dist/FAQ.md
-
-      - name: Build XENO-AIO ELF (full payload + embedded web server)
-        env:
-          PS5_PAYLOAD_SDK: /opt/ps5-payload-sdk
-        run: make -C payload aio
-
-      - name: Verify XENO-AIO ELF
-        run: |
-          test -s payload/XENO-AIO.elf
-          test -s payload/XENO-AIO.elf.gz
-          ls -la payload/XENO-AIO.elf payload/XENO-AIO.elf.gz
-
       - name: Upload payload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -141,8 +103,6 @@ jobs:
           path: |
             payload/ps5upload.elf.gz
             payload/dpi/ezremote-dpi.elf.gz
-            payload/XENO-AIO.elf
-            payload/XENO-AIO.elf.gz
           if-no-files-found: error
 
   # ── Windows desktop installer (NSIS) + engine sidecar. ────────────────────
@@ -298,23 +258,6 @@ jobs:
             exit 1
           }
           Write-Host "OK — installer's inner EXE is genuinely $version"
-
-      - name: Bundle XENO TOOL Web (Windows)
-        shell: bash
-        run: |
-          set -euo pipefail
-          VERSION="$(tr -d '[:space:]' < VERSION)"
-          # The Tauri build above ran beforeBuildCommand (build:vite) so
-          # client/dist exists; the engine sidecar was built earlier.
-          web="XENO_TOOL_Web"
-          rm -rf "$web"
-          mkdir -p "$web" out
-          cp "engine/target/${RUST_TARGET}/release/ps5upload-engine.exe" "$web/xeno-web-server.exe"
-          cp -r client/dist "$web/dist"
-          cp web/launch-windows.bat "$web/"
-          cp web/README.md "$web/"
-          powershell -Command "Compress-Archive -Path '$web/*' -DestinationPath 'out/XENO_TOOL_Web_${VERSION}_windows_x64.zip' -Force"
-          ls -la out
 
       - name: Upload desktop artifact
         uses: actions/upload-artifact@v4
@@ -570,92 +513,9 @@ jobs:
           path: out/*
           if-no-files-found: error
 
-  # ── XENO TOOL Web (Linux x64) — engine + dist + launcher, zipped. ────────
-  build-web-linux:
-    needs: [build-payload]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: client/package-lock.json
-
-      - name: Sync version
-        run: node scripts/update-version.js
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-unknown-linux-gnu
-
-      - name: Install build deps (libclang for jpegxr bindgen)
-        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev pkg-config
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            engine/target
-          key: web-linux-v${{ hashFiles('VERSION') }}-${{ hashFiles('engine/Cargo.lock') }}
-
-      - name: Restore payload artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: payload
-          path: artifact-payload
-
-      - name: Place payload files
-        run: |
-          set -euo pipefail
-          mkdir -p payload/dpi
-          cp "$(find artifact-payload -name ps5upload.elf.gz    -print -quit)" payload/ps5upload.elf.gz
-          cp "$(find artifact-payload -name ezremote-dpi.elf.gz -print -quit)" payload/dpi/ezremote-dpi.elf.gz
-
-      - name: Install client deps
-        working-directory: client
-        run: npm ci --no-audit --no-fund
-
-      - name: Build frontend (dist/)
-        working-directory: client
-        run: npm run build:vite
-
-      - name: Build engine (linux x64)
-        working-directory: engine
-        run: cargo build --release -p ps5upload-engine --target x86_64-unknown-linux-gnu
-
-      - name: Bundle XENO TOOL Web (Linux)
-        run: |
-          set -euo pipefail
-          VERSION="$(tr -d '[:space:]' < VERSION)"
-          web="XENO_TOOL_Web"
-          rm -rf "$web"
-          mkdir -p "$web" out
-          cp engine/target/x86_64-unknown-linux-gnu/release/ps5upload-engine "$web/xeno-web-server"
-          chmod +x "$web/xeno-web-server"
-          cp -r client/dist "$web/dist"
-          cp web/launch-linux.sh "$web/"
-          chmod +x "$web/launch-linux.sh"
-          cp web/README.md "$web/"
-          zip -r "out/XENO_TOOL_Web_${VERSION}_linux_x64.zip" "$web"
-          ls -la out
-
-      - name: Upload web artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: web-linux
-          path: out/*
-          if-no-files-found: error
-
   # ── Assemble the complete, Latest release. ────────────────────────────────
   publish:
-    needs: [build-payload, build-desktop, build-android, build-ios, build-web-linux]
+    needs: [build-payload, build-desktop, build-android, build-ios]
     # Run even if mobile/web builds fail — desktop is the non-negotiable deliverable.
     if: always() && needs.build-desktop.result == 'success'
     runs-on: ubuntu-24.04
@@ -691,10 +551,8 @@ jobs:
           fi
           cp -v "$SETUP" "release/$(basename "$SETUP")"
 
-          # Mobile + web builds — include if built, skip silently if not.
-          for pat in "XENO_TOOL_*_arm64.apk" "XENO_TOOL_*_iOS_unsigned.ipa" \
-                     "XENO_TOOL_Web_*_windows_x64.zip" "XENO_TOOL_Web_*_linux_x64.zip" \
-                     "XENO-AIO.elf"; do
+          # Mobile builds — include if built, skip silently if not.
+          for pat in "XENO_TOOL_*_arm64.apk" "XENO_TOOL_*_iOS_unsigned.ipa"; do
             f="$(find artifacts -type f -name "$pat" -print -quit)"
             if [ -n "$f" ]; then
               cp -v "$f" "release/$(basename "$f")"
@@ -782,19 +640,13 @@ jobs:
           printf -- '- **Unsigned IPA** — install free via [Sideloadly](https://sideloadly.io) with your Apple ID.\n'
           printf -- '- Re-signs every 7 days (free ID) or 1 year (paid Developer account).\n'
           printf -- '- Full tool over WiFi: connect to PS5, cheats, payloads, XENO CHAT, trainers.\n'
-          printf '\n## Web — XENO_TOOL_Web_%s_windows_x64.zip / _linux_x64.zip\n' "$VERSION"
-          printf -- '- **Run the full tool in a browser.** Launch the server on any always-on PC/mini-PC, open `http://<host-ip>:6969` from any phone, tablet or laptop — no install.\n'
-          printf -- '- Same app as desktop: connect to PS5, hardware view, installed apps, plugin manager, file browser. Enter your PS5 IP in the UI.\n'
-          printf '\n## On-Console Web ELF — XENO-AIO.elf\n'
-          printf -- '- **Inject one ELF, open in a browser — already connected.** Send `XENO-AIO.elf` to your jailbroken PS5; it pops a toast with its URL (`http://<ps5-ip>:6969`). Open that from any browser and it **auto-connects to the console instantly** — no "enter IP + click connect" step like the desktop app. The full UI is embedded in the ELF, nothing else to copy. Same model as CheatRunner/garlic web.\n'
-          printf -- '- One ELF runs the full payload AND the web UI: the web screens pull LIVE console data (e.g. Plugin Manager lists the real homebrew running on your PS5) by forwarding to the payload internally. More screens light up each release.\n'
           printf '\n## On-Console Tools (carried forward every release)\n'
           printf -- '- **CheatRunner.elf** — on-console cheat engine by maj0r (Discord: callmemaj0r). XENO TOOL is a frontend for it.\n'
           printf '\n## Cheat Database Credits\n'
           printf 'Cheats sourced from the **etaHEN PS5 Cheats** and **HEN Cheats Collection** repos via the etaHEN & GoldHEN Discord communities.\n'
           printf 'Contributors: **LM (lightningmods)**, **Buzzer (buzzer-re)**, **Super Death**, **GoldHEN Team**, **Yharnam**, **PS4Trainer**, and all cheat creators in the scene.\n'
           printf '\n---\n'
-          printf '**v%s — whats new:** XENO-AIO.elf — inject one ELF, open the URL it toasts, and the full UI loads in any browser straight from the PS5 and AUTO-CONNECTS (no manual connect step). Plus XENO TOOL Web host zips (Windows + Linux), Plugin Manager, Android APK, and iOS IPA (Sideloadly).\n' "$VERSION"
+          printf '**v%s — whats new:** More cheats added to the library (A Plague Tale: Requiem & Innocence, DOOM Eternal, Exodemon by Talixme). Fixed missing cover art in the Game Store (PS4) and Trainers tabs. Android APK and iOS IPA (Sideloadly) included.\n' "$VERSION"
           } > /tmp/release-notes.md
           # Create or update the release, always writing the full notes body.
           if gh release view "$TAG" >/dev/null 2>&1; then

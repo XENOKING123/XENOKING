@@ -45,6 +45,8 @@ const IMAGE_ALLOWED_HOSTS: &[&str] = &[
     "superpsx.com",                // superpsx.com cover art (wp-content/uploads, .webp)
     "postimg.cc",                  // arabicps4games.com cover art (i.postimg.cc)
     "jpcdn.it",                    // justpaste.it CDN for cover images
+    "blogspot.com",                // dlpsgame older-post covers (1-4.bp.blogspot.com)
+    "googleusercontent.com",       // dlpsgame older-post covers (blogger.googleusercontent.com)
 ];
 
 /// 12 MiB ceiling — the jina-rendered game pages are large but bounded.
@@ -457,7 +459,10 @@ fn extract_zip(bytes: &[u8], root: &std::path::Path) -> Result<u32, String> {
 const TRAINER_SEED_ZIP: &[u8] = include_bytes!("../../resources/trainers-seed.zip");
 const TITLES_SEED_ZIP: &[u8] = include_bytes!("../../resources/titles-seed.zip");
 const COVERS_SEED_ZIP: &[u8] = include_bytes!("../../resources/covers-seed.zip");
-const SEED_VERSION: &str = "v6";
+// v7: added Talixme trainers for A Plague Tale Requiem/Innocence, DOOM
+// Eternal, Exodemon (+ cheatslist entries). Bump forces a re-seed so
+// existing installs pick up the new + updated trainer files.
+const SEED_VERSION: &str = "v7";
 
 /// Best-effort, called once at startup. Never panics — a seed hiccup just means
 /// the user syncs from the repos as before.

@@ -204,12 +204,21 @@ function postsFromApi(json: string, platform: "PS5" | "PS4"): GameEntry[] {
       fm?.source_url ??
       "";
 
-    // 2) Fallback: first wp-content image in the post content
+    // 2) Fallback: first cover image in the post content. Newer posts host the
+    //    cover under dlpsgame's own /wp-content/uploads/; older posts (a large
+    //    slice of the PS4 catalog — ~43%) embed it from the blogspot/blogger
+    //    CDN instead, which the old uploads-only regex missed → blank PS4 tiles.
+    //    Prefer an uploads image, then fall back to the first content image on
+    //    any host. `src` occasionally carries a trailing space.
     const content = (post?.content as { rendered?: string })?.rendered ?? "";
     const contentImg =
       content.match(
-        /<img[^>]+src="(https?:\/\/[^"]+\/wp-content\/uploads\/[^"]+\.(?:jpg|jpeg|png|webp))"/i,
-      )?.[1] ?? "";
+        /<img[^>]+src="\s*(https?:\/\/[^"]+\/wp-content\/uploads\/[^"]+\.(?:jpg|jpeg|png|webp))\s*"/i,
+      )?.[1]?.trim() ??
+      content.match(
+        /<img[^>]+src="\s*(https?:\/\/[^"\s]+\.(?:jpg|jpeg|png|webp))\s*"/i,
+      )?.[1]?.trim() ??
+      "";
 
     out.push({ name, platform, coverUrl: featuredUrl || contentImg, pageUrl });
   }
