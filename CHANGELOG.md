@@ -4,6 +4,12 @@ What's new in XENO TOOL, written for humans.
 
 ---
 
+## 3.2.69
+
+- **Bigger bundled cheat library.** Refreshed the built-in cheats from the source repos — **330 new game-versions across 302 games (132 brand-new titles, mostly PS5)** now ship inside the app, so a fresh install has them immediately instead of waiting for the first background sync. Covers for the new games load automatically from box-art lookup.
+
+---
+
 ## 3.2.68
 
 - **Fixed missing cover art in the Game Store (PS4).** A big chunk of the PS4 catalog was showing blank tiles because those (mostly older) listings host their cover on a different image server than the newer ones — the app only looked at one. It now finds the cover wherever the listing puts it, so the PS4 grid fills in like PS5 already did.
