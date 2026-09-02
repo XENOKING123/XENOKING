@@ -310,21 +310,38 @@
   function strip(s) { return txt(String(s == null ? '' : s).replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')); }
   function parseLoose(text) {
     var t = String(text || '').trim().replace(/^\)\]\}',?\s*/, '').replace(/^for\s*\(;;\);\s*/, '').replace(/^while\s*\(1\);\s*/, '');
+    // vAuto's grid payload is not strict JSON: date columns are JavaScript literals like new Date(1700000000000).
+    t = t.replace(/new\s+Date\(\s*(-?\d+)\s*\)/g, '$1').replace(/new\s+Date\([^)]*\)/g, 'null').replace(/([\[,:]\s*)(?:undefined|NaN)(?=\s*[,\]}])/g, '$1null');
     try { return JSON.parse(t); } catch (e) {}
     var a = t.indexOf('['), b = t.indexOf('{'), i = a < 0 ? b : (b < 0 ? a : Math.min(a, b));
     if (i > 0) { try { return JSON.parse(t.slice(i)); } catch (e2) {} }
     return null;
   }
   var ROW_KEYS = ['Vin', 'VIN', 'VehicleVin', 'VinNumber', 'StockNumber', 'Stock', 'StockNo'];
+  var CAR_KEYS = ['Make', 'Model', 'Odometer', 'ModelYear', 'Year', 'VehicleTitle', 'ListPrice'];
+  // A "row" is an object that carries a VIN/stock key, a typical vehicle key, or a VIN anywhere in its text.
+  function rowLike(r) {
+    if (!r || typeof r !== 'object' || Array.isArray(r)) return false;
+    if (pick1(r, ROW_KEYS) != null || pick1(r, CAR_KEYS) != null) return true;
+    try { return VIN17.test(JSON.stringify(r)); } catch (e) { return false; }
+  }
   function findRows(x, depth) {
     depth = depth || 0; if (x == null || depth > 6) return null;
     if (typeof x === 'string') { if (/^\s*[\[{]/.test(x)) { var p = parseLoose(x); return p ? findRows(p, depth + 1) : null; } return null; }
     if (Array.isArray(x)) {
-      if (x.length && x[0] && typeof x[0] === 'object' && x.some(function (r) { return r && typeof r === 'object' && pick1(r, ROW_KEYS) != null; })) return x;
+      if (x.length && x[0] && typeof x[0] === 'object' && x.some(rowLike)) return x;
       for (var i = 0; i < x.length; i++) { var f = findRows(x[i], depth + 1); if (f) return f; }
       return null;
     }
     if (typeof x === 'object') {
+      // vAuto's real shape (confirmed from public consumers): {"columns":[names...], "rows":[[values...], ...]}.
+      // Rebuild one object per row so the rest of the mapping can work by column name.
+      var col = pick1(x, ['columns', 'cols', 'headers']), rws = pick1(x, ['rows', 'data', 'values']);
+      if (Array.isArray(col) && col.length && Array.isArray(rws) && rws.length && Array.isArray(rws[0])) {
+        var names = col.map(function (c) { return typeof c === 'string' ? c : (c && (c.name || c.Name || c.field || c.key || c.id)) || ''; });
+        var objs = rws.map(function (r) { var o = {}; names.forEach(function (nme, i) { if (nme) o[nme] = r[i]; }); return o; });
+        if (objs.some(rowLike)) return objs;
+      }
       var ks = Object.keys(x), pri = ks.filter(function (k) { return /^(d|data|rows|items|vehicles|records|results|inventory|list|value)$/i.test(k); });
       var order = pri.concat(ks.filter(function (k) { return pri.indexOf(k) < 0; }));
       for (var j = 0; j < order.length; j++) { var g = findRows(x[order[j]], depth + 1); if (g) return g; }
@@ -356,16 +373,16 @@
     if (trim && model && model.toLowerCase().indexOf(trim.toLowerCase()) >= 0) trim = '';
     var vin = strip(pick(row, ['Vin', 'VIN', 'VehicleVin', 'VinNumber'])) || (rowStr.match(/\b[A-HJ-NPR-Z0-9]{17}\b/) || [])[0] || '';
     var stock = strip(pick(row, ['StockNumber', 'Stock', 'StockNo', 'StockNum', 'Stock#'])) || (strip(rowStr).match(/Stock\s*#?\s*:?\s*([A-Z0-9-]{3,})/i) || [])[1] || '';
-    var newUsed = String(pick(row, ['NewUsed', 'NewUsedFlag', 'InventoryType', 'VehicleType', 'Type', 'Condition']) || '').toLowerCase();
+    var newUsed = String(pick(row, ['NewUsed', 'New/Used', 'NewUsedFlag', 'InventoryType', 'VehicleType', 'Type', 'Condition']) || '').toLowerCase();
     var cert = pick(row, ['Certified', 'IsCertified', 'CPO', 'CertifiedPreOwned']);
     var out = shape({
       year: year, make: make, model: model, trim: trim, vin: vin,
       price: pick(row, ['Price', 'ListPrice', 'InternetPrice', 'RetailPrice', 'AskingPrice', 'SellingPrice', 'VehiclePrice', 'ListedPrice', 'WebPrice', 'SalePrice']),
       mileage: pick(row, ['Odometer', 'Mileage', 'Miles', 'OdometerReading', 'CurrentOdometer']),
-      extColor: strip(pick(row, ['ExteriorColor', 'ExtColor', 'ColorExterior', 'ExteriorColorName', 'Color'])),
-      intColor: strip(pick(row, ['InteriorColor', 'IntColor', 'ColorInterior', 'InteriorColorName'])),
-      body: strip(pick(row, ['Body', 'BodyStyle', 'BodyType', 'VehicleClass', 'Class'])),
-      drive: strip(pick(row, ['Drivetrain', 'DriveTrain', 'DriveType', 'Drive'])),
+      extColor: strip(pick(row, ['ExteriorColor', 'ExtColor', 'ColorExterior', 'ExteriorColorName', 'Colour', 'ExteriorColour', 'Color'])),
+      intColor: strip(pick(row, ['InteriorColor', 'IntColor', 'ColorInterior', 'InteriorColorName', 'InteriorColour'])),
+      body: strip(pick(row, ['Body', 'BodyStyle', 'BodyType', 'BodyStyleDesc', 'VehicleClass', 'Class'])),
+      drive: strip(pick(row, ['Drivetrain', 'DriveTrain', 'DrivetrainDesc', 'Drivetrain Desc', 'DriveType', 'Drive'])),
       engine: strip(pick(row, ['Engine', 'EngineDescription', 'EngineDesc'])),
       fuel: strip(pick(row, ['FuelType', 'Fuel'])),
       stock: stock,
