@@ -18011,6 +18011,8 @@ function(a, r, e, n, c) {
             h = t("react");
         e.interopDefault(h);
         var o = t("~utils/helping");
+        // Build flag: "vauto" = Public Wholesale build (Load Vehicles pulls the logged-in vAuto grid).
+        var xkVauto = "vauto" === String((window.XENOKING_CONFIG || {}).INVENTORY_SOURCE || "").toLowerCase();
         r.default = ({
             password: t,
             setPassword: a,
@@ -18022,12 +18024,17 @@ function(a, r, e, n, c) {
             setLogoUrl: v
         }) => {
             let [g, p] = (0, h.useState)(!1), [s, u] = (0, h.useState)(!1), [M, f] = (0, h.useState)(null),
-                [xkDealer, xkSetDealer] = (0, h.useState)("corwin-dodge"),
+                [xkDealer, xkSetDealer] = (0, h.useState)(xkVauto ? "vauto" : "corwin-dodge"),
                 [xkCond, xkSetCond] = (0, h.useState)("all"),
                 [xkDealers, xkSetDealers] = (0, h.useState)([]),
                 [xkCustom, xkSetCustom] = (0, h.useState)([]);
             (0, h.useEffect)(() => {
                 (async () => {
+                    if (xkVauto) {
+                        // Wholesale build: one fixed source, no backend dealers, no custom dealers.
+                        let vc = (window.XENOKING_CONFIG || {}).VAUTO || {};
+                        return xkSetDealers([{ key: "vauto", label: vc.LABEL || "Corwin Public Wholesale", configured: !0 }]), void xkSetDealer("vauto")
+                    }
                     try {
                         let cfg = window.XENOKING_CONFIG || {},
                             base = (cfg.BACKEND_URL || "").replace(/\/+$/, ""),
@@ -18072,6 +18079,29 @@ function(a, r, e, n, c) {
                     }, 500)
             });
             let z = async () => {
+                if (xkVauto) {
+                    // Public Wholesale: ask the logged-in vAuto tab (content script) for the inventory grid.
+                    p(!0), f(null);
+                    try {
+                        let vc = (window.XENOKING_CONFIG || {}).VAUTO || {},
+                            vhost = "vauto.app.coxautoinc.com",
+                            a = (await chrome.tabs.query({})).find(e2 => e2.url && e2.url.includes(vhost));
+                        a || (a = await chrome.tabs.create({ url: vc.URL || "https://provision.vauto.app.coxautoinc.com/Va/Inventory/", active: !0 }), await xkWaitTab(a.id), await new Promise(e2 => setTimeout(e2, 1500)));
+                        let nu = "new" === xkCond ? "N" : "all" === xkCond ? "" : "U",
+                            r = null;
+                        for (let e2 = 0; e2 < 3 && !r; e2++) try {
+                            r = await chrome.tabs.sendMessage(a.id, { message: "xkVautoFetch", opts: { newUsed: nu, pageSize: vc.PAGE_SIZE || 500 } })
+                        } catch (n2) { await new Promise(e2 => setTimeout(e2, 800)) }
+                        if (!r) throw new Error("Couldn't reach the vAuto tab. Open vAuto Provision, log in, then try again.");
+                        if (!r.ok) throw new Error(r.error || "vAuto load failed.");
+                        let n = r.vehicles || [];
+                        if ("certified" === xkCond && (n = n.filter(t2 => t2.certified)), !n.length) throw new Error("vAuto returned " + (r.rawCount || 0) + " rows but none had a VIN. Row keys: " + (r.sampleKeys || []).join(", "));
+                        console.log("[XENOKING vAuto] loaded", n.length, "cars —", r.noPhotos, "without photos. Sample raw row:", r.sample);
+                        let c = (0, o.sanitizeVehiclesData)(n);
+                        await chrome.storage.local.set({ vehiclesData: c, vehicleImageSelections: JSON.stringify({}), imageReplacements: {} }), p(!1), e(!0)
+                    } catch (t) { console.error("[XENOKING vAuto] load error:", t), p(!1), f(t && t.message || "vAuto load failed.") }
+                    return
+                }
                 if (xkCurCustom) {
                     p(!0), f(null);
                     try {
@@ -18127,7 +18157,7 @@ function(a, r, e, n, c) {
             return (0, n.jsxs)("div", {
                 children: [(0, n.jsx)("div", {
                     className: "pt-2 text-xs text-gray-500",
-                    children: "Pick a store and what to show, then tap “Load Vehicles” to pull your whole lot."
+                    children: xkVauto ? "Log into vAuto Provision in a tab, pick what to show, then tap “Load Vehicles” to pull the wholesale lot." : "Pick a store and what to show, then tap “Load Vehicles” to pull your whole lot."
                 }), (0, n.jsxs)("div", {
                     className: "pt-2",
                     children: [(0, n.jsx)("label", {
@@ -18145,13 +18175,13 @@ function(a, r, e, n, c) {
                             value: t.key,
                             disabled: !t.configured,
                             children: t.label + (t.configured ? "" : " (coming soon)")
-                        }, t.key)), ...xkCustom.map(t => (0, n.jsx)("option", {
+                        }, t.key)), ...(xkVauto ? [] : xkCustom.map(t => (0, n.jsx)("option", {
                             value: t.key,
                             children: "🌐 " + t.label
-                        }, t.key)), (0, n.jsx)("option", {
+                        }, t.key))), ...(xkVauto ? [] : [(0, n.jsx)("option", {
                             value: "__add__",
                             children: "➕ Add a dealership…"
-                        }, "__add__")]
+                        }, "__add__")])]
                     }), xkCurCustom ? (0, n.jsxs)("div", {
                         className: "mt-2 p-2 rounded-md bg-blue-50 border border-blue-200 text-xs text-gray-700",
                         children: [(0, n.jsxs)("div", {

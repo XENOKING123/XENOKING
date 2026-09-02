@@ -13,6 +13,8 @@
   if (window.top !== window) return;
   var host = location.hostname || '';
   var onBadHost = /facebook\.com|listcentral|onrender\.com/.test(host);
+  // vAuto Provision: we answer data requests here but never draw the on-page buttons.
+  var onVauto = /vauto\.app\.coxautoinc\.com$|(^|\.)vauto\.com$/i.test(host);
 
   // ---- primitives ---------------------------------------------------------
   var num = function (s) { var n = parseInt(String(s == null ? '' : s).replace(/[^\d]/g, ''), 10); return Number.isFinite(n) ? n : 0; };
@@ -284,12 +286,139 @@
     return { navigating: false, total: m.total, pages: pages };
   }
 
+  // ---- vAuto Provision (Public Wholesale build) ----------------------------
+  // Runs INSIDE the logged-in vAuto tab (same-origin: cookies + Referer are
+  // right automatically), pulls the Vehicle Inventory grid data page by page,
+  // and maps each row into the poster's record shape. The response format is
+  // not documented, so field lookup is defensive: case-insensitive aliases,
+  // one level of nesting, HTML stripped, and a raw sample row is returned so
+  // the mapping can be tuned from a real response.
+  var VAUTO_PATH = '/Va/Inventory/InventoryData.ashx';
+  function pick1(o, keys) {
+    if (!o || typeof o !== 'object') return undefined;
+    var lower = {}; Object.keys(o).forEach(function (k) { lower[k.toLowerCase()] = k; });
+    for (var i = 0; i < keys.length; i++) { var k = lower[keys[i].toLowerCase()]; if (k != null && o[k] != null && o[k] !== '') return o[k]; }
+    return undefined;
+  }
+  function pick(o, keys) {
+    var v = pick1(o, keys); if (v != null) return v;
+    if (!o || typeof o !== 'object') return undefined;
+    var subs = Object.keys(o).filter(function (k) { return o[k] && typeof o[k] === 'object' && !Array.isArray(o[k]); });
+    for (var s = 0; s < subs.length; s++) { var w = pick1(o[subs[s]], keys); if (w != null) return w; }
+    return undefined;
+  }
+  function strip(s) { return txt(String(s == null ? '' : s).replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')); }
+  function parseLoose(text) {
+    var t = String(text || '').trim().replace(/^\)\]\}',?\s*/, '').replace(/^for\s*\(;;\);\s*/, '').replace(/^while\s*\(1\);\s*/, '');
+    try { return JSON.parse(t); } catch (e) {}
+    var a = t.indexOf('['), b = t.indexOf('{'), i = a < 0 ? b : (b < 0 ? a : Math.min(a, b));
+    if (i > 0) { try { return JSON.parse(t.slice(i)); } catch (e2) {} }
+    return null;
+  }
+  var ROW_KEYS = ['Vin', 'VIN', 'VehicleVin', 'VinNumber', 'StockNumber', 'Stock', 'StockNo'];
+  function findRows(x, depth) {
+    depth = depth || 0; if (x == null || depth > 6) return null;
+    if (typeof x === 'string') { if (/^\s*[\[{]/.test(x)) { var p = parseLoose(x); return p ? findRows(p, depth + 1) : null; } return null; }
+    if (Array.isArray(x)) {
+      if (x.length && x[0] && typeof x[0] === 'object' && x.some(function (r) { return r && typeof r === 'object' && pick1(r, ROW_KEYS) != null; })) return x;
+      for (var i = 0; i < x.length; i++) { var f = findRows(x[i], depth + 1); if (f) return f; }
+      return null;
+    }
+    if (typeof x === 'object') {
+      var ks = Object.keys(x), pri = ks.filter(function (k) { return /^(d|data|rows|items|vehicles|records|results|inventory|list|value)$/i.test(k); });
+      var order = pri.concat(ks.filter(function (k) { return pri.indexOf(k) < 0; }));
+      for (var j = 0; j < order.length; j++) { var g = findRows(x[order[j]], depth + 1); if (g) return g; }
+    }
+    return null;
+  }
+  function imagesOf(row) {
+    var v = pick(row, ['PhotoUrls', 'Photos', 'PhotoList', 'ImageUrls', 'Images', 'ImageList', 'PhotoUrl', 'ImageUrl', 'PrimaryPhotoUrl', 'MainPhotoUrl', 'ThumbnailUrl', 'Photo', 'Image']);
+    var urls = [];
+    [].concat(v || []).forEach(function (u) {
+      if (u && typeof u === 'object') u = u.Url || u.url || u.Href || u.href || u.Src || u.src || u.FullSize || u.Large || '';
+      if (typeof u !== 'string') return;
+      u.split(/[,;|\n]/).forEach(function (p) {
+        p = p.trim();
+        if (/^https?:\/\//i.test(p)) urls.push(p); else if (/^\/\//.test(p)) urls.push('https:' + p); else if (/^\//.test(p)) urls.push(location.origin + p);
+      });
+    });
+    return cleanImgs(urls);
+  }
+  function mapVautoRow(row) {
+    var rowStr = ''; try { rowStr = JSON.stringify(row); } catch (e) {}
+    var titleish = strip(pick(row, ['YearMakeModelTrim', 'YearMakeModel', 'VehicleDescription', 'VehicleTitle', 'Vehicle', 'Title', 'Description', 'Name']));
+    var m = titleish.match(/((?:19|20)\d\d)\s+([A-Za-z][\w-]*)\s+(.+?)\s*$/);
+    if (!m) { var m2 = strip(rowStr).match(/\b((?:19|20)\d\d)\s+([A-Z][\w-]*)\s+([^"\\<]{2,60}?)(?=\s{2,}|\s*(?:"|\\|Stock|VIN|$))/); if (m2) m = m2; }
+    var year = strip(pick(row, ['Year', 'ModelYear', 'VehicleYear'])) || (m ? m[1] : '');
+    var make = strip(pick(row, ['Make', 'MakeName', 'VehicleMake'])) || (m ? m[2] : '');
+    var model = strip(pick(row, ['Model', 'ModelName', 'VehicleModel'])) || (m ? m[3] : '');
+    var trim = strip(pick(row, ['Trim', 'Series', 'TrimLevel', 'ModelTrim', 'VehicleTrim']));
+    if (trim && model && model.toLowerCase().indexOf(trim.toLowerCase()) >= 0) trim = '';
+    var vin = strip(pick(row, ['Vin', 'VIN', 'VehicleVin', 'VinNumber'])) || (rowStr.match(/\b[A-HJ-NPR-Z0-9]{17}\b/) || [])[0] || '';
+    var stock = strip(pick(row, ['StockNumber', 'Stock', 'StockNo', 'StockNum', 'Stock#'])) || (strip(rowStr).match(/Stock\s*#?\s*:?\s*([A-Z0-9-]{3,})/i) || [])[1] || '';
+    var newUsed = String(pick(row, ['NewUsed', 'NewUsedFlag', 'InventoryType', 'VehicleType', 'Type', 'Condition']) || '').toLowerCase();
+    var cert = pick(row, ['Certified', 'IsCertified', 'CPO', 'CertifiedPreOwned']);
+    var out = shape({
+      year: year, make: make, model: model, trim: trim, vin: vin,
+      price: pick(row, ['Price', 'ListPrice', 'InternetPrice', 'RetailPrice', 'AskingPrice', 'SellingPrice', 'VehiclePrice', 'ListedPrice', 'WebPrice', 'SalePrice']),
+      mileage: pick(row, ['Odometer', 'Mileage', 'Miles', 'OdometerReading', 'CurrentOdometer']),
+      extColor: strip(pick(row, ['ExteriorColor', 'ExtColor', 'ColorExterior', 'ExteriorColorName', 'Color'])),
+      intColor: strip(pick(row, ['InteriorColor', 'IntColor', 'ColorInterior', 'InteriorColorName'])),
+      body: strip(pick(row, ['Body', 'BodyStyle', 'BodyType', 'VehicleClass', 'Class'])),
+      drive: strip(pick(row, ['Drivetrain', 'DriveTrain', 'DriveType', 'Drive'])),
+      engine: strip(pick(row, ['Engine', 'EngineDescription', 'EngineDesc'])),
+      fuel: strip(pick(row, ['FuelType', 'Fuel'])),
+      stock: stock,
+      state: /^n|new/.test(newUsed) ? 'new' : 'used',
+      title: titleish,
+      images: imagesOf(row),
+    });
+    out.certified = cert === true || /^(true|1|y|yes)$/i.test(String(cert == null ? '' : cert));
+    out.Description = strip(pick(row, ['SellerNotes', 'Comments', 'Notes', 'WebDescription', 'InternetDescription', 'Remarks'])) || '';
+    out.VehicleId = strip(pick(row, ['VehicleId', 'InventoryId', 'Id', 'ID'])) || out.VIN;
+    return out;
+  }
+  async function xkVautoFetch(opts) {
+    opts = opts || {};
+    if (!onVauto) return { ok: false, error: 'Open vAuto Provision (provision.vauto.app.coxautoinc.com), log in, then try again.' };
+    var pageSize = opts.pageSize || 500, maxTotal = opts.maxTotal || 3000, newUsed = opts.newUsed == null ? 'U' : String(opts.newUsed);
+    var rowsAll = [], firstRec = 0, sample = null, sampleKeys = [], total = null, pages = 0;
+    while (firstRec < maxTotal && pages < 20) {
+      pages++;
+      var body = ['_pageSize=' + pageSize, '_sortBy=' + encodeURIComponent(opts.sortBy || 'DaysInInventory ASC'), '_firstRecord=' + firstRec,
+        'InventoryStatus=' + (opts.inventoryStatus == null ? 0 : opts.inventoryStatus), 'Historical=0', 'NewUsed=' + encodeURIComponent(newUsed),
+        'HqTranferEntityNotSame=false', 'SalePending=', 'PricingTargetSetId=', 'RankingBucket=', 'gridSrcName=inventoryDetail', 'switchReport='].join('&');
+      var resp = await fetch(VAUTO_PATH, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json, text/javascript, */*; q=0.01' }, body: body });
+      var text = await resp.text();
+      var head = text.slice(0, 4000);
+      if (resp.status === 401 || resp.status === 403 || (/<html/i.test(head) && /login|sign[- ]?in|password/i.test(head))) return { ok: false, error: 'vAuto says you are not logged in. Log into vAuto in this tab, then click Load Vehicles again.' };
+      if (!resp.ok) return { ok: false, error: 'vAuto returned HTTP ' + resp.status + ' — ' + head.replace(/\s+/g, ' ').slice(0, 160) };
+      var data = parseLoose(text);
+      if (!data) return { ok: false, error: 'vAuto sent something that is not JSON (starts with: ' + head.replace(/\s+/g, ' ').slice(0, 160) + ')' };
+      var rows = findRows(data) || [];
+      if (total == null && data && typeof data === 'object' && !Array.isArray(data)) { var tv = pick(data, ['TotalRecords', 'TotalCount', 'RecordCount', 'Total', 'Count']); total = (tv != null && isFinite(+tv)) ? +tv : null; }
+      if (!sample && rows.length) { sample = rows[0]; sampleKeys = Object.keys(rows[0]); try { console.log('[XK vAuto] first raw row:', rows[0]); console.log('[XK vAuto] row keys:', sampleKeys.join(', ')); } catch (e) {} }
+      rowsAll = rowsAll.concat(rows);
+      try { chrome.runtime.sendMessage({ message: 'xkVautoProgress', count: rowsAll.length, total: total }); } catch (e) {}
+      if (rows.length < pageSize) break;
+      if (total != null && rowsAll.length >= total) break;
+      firstRec += pageSize;
+      await sleep(250);
+    }
+    var seen = {}, cars = [];
+    rowsAll.forEach(function (r) { var c = mapVautoRow(r); if (c && c.VIN && VIN17.test(c.VIN) && !seen[c.VIN]) { seen[c.VIN] = 1; cars.push(c); } });
+    return { ok: true, count: cars.length, rawCount: rowsAll.length, total: total, pages: pages, skipped: rowsAll.length - cars.length,
+      noPhotos: cars.filter(function (c) { return !c.ImageUrls.length; }).length, sampleKeys: sampleKeys, sample: sample, vehicles: cars };
+  }
+
   if (!onBadHost) {
     chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       if (msg && msg.message === 'xkScrapeAll') { xkScrapeAll(msg.opts || {}).then(sendResponse).catch(function (e) { sendResponse({ ok: false, error: String(e && e.message || e) }); }); return true; }
+      if (msg && msg.message === 'xkVautoFetch') { xkVautoFetch(msg.opts || {}).then(sendResponse).catch(function (e) { sendResponse({ ok: false, error: String(e && e.message || e) }); }); return true; }
     });
   }
   if (onBadHost) return;
+  if (onVauto) return;
 
   // Resume a multi-page crawl after each real page navigation.
   (async function () {
