@@ -11,13 +11,23 @@
 (function () {
   'use strict';
   if (window.top !== window) return;
+  // The panel proactively re-injects this file via chrome.scripting.executeScript to close a
+  // race with document_idle content-script timing; guard against double init on the same page.
+  if (window.__xkScrapeInit) return;
+  window.__xkScrapeInit = true;
   var host = location.hostname || '';
   var onBadHost = /facebook\.com|listcentral|onrender\.com/.test(host);
   // vAuto Provision: we answer data requests here but never draw the on-page buttons.
   var onVauto = /vauto\.app\.coxautoinc\.com$|(^|\.)vauto\.com$/i.test(host);
 
   // ---- primitives ---------------------------------------------------------
-  var num = function (s) { var n = parseInt(String(s == null ? '' : s).replace(/[^\d]/g, ''), 10); return Number.isFinite(n) ? n : 0; };
+  // Whole-number parser that survives "$5,000.00" / "192,577" / 37756 / 5000.5 (decimals are NOT digits to keep).
+  var num = function (s) {
+    if (typeof s === 'number') return Number.isFinite(s) ? Math.round(s) : 0;
+    var t = String(s == null ? '' : s).replace(/[^\d.]/g, ''), i = t.indexOf('.');
+    if (i >= 0) t = t.slice(0, i);
+    var n = parseInt(t, 10); return Number.isFinite(n) ? n : 0;
+  };
   var txt = function (s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim(); };
   var first = function (o, keys) { for (var i = 0; i < keys.length; i++) { if (o && o[keys[i]] != null && o[keys[i]] !== '') return o[keys[i]]; } };
   var deref = function (v) { return v && typeof v === 'object' ? (v.name || v.value || v.url || v['@value'] || '') : v; };
@@ -307,7 +317,12 @@
     for (var s = 0; s < subs.length; s++) { var w = pick1(o[subs[s]], keys); if (w != null) return w; }
     return undefined;
   }
-  function strip(s) { return txt(String(s == null ? '' : s).replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')); }
+  function strip(s) {
+    return txt(String(s == null ? '' : s).replace(/<[^>]*>/g, ' ')
+      .replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/&#0*39;|&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&#(\d+);/g, function (m, d) { return String.fromCharCode(+d); }).replace(/&#x([0-9a-f]+);/gi, function (m, h) { return String.fromCharCode(parseInt(h, 16)); })
+      .replace(/&amp;/g, '&'));
+  }
   function parseLoose(text) {
     var t = String(text || '').trim().replace(/^\)\]\}',?\s*/, '').replace(/^for\s*\(;;\);\s*/, '').replace(/^while\s*\(1\);\s*/, '');
     // vAuto's grid payload is not strict JSON: date columns are JavaScript literals like new Date(1700000000000).
@@ -319,11 +334,18 @@
   }
   var ROW_KEYS = ['Vin', 'VIN', 'VehicleVin', 'VinNumber', 'StockNumber', 'Stock', 'StockNo'];
   var CAR_KEYS = ['Make', 'Model', 'Odometer', 'ModelYear', 'Year', 'VehicleTitle', 'ListPrice'];
+  // For text fallbacks: a real VIN has both letters and digits (a 17-digit numeric id is not a VIN).
+  var VIN_STRICT = /\b(?=[A-HJ-NPR-Z0-9]*[A-HJ-NPR-Z])(?=[A-HJ-NPR-Z0-9]*\d)[A-HJ-NPR-Z0-9]{17}\b/;
   // A "row" is an object that carries a VIN/stock key, a typical vehicle key, or a VIN anywhere in its text.
   function rowLike(r) {
     if (!r || typeof r !== 'object' || Array.isArray(r)) return false;
     if (pick1(r, ROW_KEYS) != null || pick1(r, CAR_KEYS) != null) return true;
-    try { return VIN17.test(JSON.stringify(r)); } catch (e) { return false; }
+    try { return VIN_STRICT.test(JSON.stringify(r)); } catch (e) { return false; }
+  }
+  // First key whose value is a positive number (skips 0 / "N/A" so a later price/odometer alias can win).
+  function pickNum(row, keys) {
+    for (var i = 0; i < keys.length; i++) { var v = pick(row, [keys[i]]); if (v != null && num(v) > 0) return v; }
+    return pick(row, keys);
   }
   function findRows(x, depth) {
     depth = depth || 0; if (x == null || depth > 6) return null;
@@ -348,15 +370,18 @@
     }
     return null;
   }
+  var IMG_KEYS = ['PhotoUrls', 'Photos', 'PhotoList', 'Photo Url List', 'ImageUrls', 'Images', 'ImageList', 'PhotoUrl', 'ImageUrl', 'PrimaryPhotoUrl', 'MainPhotoUrl', 'ThumbnailUrl', 'Photo', 'Image'];
   function imagesOf(row) {
-    var v = pick(row, ['PhotoUrls', 'Photos', 'PhotoList', 'ImageUrls', 'Images', 'ImageList', 'PhotoUrl', 'ImageUrl', 'PrimaryPhotoUrl', 'MainPhotoUrl', 'ThumbnailUrl', 'Photo', 'Image']);
+    // Collect from EVERY photo alias (an empty first alias must not hide a populated later one).
     var urls = [];
-    [].concat(v || []).forEach(function (u) {
-      if (u && typeof u === 'object') u = u.Url || u.url || u.Href || u.href || u.Src || u.src || u.FullSize || u.Large || '';
-      if (typeof u !== 'string') return;
-      u.split(/[,;|\n]/).forEach(function (p) {
-        p = p.trim();
-        if (/^https?:\/\//i.test(p)) urls.push(p); else if (/^\/\//.test(p)) urls.push('https:' + p); else if (/^\//.test(p)) urls.push(location.origin + p);
+    IMG_KEYS.forEach(function (k) {
+      [].concat(pick(row, [k]) || []).forEach(function (u) {
+        if (u && typeof u === 'object') u = u.Url || u.url || u.Href || u.href || u.Src || u.src || u.FullSize || u.Large || '';
+        if (typeof u !== 'string') return;
+        u.split(/[,;|\n]/).forEach(function (p) {
+          p = p.trim();
+          if (/^https?:\/\//i.test(p)) urls.push(p); else if (/^\/\//.test(p)) urls.push('https:' + p); else if (/^\//.test(p)) urls.push(location.origin + p);
+        });
       });
     });
     return cleanImgs(urls);
@@ -364,21 +389,24 @@
   function mapVautoRow(row) {
     var rowStr = ''; try { rowStr = JSON.stringify(row); } catch (e) {}
     var titleish = strip(pick(row, ['YearMakeModelTrim', 'YearMakeModel', 'VehicleDescription', 'VehicleTitle', 'Vehicle', 'Title', 'Description', 'Name']));
+    // A combined cell can carry "Stock #: ... VIN: ..." after the name — cut that off before reading year/make/model.
+    titleish = titleish.replace(/\s*\b(?:Stock\s*(?:#|No\.?|Number)?|VIN|Odometer|Mileage|Miles|Price|Class|Body|Colou?r|Interior|Exterior)\b\s*[:#].*$/i, '').trim();
     var m = titleish.match(/((?:19|20)\d\d)\s+([A-Za-z][\w-]*)\s+(.+?)\s*$/);
     if (!m) { var m2 = strip(rowStr).match(/\b((?:19|20)\d\d)\s+([A-Z][\w-]*)\s+([^"\\<]{2,60}?)(?=\s{2,}|\s*(?:"|\\|Stock|VIN|$))/); if (m2) m = m2; }
     var year = strip(pick(row, ['Year', 'ModelYear', 'VehicleYear'])) || (m ? m[1] : '');
     var make = strip(pick(row, ['Make', 'MakeName', 'VehicleMake'])) || (m ? m[2] : '');
     var model = strip(pick(row, ['Model', 'ModelName', 'VehicleModel'])) || (m ? m[3] : '');
     var trim = strip(pick(row, ['Trim', 'Series', 'TrimLevel', 'ModelTrim', 'VehicleTrim']));
-    if (trim && model && model.toLowerCase().indexOf(trim.toLowerCase()) >= 0) trim = '';
-    var vin = strip(pick(row, ['Vin', 'VIN', 'VehicleVin', 'VinNumber'])) || (rowStr.match(/\b[A-HJ-NPR-Z0-9]{17}\b/) || [])[0] || '';
-    var stock = strip(pick(row, ['StockNumber', 'Stock', 'StockNo', 'StockNum', 'Stock#'])) || (strip(rowStr).match(/Stock\s*#?\s*:?\s*([A-Z0-9-]{3,})/i) || [])[1] || '';
+    // Only drop the trim when the model already ENDS with it as a whole word (title-derived models), never on a substring hit.
+    if (trim && model && new RegExp('(^|\\s)' + trim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*$', 'i').test(model)) trim = '';
+    var vin = strip(pick(row, ['Vin', 'VIN', 'VehicleVin', 'VinNumber'])) || (rowStr.match(VIN_STRICT) || [])[0] || '';
+    var stock = strip(pick(row, ['StockNumber', 'Stock', 'StockNo', 'StockNum', 'Stock#'])) || (strip(rowStr).match(/Stock\s*(?:No\.?|Number)?"?\s*[:#=]+\s*"?([A-Z0-9-]{3,})/i) || [])[1] || '';
     var newUsed = String(pick(row, ['NewUsed', 'New/Used', 'NewUsedFlag', 'InventoryType', 'VehicleType', 'Type', 'Condition']) || '').toLowerCase();
     var cert = pick(row, ['Certified', 'IsCertified', 'CPO', 'CertifiedPreOwned']);
     var out = shape({
       year: year, make: make, model: model, trim: trim, vin: vin,
-      price: pick(row, ['Price', 'ListPrice', 'InternetPrice', 'RetailPrice', 'AskingPrice', 'SellingPrice', 'VehiclePrice', 'ListedPrice', 'WebPrice', 'SalePrice']),
-      mileage: pick(row, ['Odometer', 'Mileage', 'Miles', 'OdometerReading', 'CurrentOdometer']),
+      price: pickNum(row, ['ListPrice', 'Price', 'InternetPrice', 'RetailPrice', 'AskingPrice', 'SellingPrice', 'VehiclePrice', 'ListedPrice', 'WebPrice', 'SalePrice']),
+      mileage: pickNum(row, ['Odometer', 'Mileage', 'Miles', 'OdometerReading', 'CurrentOdometer']),
       extColor: strip(pick(row, ['ExteriorColor', 'ExtColor', 'ColorExterior', 'ExteriorColorName', 'Colour', 'ExteriorColour', 'Color'])),
       intColor: strip(pick(row, ['InteriorColor', 'IntColor', 'ColorInterior', 'InteriorColorName', 'InteriorColour'])),
       body: strip(pick(row, ['Body', 'BodyStyle', 'BodyType', 'BodyStyleDesc', 'VehicleClass', 'Class'])),
@@ -386,7 +414,7 @@
       engine: strip(pick(row, ['Engine', 'EngineDescription', 'EngineDesc'])),
       fuel: strip(pick(row, ['FuelType', 'Fuel'])),
       stock: stock,
-      state: /^n|new/.test(newUsed) ? 'new' : 'used',
+      state: /^(n|new)$/.test(newUsed.trim()) ? 'new' : 'used',
       title: titleish,
       images: imagesOf(row),
     });

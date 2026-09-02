@@ -79,6 +79,7 @@
    "manifest_version": 3,
    "name": "XENOKING Auto Lister",
    "permissions": [
+      "scripting",
       "storage",
       "sidePanel",
       "tabs",
@@ -88,7 +89,7 @@
    "side_panel": {
       "default_path": "sidepanel.html"
    },
-   "version": "4.10.0",
+   "version": "4.10.1",
    "web_accessible_resources": [
       {
          "matches": [

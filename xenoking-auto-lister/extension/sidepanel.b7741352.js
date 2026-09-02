@@ -18026,7 +18026,7 @@ function(a, r, e, n, c) {
             let [g, p] = (0, h.useState)(!1), [s, u] = (0, h.useState)(!1), [M, f] = (0, h.useState)(null),
                 [xkDealer, xkSetDealer] = (0, h.useState)(xkVauto ? "vauto" : "corwin-dodge"),
                 [xkCond, xkSetCond] = (0, h.useState)("all"),
-                [xkDealers, xkSetDealers] = (0, h.useState)([]),
+                [xkDealers, xkSetDealers] = (0, h.useState)(xkVauto ? [{ key: "vauto", label: ((window.XENOKING_CONFIG || {}).VAUTO || {}).LABEL || "Corwin Public Wholesale", configured: !0 }] : []),
                 [xkCustom, xkSetCustom] = (0, h.useState)([]);
             (0, h.useEffect)(() => {
                 (async () => {
@@ -18078,24 +18078,41 @@ function(a, r, e, n, c) {
                         } catch (n) { clearInterval(r), e() }
                     }, 500)
             });
+            let xkVautoTab = async () => {
+                // Any vAuto Provision host: provision.vauto.app.coxautoinc.com, profittime.vauto.app.coxautoinc.com,
+                // or the legacy www2.vauto.com — matched by real hostname, not a substring of the whole URL.
+                let isVautoHost = h => /(^|\.)vauto\.app\.coxautoinc\.com$/i.test(h) || /(^|\.)vauto\.com$/i.test(h),
+                    tabs = await chrome.tabs.query({}),
+                    found = tabs.find(t2 => { try { return t2.url && isVautoHost(new URL(t2.url).hostname) } catch (e2) { return !1 } });
+                return found || null
+            }, xkInject = async tabId => {
+                // Proactively (re)inject the content script so its message listener is guaranteed to exist —
+                // removes the race where document_idle hasn't finished running yet when we send the message.
+                try { await chrome.scripting.executeScript({ target: { tabId: tabId }, files: ["xkscrape.js"] }) } catch (e2) { console.warn("[XENOKING vAuto] inject failed (continuing — listener may already exist):", e2 && e2.message || e2) }
+            };
             let z = async () => {
                 if (xkVauto) {
                     // Public Wholesale: ask the logged-in vAuto tab (content script) for the inventory grid.
                     p(!0), f(null);
                     try {
                         let vc = (window.XENOKING_CONFIG || {}).VAUTO || {},
-                            vhost = "vauto.app.coxautoinc.com",
-                            a = (await chrome.tabs.query({})).find(e2 => e2.url && e2.url.includes(vhost));
-                        a || (a = await chrome.tabs.create({ url: vc.URL || "https://provision.vauto.app.coxautoinc.com/Va/Inventory/", active: !0 }), await xkWaitTab(a.id), await new Promise(e2 => setTimeout(e2, 1500)));
+                            a = await xkVautoTab();
+                        a || (a = await chrome.tabs.create({ url: vc.URL || "https://provision.vauto.app.coxautoinc.com/Va/Inventory/", active: !0 }), await xkWaitTab(a.id), await new Promise(e2 => setTimeout(e2, 1200)));
+                        await xkInject(a.id), await new Promise(e2 => setTimeout(e2, 300));
                         let nu = "new" === xkCond ? "N" : "all" === xkCond ? "" : "U",
                             r = null;
-                        for (let e2 = 0; e2 < 3 && !r; e2++) try {
+                        for (let e2 = 0; e2 < 4 && !r; e2++) try {
                             r = await chrome.tabs.sendMessage(a.id, { message: "xkVautoFetch", opts: { newUsed: nu, pageSize: vc.PAGE_SIZE || 500 } })
-                        } catch (n2) { await new Promise(e2 => setTimeout(e2, 800)) }
-                        if (!r) throw new Error("Couldn't reach the vAuto tab. Open vAuto Provision, log in, then try again.");
+                        } catch (n2) {
+                            console.warn("[XENOKING vAuto] sendMessage attempt " + (e2 + 1) + " failed:", n2 && n2.message || n2);
+                            try { await xkInject(a.id) } catch (n3) {}
+                            await new Promise(e3 => setTimeout(e3, 900 + 400 * e2))
+                        }
+                        if (!r) throw new Error("Couldn't reach the vAuto tab after several tries. Make sure the vAuto Provision tab has fully loaded (not stuck on a login/SSO redirect), then click Load Vehicles again.");
                         if (!r.ok) throw new Error(r.error || "vAuto load failed.");
                         let n = r.vehicles || [];
-                        if ("certified" === xkCond && (n = n.filter(t2 => t2.certified)), !n.length) throw new Error("vAuto returned " + (r.rawCount || 0) + " rows but none had a VIN. Row keys: " + (r.sampleKeys || []).join(", "));
+                        if (!n.length) throw new Error("vAuto returned " + (r.rawCount || 0) + " rows but none had a VIN. Row keys: " + (r.sampleKeys || []).join(", "));
+                        if ("certified" === xkCond && (n = n.filter(t2 => t2.certified), !n.length)) throw new Error("No certified vehicles in the vAuto grid (" + (r.count || 0) + " loaded before the Certified filter). Try “Used” or “All”.");
                         console.log("[XENOKING vAuto] loaded", n.length, "cars —", r.noPhotos, "without photos. Sample raw row:", r.sample);
                         let c = (0, o.sanitizeVehiclesData)(n);
                         await chrome.storage.local.set({ vehiclesData: c, vehicleImageSelections: JSON.stringify({}), imageReplacements: {} }), p(!1), e(!0)
