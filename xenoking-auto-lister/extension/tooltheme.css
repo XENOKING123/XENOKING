@@ -1,0 +1,72 @@
+/* XENOKING dark-blue theme — overrides the tool's white UI. Loaded after the
+   tool's own stylesheet so these win. Scoped to #__plasmo so the gate is
+   untouched. */
+html, body { background: #070c18 !important; }
+
+#__plasmo {
+  --xk-bg: #070c18;
+  --xk-card: #111b33;
+  --xk-line: #223052;
+  --xk-txt: #e7ecfb;
+  --xk-muted: #93a1c6;
+  --xk-blue: #2f6bff;
+  --xk-blue-hi: #1e51e6;
+  background: var(--xk-bg);
+  color: var(--xk-txt);
+  min-height: 100vh;
+}
+
+/* surfaces */
+#__plasmo .bg-white { background-color: var(--xk-card) !important; }
+#__plasmo .bg-gray-50, #__plasmo .bg-gray-100, #__plasmo .bg-gray-200 { background-color: #0d1730 !important; }
+#__plasmo .bg-black { background: linear-gradient(180deg, #0a1430, #070c18) !important; border-bottom: 1px solid var(--xk-line); }
+
+/* text */
+#__plasmo .text-gray-900, #__plasmo .text-gray-800, #__plasmo .text-gray-700, #__plasmo .text-black { color: var(--xk-txt) !important; }
+#__plasmo .text-gray-600, #__plasmo .text-gray-500, #__plasmo .text-gray-400 { color: var(--xk-muted) !important; }
+
+/* borders */
+#__plasmo .border, #__plasmo .border-gray-300, #__plasmo .border-gray-200, #__plasmo .border-gray-100 { border-color: var(--xk-line) !important; }
+#__plasmo hr { border-color: var(--xk-line) !important; }
+
+/* form controls */
+#__plasmo input, #__plasmo select, #__plasmo textarea {
+  background-color: #0b1428 !important;
+  color: var(--xk-txt) !important;
+  border-color: var(--xk-line) !important;
+}
+#__plasmo input::placeholder, #__plasmo textarea::placeholder { color: #5a6a92 !important; }
+#__plasmo input:focus, #__plasmo select:focus, #__plasmo textarea:focus {
+  border-color: var(--xk-blue) !important;
+  box-shadow: 0 0 0 3px rgba(47,107,255,.25) !important;
+  outline: none !important;
+}
+#__plasmo select option { background: #0b1428; color: var(--xk-txt); }
+
+/* primary/blue buttons */
+#__plasmo .bg-blue-500, #__plasmo .bg-blue-600 { background-color: var(--xk-blue) !important; }
+#__plasmo .hover\:bg-blue-600:hover, #__plasmo .hover\:bg-blue-700:hover { background-color: var(--xk-blue-hi) !important; }
+#__plasmo .text-blue-500, #__plasmo .text-blue-600, #__plasmo .text-blue-700 { color: #6fa0ff !important; }
+#__plasmo .bg-gray-400 { background-color: #263250 !important; }
+
+/* status colors kept but tuned for dark */
+#__plasmo .bg-green-500, #__plasmo .hover\:bg-green-600:hover { background-color: #17a673 !important; }
+#__plasmo .bg-red-500, #__plasmo .hover\:bg-red-600:hover { background-color: #e0435f !important; }
+#__plasmo .text-green-600, #__plasmo .text-green-700 { color: #4fe3a0 !important; }
+#__plasmo .text-red-600, #__plasmo .text-red-700 { color: #ff8ea0 !important; }
+#__plasmo .bg-green-100 { background-color: rgba(23,166,115,.16) !important; }
+#__plasmo .bg-red-100 { background-color: rgba(224,67,95,.16) !important; }
+
+/* cards / shadows */
+#__plasmo .shadow, #__plasmo .shadow-sm, #__plasmo .shadow-md, #__plasmo .shadow-lg {
+  box-shadow: 0 8px 22px -12px rgba(0,0,0,.75) !important;
+}
+#__plasmo .rounded-md, #__plasmo .rounded-lg, #__plasmo .rounded-xl { border: 1px solid var(--xk-line); }
+
+/* checkboxes accent */
+#__plasmo input[type="checkbox"] { accent-color: var(--xk-blue); }
+
+/* scrollbar */
+#__plasmo ::-webkit-scrollbar { width: 10px; }
+#__plasmo ::-webkit-scrollbar-thumb { background: #22304f; border-radius: 6px; }
+#__plasmo ::-webkit-scrollbar-track { background: #0b1224; }
