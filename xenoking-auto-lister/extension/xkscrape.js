@@ -427,19 +427,23 @@
     opts = opts || {};
     if (!onVauto) return { ok: false, error: 'Open vAuto Provision (provision.vauto.app.coxautoinc.com), log in, then try again.' };
     var pageSize = opts.pageSize || 500, maxTotal = opts.maxTotal || 3000, newUsed = opts.newUsed == null ? 'U' : String(opts.newUsed);
-    var rowsAll = [], firstRec = 0, sample = null, sampleKeys = [], total = null, pages = 0;
+    var rowsAll = [], firstRec = 0, sample = null, sampleKeys = [], total = null, pages = 0, firstHead = '', topLevelKeys = [];
     while (firstRec < maxTotal && pages < 20) {
       pages++;
       var body = ['_pageSize=' + pageSize, '_sortBy=' + encodeURIComponent(opts.sortBy || 'DaysInInventory ASC'), '_firstRecord=' + firstRec,
         'InventoryStatus=' + (opts.inventoryStatus == null ? 0 : opts.inventoryStatus), 'Historical=0', 'NewUsed=' + encodeURIComponent(newUsed),
         'HqTranferEntityNotSame=false', 'SalePending=', 'PricingTargetSetId=', 'RankingBucket=', 'gridSrcName=inventoryDetail', 'switchReport='].join('&');
-      var resp = await fetch(VAUTO_PATH, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json, text/javascript, */*; q=0.01' }, body: body });
+      var resp;
+      try { resp = await fetch(VAUTO_PATH, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json, text/javascript, */*; q=0.01' }, body: body }) }
+      catch (netErr) { return { ok: false, error: 'The request to vAuto itself failed (' + (netErr && netErr.message || netErr) + '). This can mean the page blocked it (CSP) or there is a network/proxy issue — reload the vAuto tab and try again.' } }
       var text = await resp.text();
       var head = text.slice(0, 4000);
+      if (1 === pages) firstHead = head;
       if (resp.status === 401 || resp.status === 403 || (/<html/i.test(head) && /login|sign[- ]?in|password/i.test(head))) return { ok: false, error: 'vAuto says you are not logged in. Log into vAuto in this tab, then click Load Vehicles again.' };
-      if (!resp.ok) return { ok: false, error: 'vAuto returned HTTP ' + resp.status + ' — ' + head.replace(/\s+/g, ' ').slice(0, 160) };
+      if (!resp.ok) return { ok: false, error: 'vAuto returned HTTP ' + resp.status + ' — ' + head.replace(/\s+/g, ' ').slice(0, 220) };
       var data = parseLoose(text);
-      if (!data) return { ok: false, error: 'vAuto sent something that is not JSON (starts with: ' + head.replace(/\s+/g, ' ').slice(0, 160) + ')' };
+      if (!data) return { ok: false, error: 'vAuto sent something that is not JSON (starts with: ' + head.replace(/\s+/g, ' ').slice(0, 220) + ')' };
+      if (1 === pages && data && typeof data === 'object') try { topLevelKeys = Array.isArray(data) ? ['(array of ' + data.length + ')'] : Object.keys(data) } catch (e) {}
       var rows = findRows(data) || [];
       if (total == null && data && typeof data === 'object' && !Array.isArray(data)) { var tv = pick(data, ['TotalRecords', 'TotalCount', 'RecordCount', 'Total', 'Count']); total = (tv != null && isFinite(+tv)) ? +tv : null; }
       if (!sample && rows.length) { sample = rows[0]; sampleKeys = Object.keys(rows[0]); try { console.log('[XK vAuto] first raw row:', rows[0]); console.log('[XK vAuto] row keys:', sampleKeys.join(', ')); } catch (e) {} }
@@ -452,7 +456,9 @@
     }
     var seen = {}, cars = [];
     rowsAll.forEach(function (r) { var c = mapVautoRow(r); if (c && c.VIN && VIN17.test(c.VIN) && !seen[c.VIN]) { seen[c.VIN] = 1; cars.push(c); } });
+    if (!rowsAll.length) try { console.log('[XK vAuto] no rows found — top-level response keys:', topLevelKeys, 'first bytes:', firstHead.slice(0, 500)) } catch (e) {}
     return { ok: true, count: cars.length, rawCount: rowsAll.length, total: total, pages: pages, skipped: rowsAll.length - cars.length,
+      firstHead: firstHead, topLevelKeys: topLevelKeys,
       noPhotos: cars.filter(function (c) { return !c.ImageUrls.length; }).length, sampleKeys: sampleKeys, sample: sample, vehicles: cars };
   }
 

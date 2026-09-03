@@ -18111,7 +18111,10 @@ function(a, r, e, n, c) {
                         if (!r) throw new Error("Couldn't reach the vAuto tab after several tries. Make sure the vAuto Provision tab has fully loaded (not stuck on a login/SSO redirect), then click Load Vehicles again.");
                         if (!r.ok) throw new Error(r.error || "vAuto load failed.");
                         let n = r.vehicles || [];
-                        if (!n.length) throw new Error("vAuto returned " + (r.rawCount || 0) + " rows but none had a VIN. Row keys: " + (r.sampleKeys || []).join(", "));
+                        if (!n.length) {
+                            let diag = r.rawCount ? "Row keys: " + (r.sampleKeys || []).join(", ") : "Response top-level keys: " + (r.topLevelKeys || []).join(", ") + " — starts with: " + String(r.firstHead || "").replace(/\s+/g, " ").slice(0, 200);
+                            throw new Error("vAuto returned " + (r.rawCount || 0) + " rows" + (r.rawCount ? " but none had a VIN" : "") + ". " + diag + " — screenshot this and send it back so the field mapping can be fixed.")
+                        }
                         if ("certified" === xkCond && (n = n.filter(t2 => t2.certified), !n.length)) throw new Error("No certified vehicles in the vAuto grid (" + (r.count || 0) + " loaded before the Certified filter). Try “Used” or “All”.");
                         console.log("[XENOKING vAuto] loaded", n.length, "cars —", r.noPhotos, "without photos. Sample raw row:", r.sample);
                         let c = (0, o.sanitizeVehiclesData)(n);
