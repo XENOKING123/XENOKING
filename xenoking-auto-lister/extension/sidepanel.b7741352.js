@@ -18090,45 +18090,79 @@ function(a, r, e, n, c) {
                 // removes the race where document_idle hasn't finished running yet when we send the message.
                 try { await chrome.scripting.executeScript({ target: { tabId: tabId }, files: ["xkscrape.js"] }) } catch (e2) { console.warn("[XENOKING vAuto] inject failed (continuing — listener may already exist):", e2 && e2.message || e2) }
             };
+            let xkVautoSync = async (vehicles) => {
+                // Best-effort: push a fresh live pull up so teammates without vAuto access
+                // can still "Load Vehicles" and get the same lot, same as the CDJR backend flow.
+                try {
+                    let cfg = window.XENOKING_CONFIG || {}, base = (cfg.BACKEND_URL || "").replace(/\/+$/, ""),
+                        tw = await chrome.storage.local.get("xk_token"), tk = tw && tw.xk_token;
+                    let resp = await fetch(base + "/api/inventory-sync", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + tk }, body: JSON.stringify({ dealer: "corwin-wholesale", vehicles: vehicles }) });
+                    if (!resp.ok) { let e2 = await resp.json().catch(() => ({})); console.warn("[XENOKING vAuto] sync push failed (your cars are still loaded — only the shared copy for teammates wasn't updated):", e2 && e2.message || resp.status) }
+                    else console.log("[XENOKING vAuto] pushed", vehicles.length, "cars to the shared wholesale copy for teammates without vAuto access")
+                } catch (e2) { console.warn("[XENOKING vAuto] sync push failed:", e2 && e2.message || e2) }
+            }, xkVautoLive = async a => {
+                // Pull live from an already-open, reachable vAuto tab.
+                let vc = (window.XENOKING_CONFIG || {}).VAUTO || {};
+                await xkInject(a.id), await new Promise(e2 => setTimeout(e2, 300));
+                let nu = "new" === xkCond ? "N" : "all" === xkCond ? "" : "U";
+                let xkTry = async () => {
+                    let m = null;
+                    for (let e2 = 0; e2 < 4 && !m; e2++) try {
+                        m = await chrome.tabs.sendMessage(a.id, { message: "xkVautoFetch", opts: { newUsed: nu, pageSize: vc.PAGE_SIZE || 500 } })
+                    } catch (n2) {
+                        console.warn("[XENOKING vAuto] sendMessage attempt " + (e2 + 1) + " failed:", n2 && n2.message || n2);
+                        try { await xkInject(a.id) } catch (n3) {}
+                        await new Promise(e3 => setTimeout(e3, 900 + 400 * e2))
+                    }
+                    return m
+                };
+                let r = await xkTry();
+                if (!r) {
+                    // Last resort: a fully fresh page load always gets a clean, current-version content
+                    // script — this recovers from a stale/orphaned listener left by an earlier reload
+                    // of the extension while this tab stayed open (the most common real-world cause).
+                    console.warn("[XENOKING vAuto] still unreachable — reloading the vAuto tab as a last resort");
+                    try { await chrome.tabs.reload(a.id), await xkWaitTab(a.id), await new Promise(e2 => setTimeout(e2, 1500)), await xkInject(a.id), await new Promise(e2 => setTimeout(e2, 300)), r = await xkTry() } catch (n4) {}
+                }
+                return r
+            }, xkVautoShared = async () => {
+                // Read the shared, last-synced copy from our own backend — same call shape as
+                // CDJR's Load Vehicles, so reps with no vAuto login still get the lot.
+                let cfg = window.XENOKING_CONFIG || {}, base = (cfg.BACKEND_URL || "").replace(/\/+$/, ""),
+                    tw = await chrome.storage.local.get("xk_token"), tk = tw && tw.xk_token,
+                    resp = await fetch(base + "/api/inventory?dealer=corwin-wholesale&condition=" + encodeURIComponent(xkCond), { headers: { Authorization: "Bearer " + tk } }),
+                    data = await resp.json().catch(() => ({}));
+                if (!resp.ok) throw new Error(data && data.message || "Couldn't load the shared wholesale inventory.");
+                return data
+            };
             let z = async () => {
                 if (xkVauto) {
-                    // Public Wholesale: ask the logged-in vAuto tab (content script) for the inventory grid.
+                    // Public Wholesale: if THIS user has vAuto open, pull live and publish it for
+                    // everyone else. Otherwise (most reps) just read the shared copy from our own
+                    // backend — no vAuto tab is ever opened on their behalf.
                     p(!0), f(null);
                     try {
-                        let vc = (window.XENOKING_CONFIG || {}).VAUTO || {},
-                            a = await xkVautoTab();
-                        a || (a = await chrome.tabs.create({ url: vc.URL || "https://provision.vauto.app.coxautoinc.com/Va/Inventory/", active: !0 }), await xkWaitTab(a.id), await new Promise(e2 => setTimeout(e2, 1200)));
-                        await xkInject(a.id), await new Promise(e2 => setTimeout(e2, 300));
-                        let nu = "new" === xkCond ? "N" : "all" === xkCond ? "" : "U",
-                            r = null;
-                        let xkTry = async () => {
-                            let m = null;
-                            for (let e2 = 0; e2 < 4 && !m; e2++) try {
-                                m = await chrome.tabs.sendMessage(a.id, { message: "xkVautoFetch", opts: { newUsed: nu, pageSize: vc.PAGE_SIZE || 500 } })
-                            } catch (n2) {
-                                console.warn("[XENOKING vAuto] sendMessage attempt " + (e2 + 1) + " failed:", n2 && n2.message || n2);
-                                try { await xkInject(a.id) } catch (n3) {}
-                                await new Promise(e3 => setTimeout(e3, 900 + 400 * e2))
-                            }
-                            return m
-                        };
-                        r = await xkTry();
-                        if (!r) {
-                            // Last resort: a fully fresh page load always gets a clean, current-version content
-                            // script — this recovers from a stale/orphaned listener left by an earlier reload
-                            // of the extension while this tab stayed open (the most common real-world cause).
-                            console.warn("[XENOKING vAuto] still unreachable — reloading the vAuto tab as a last resort");
-                            try { await chrome.tabs.reload(a.id), await xkWaitTab(a.id), await new Promise(e2 => setTimeout(e2, 1500)), await xkInject(a.id), await new Promise(e2 => setTimeout(e2, 300)), r = await xkTry() } catch (n4) {}
+                        let a = await xkVautoTab(), n = null;
+                        if (a) {
+                            let r = await xkVautoLive(a);
+                            if (r && !r.ok) throw new Error(r.error || "vAuto load failed.");
+                            if (r && r.ok) {
+                                n = r.vehicles || [];
+                                if (!n.length) {
+                                    let diag = r.rawCount ? "Row keys: " + (r.sampleKeys || []).join(", ") : "Response top-level keys: " + (r.topLevelKeys || []).join(", ") + " — starts with: " + String(r.firstHead || "").replace(/\s+/g, " ").slice(0, 200);
+                                    throw new Error("vAuto returned " + (r.rawCount || 0) + " rows" + (r.rawCount ? " but none had a VIN" : "") + ". " + diag + " — screenshot this and send it back so the field mapping can be fixed.")
+                                }
+                                console.log("[XENOKING vAuto] loaded", n.length, "cars live —", r.noPhotos, "without photos. Sample raw row:", r.sample);
+                                xkVautoSync(n)
+                            } else console.warn("[XENOKING vAuto] a vAuto tab is open but unreachable — falling back to the shared synced copy")
                         }
-                        if (!r) throw new Error("Couldn't reach the vAuto tab even after reloading it. Make sure that tab is on vAuto Provision and fully loaded (not stuck on a login/SSO redirect), then click Load Vehicles again.");
-                        if (!r.ok) throw new Error(r.error || "vAuto load failed.");
-                        let n = r.vehicles || [];
-                        if (!n.length) {
-                            let diag = r.rawCount ? "Row keys: " + (r.sampleKeys || []).join(", ") : "Response top-level keys: " + (r.topLevelKeys || []).join(", ") + " — starts with: " + String(r.firstHead || "").replace(/\s+/g, " ").slice(0, 200);
-                            throw new Error("vAuto returned " + (r.rawCount || 0) + " rows" + (r.rawCount ? " but none had a VIN" : "") + ". " + diag + " — screenshot this and send it back so the field mapping can be fixed.")
+                        if (!n) {
+                            let data = await xkVautoShared();
+                            n = data.vehicles || [];
+                            if (!n.length) throw new Error(data.syncedAt ? "No “" + (xkCond || "all") + "” vehicles in the last synced wholesale lot (synced " + new Date(data.syncedAt).toLocaleString() + " by " + (data.syncedBy || "a teammate") + ")." : "No wholesale inventory has been synced yet. Have a teammate open vAuto Provision (logged in) and click Load Vehicles once — it'll be shared with everyone after that.");
+                            console.log("[XENOKING vAuto] loaded", n.length, "cars from the shared synced copy (synced " + data.syncedAt + " by " + data.syncedBy + ")")
                         }
-                        if ("certified" === xkCond && (n = n.filter(t2 => t2.certified), !n.length)) throw new Error("No certified vehicles in the vAuto grid (" + (r.count || 0) + " loaded before the Certified filter). Try “Used” or “All”.");
-                        console.log("[XENOKING vAuto] loaded", n.length, "cars —", r.noPhotos, "without photos. Sample raw row:", r.sample);
+                        if ("certified" === xkCond && (n = n.filter(t2 => t2.certified), !n.length)) throw new Error("No certified vehicles found. Try “Used” or “All”.");
                         let c = (0, o.sanitizeVehiclesData)(n);
                         await chrome.storage.local.set({ vehiclesData: c, vehicleImageSelections: JSON.stringify({}), imageReplacements: {} }), p(!1), e(!0)
                     } catch (t) { console.error("[XENOKING vAuto] load error:", t), p(!1), f(t && t.message || "vAuto load failed.") }
@@ -18240,12 +18274,12 @@ function(a, r, e, n, c) {
                         children: "Show"
                     }), (0, n.jsx)("div", {
                         className: "flex gap-2",
-                        children: [
+                        children: (xkVauto ? [["all", "All"], ["used", "Used"], ["certified", "Certified"]] : [
                             ["all", "All"],
                             ["new", "New"],
                             ["used", "Used"],
                             ["certified", "Certified"]
-                        ].map(t => (0, n.jsx)("button", {
+                        ]).map(t => (0, n.jsx)("button", {
                             type: "button",
                             onClick: () => xkSetCond(t[0]),
                             className: "flex-1 px-2 py-1 rounded-md text-sm font-medium border transition-colors " + (xkCond === t[0] ? "bg-blue-500 text-white border-blue-500" : "bg-white text-gray-700 border-gray-300 hover:border-blue-400"),
