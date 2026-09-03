@@ -11,10 +11,15 @@
 (function () {
   'use strict';
   if (window.top !== window) return;
-  // The panel proactively re-injects this file via chrome.scripting.executeScript to close a
-  // race with document_idle content-script timing; guard against double init on the same page.
-  if (window.__xkScrapeInit) return;
-  window.__xkScrapeInit = true;
+  // NOTE: deliberately NO "already initialized" guard here. The panel proactively
+  // re-injects this file via chrome.scripting.executeScript to guarantee a live message
+  // listener exists (see xkInject in the panel). A guard keyed on a `window` flag would
+  // block that re-injection from ever doing anything once the page's FIRST script run set
+  // the flag — including a run from a now-orphaned extension context after a reload/update,
+  // whose chrome.runtime is invalidated but whose `window` state (and the flag) survives
+  // until the page itself navigates. Re-running this whole IIFE is safe: on vAuto hosts we
+  // return immediately after registering the listener (before any DOM/UI code), and on
+  // normal pages the button-injection code already checks for existing buttons/ids.
   var host = location.hostname || '';
   var onBadHost = /facebook\.com|listcentral|onrender\.com/.test(host);
   // vAuto Provision: we answer data requests here but never draw the on-page buttons.
@@ -522,6 +527,7 @@
       };
       c.el.appendChild(b);
     });
+    if (document.getElementById('xk-scrape-fab')) return;
     var panel = document.createElement('button');
     panel.id = 'xk-scrape-fab'; panel.type = 'button';
     panel.textContent = '📥 Load ALL cars (all pages) into XENOKING';

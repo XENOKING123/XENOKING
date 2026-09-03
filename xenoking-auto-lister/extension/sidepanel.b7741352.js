@@ -18101,14 +18101,26 @@ function(a, r, e, n, c) {
                         await xkInject(a.id), await new Promise(e2 => setTimeout(e2, 300));
                         let nu = "new" === xkCond ? "N" : "all" === xkCond ? "" : "U",
                             r = null;
-                        for (let e2 = 0; e2 < 4 && !r; e2++) try {
-                            r = await chrome.tabs.sendMessage(a.id, { message: "xkVautoFetch", opts: { newUsed: nu, pageSize: vc.PAGE_SIZE || 500 } })
-                        } catch (n2) {
-                            console.warn("[XENOKING vAuto] sendMessage attempt " + (e2 + 1) + " failed:", n2 && n2.message || n2);
-                            try { await xkInject(a.id) } catch (n3) {}
-                            await new Promise(e3 => setTimeout(e3, 900 + 400 * e2))
+                        let xkTry = async () => {
+                            let m = null;
+                            for (let e2 = 0; e2 < 4 && !m; e2++) try {
+                                m = await chrome.tabs.sendMessage(a.id, { message: "xkVautoFetch", opts: { newUsed: nu, pageSize: vc.PAGE_SIZE || 500 } })
+                            } catch (n2) {
+                                console.warn("[XENOKING vAuto] sendMessage attempt " + (e2 + 1) + " failed:", n2 && n2.message || n2);
+                                try { await xkInject(a.id) } catch (n3) {}
+                                await new Promise(e3 => setTimeout(e3, 900 + 400 * e2))
+                            }
+                            return m
+                        };
+                        r = await xkTry();
+                        if (!r) {
+                            // Last resort: a fully fresh page load always gets a clean, current-version content
+                            // script — this recovers from a stale/orphaned listener left by an earlier reload
+                            // of the extension while this tab stayed open (the most common real-world cause).
+                            console.warn("[XENOKING vAuto] still unreachable — reloading the vAuto tab as a last resort");
+                            try { await chrome.tabs.reload(a.id), await xkWaitTab(a.id), await new Promise(e2 => setTimeout(e2, 1500)), await xkInject(a.id), await new Promise(e2 => setTimeout(e2, 300)), r = await xkTry() } catch (n4) {}
                         }
-                        if (!r) throw new Error("Couldn't reach the vAuto tab after several tries. Make sure the vAuto Provision tab has fully loaded (not stuck on a login/SSO redirect), then click Load Vehicles again.");
+                        if (!r) throw new Error("Couldn't reach the vAuto tab even after reloading it. Make sure that tab is on vAuto Provision and fully loaded (not stuck on a login/SSO redirect), then click Load Vehicles again.");
                         if (!r.ok) throw new Error(r.error || "vAuto load failed.");
                         let n = r.vehicles || [];
                         if (!n.length) {
