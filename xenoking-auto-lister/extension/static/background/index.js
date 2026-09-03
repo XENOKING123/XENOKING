@@ -118,6 +118,46 @@ function(t, r, o, a, n) {
             }
             return o
         }
+        // ---- Wholesale auto-sync ---------------------------------------------
+        // No public API exists for a vAuto Provision lot (unlike CDJR's public
+        // dealer.com site), so it can only be read from a logged-in browser tab.
+        // Rather than making anyone deliberately open vAuto AND click a button,
+        // piggyback on someone just doing their normal job: the moment ANY vAuto
+        // Provision tab finishes loading (in ANY XENOKING install — CDJR users
+        // with vAuto access help too), silently pull it and push it to the
+        // shared backend cache. A recurring alarm re-checks periodically too, so
+        // a tab left open all day keeps the shared copy fresh without a reload.
+        // Nobody has to know this ran; "Load Vehicles" for reps without vAuto
+        // access just reads whatever's freshest here — exactly like CDJR.
+        let xkVautoSyncing = !1;
+        const xkIsVautoHost = (url) => { try { return /(^|\.)vauto\.app\.coxautoinc\.com$|(^|\.)vauto\.com$/i.test(new URL(url).hostname) } catch (e) { return !1 } };
+        async function xkVautoAutoSync(tabId) {
+            if (xkVautoSyncing) return;
+            try {
+                let last = await chrome.storage.local.get("xk_vauto_last_sync"),
+                    lastTs = (last && last.xk_vauto_last_sync) || 0;
+                if (Date.now() - lastTs < 8 * 6e4) return; // at most once every 8 minutes
+                xkVautoSyncing = !0;
+                await chrome.storage.local.set({ xk_vauto_last_sync: Date.now() });
+                try { await chrome.scripting.executeScript({ target: { tabId: tabId }, files: ["xkscrape.js"] }) } catch (e) {}
+                let r = null;
+                for (let i = 0; i < 2 && !r; i++) try {
+                    r = await chrome.tabs.sendMessage(tabId, { message: "xkVautoFetch", opts: { newUsed: "", pageSize: 500 } })
+                } catch (e) { await new Promise(res => setTimeout(res, 1200)) }
+                if (r && r.ok && Array.isArray(r.vehicles) && r.vehicles.length) {
+                    let tw = await chrome.storage.local.get(["xk_backend", "xk_token"]),
+                        base = String(tw.xk_backend || "").replace(/\/+$/, ""), tok = tw.xk_token;
+                    if (base && tok) {
+                        let resp = await fetch(base + "/api/inventory-sync", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + tok }, body: JSON.stringify({ dealer: "corwin-wholesale", vehicles: r.vehicles }) }).catch(() => null);
+                        console.log("[XK BG] wholesale auto-sync:", r.vehicles.length, "vehicles —", resp && resp.ok ? "shared OK" : "push failed")
+                    }
+                }
+            } catch (e) { console.warn("[XK BG] wholesale auto-sync error:", e) }
+            finally { xkVautoSyncing = !1 }
+        }
+        chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+            "complete" === changeInfo.status && tab && tab.url && xkIsVautoHost(tab.url) && setTimeout(() => xkVautoAutoSync(tabId), 4000)
+        }),
         chrome.sidePanel.setPanelBehavior({
             openPanelOnActionClick: !0
         }),
@@ -126,11 +166,18 @@ function(t, r, o, a, n) {
         // means Load Vehicles never hits a 45-second cold start mid-workday.
         chrome.alarms && (chrome.alarms.create("xk-keepalive", {
             periodInMinutes: 4
+        }), chrome.alarms.create("xk-vauto-sync", {
+            periodInMinutes: 20
         }), chrome.alarms.onAlarm.addListener(async e => {
             if ("xk-keepalive" === e.name) try {
                 let t = await chrome.storage.local.get("xk_backend"),
                     r = t && t.xk_backend;
                 r && fetch(String(r).replace(/\/+$/, "") + "/api/health").catch(() => {})
+            } catch (t) {}
+            if ("xk-vauto-sync" === e.name) try {
+                let tabs = await chrome.tabs.query({}),
+                    hit = tabs.find(t => t.url && xkIsVautoHost(t.url));
+                hit && xkVautoAutoSync(hit.id)
             } catch (t) {}
         })), chrome.runtime.onMessage.addListener((e, t, r) => {
             let a = e?.message || e?.action || e?.type;
