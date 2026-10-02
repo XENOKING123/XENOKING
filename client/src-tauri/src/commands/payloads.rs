@@ -335,6 +335,26 @@ const CATALOGUE: &[CatalogueEntry] = &[
         homepage: "https://github.com/LightningMods/itemzflow_PS5",
     },
     CatalogueEntry {
+        // All-in-one on-console PS5 manager by maj0r (same author as
+        // CheatRunner). Save backup/restore + file management + HTTP
+        // control, handy for doing save work directly on the console
+        // without a PC. Added to the catalog so users can one-click it.
+        id: "prosperomgr",
+        display_name: "ProsperoMgr",
+        role: "PS5 all-in-one save & file manager",
+        description: "All-in-one on-console PS5 manager by maj0r: save backup/restore, file browser, and HTTP-based management straight from the console. Companion to CheatRunner — grab it if you want to manage saves/files on-device without a PC.",
+        repo_host: "github.com",
+        repo_owner: "notmaj0r",
+        repo_name: "ProsperoMgr",
+        asset_name_hint: "ProsperoMgr",
+        on_console_marker_path: None,
+        process_name_hint: Some("ProsperoMgr"),
+        ports: &[],
+        autoload_priority: 5,
+        autoload_delay_ms: 200,
+        homepage: "https://github.com/notmaj0r/ProsperoMgr",
+    },
+    CatalogueEntry {
         // Companion to our Shell tab. Pre-2.13.0 we shipped 17
         // in-payload built-ins; 2.13.0 raised that to 42 (parity
         // with shsrv). shsrv still offers two things our built-

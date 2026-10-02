@@ -570,11 +570,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # CheatRunner.elf (maj0r) isn't built by CI. Pull it from the
-          # newest prior release that still has it so every release stays
-          # complete without committing it to git. (The standalone PS
-          # Trainer Viewer exe is no longer shipped — the desktop setup app
-          # already includes everything it did.)
+          # CheatRunner.elf (maj0r) isn't built by CI. Pull the LATEST release
+          # straight from the upstream repo so every XENO TOOL release ships the
+          # current cheat engine (upstream ships frequent firmware-compat fixes,
+          # e.g. v0.17.2 added FW 13.60 write support). Falls back to carrying
+          # forward a prior copy if the upstream fetch ever fails, so a release
+          # is never left without it. (The standalone PS Trainer Viewer exe is
+          # no longer shipped — the desktop setup app already covers it.)
           carry() {
             local name="$1"
             if [ -f "release/$name" ]; then echo "$name already present"; return 0; fi
@@ -587,7 +589,14 @@ jobs:
             done
             echo "::warning::could not carry $name from any prior release"
           }
-          carry CheatRunner.elf
+          # Prefer the newest upstream CheatRunner.elf.
+          if gh release download --repo notmaj0r/CheatRunner -p CheatRunner.elf -D release/ 2>/dev/null; then
+            CR_VER="$(gh release view --repo notmaj0r/CheatRunner --json tagName -q .tagName 2>/dev/null || echo '?')"
+            echo "fetched latest CheatRunner.elf from upstream ($CR_VER)"
+          else
+            echo "::warning::upstream CheatRunner fetch failed — carrying forward"
+            carry CheatRunner.elf
+          fi
           ls -la release
 
       - name: Generate latest.json updater manifest

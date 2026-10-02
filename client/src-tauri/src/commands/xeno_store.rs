@@ -459,12 +459,13 @@ fn extract_zip(bytes: &[u8], root: &std::path::Path) -> Result<u32, String> {
 const TRAINER_SEED_ZIP: &[u8] = include_bytes!("../../resources/trainers-seed.zip");
 const TITLES_SEED_ZIP: &[u8] = include_bytes!("../../resources/titles-seed.zip");
 const COVERS_SEED_ZIP: &[u8] = include_bytes!("../../resources/covers-seed.zip");
-// v8: refreshed the bundled cheat library from the source repos —
-// +599 trainer files covering 330 new game-versions across 302 games
-// (132 brand-new, mostly PS5), sourced from TeeKay87/HEN-Cheats-Collection
-// + RDX-Sci01/HEN-PPSA-Cheats (+169 cheatslist entries). Bump forces a
-// re-seed so existing installs pick up the new + updated trainer files.
-const SEED_VERSION: &str = "v8";
+// v9: 3-month refresh of the bundled cheat library from the source repos —
+// +45 trainer files covering 45 new game-versions (22 brand-new games incl.
+// Star Wars Jedi: Survivor, Final Fantasy XVI, Dynasty Warriors: Origins,
+// Avatar: Frontiers of Pandora, 007 First Light, Onimusha: Way of the Sword),
+// from TeeKay87/HEN-Cheats-Collection + RDX-Sci01 + GoldHEN (+45 cheatslist
+// entries). Bump forces a re-seed so existing installs pick up the new files.
+const SEED_VERSION: &str = "v9";
 
 /// Best-effort, called once at startup. Never panics — a seed hiccup just means
 /// the user syncs from the repos as before.

@@ -4,6 +4,15 @@ What's new in XENO TOOL, written for humans.
 
 ---
 
+## 3.2.70
+
+- **Fresh cheats (3-month refresh).** Pulled the latest from the source repos — **45 new game-versions, 22 brand-new titles** now bundled, including **Star Wars Jedi: Survivor, Final Fantasy XVI, Dynasty Warriors: Origins, Avatar: Frontiers of Pandora, 007 First Light, Onimusha: Way of the Sword, Dragon Ball FighterZ** and more. They're baked in, so a fresh install has them immediately.
+- **Always the newest CheatRunner.** Every release now ships the **latest** CheatRunner engine straight from upstream (currently v0.17.2, with the newest firmware write-support fixes) instead of carrying forward an old copy — so cheats keep working as firmware moves.
+- **New payload: ProsperoMgr.** Added the all-in-one on-console PS5 save/file manager to the Payloads catalog (one-click install like the rest).
+- **Tidier cheat index.** Cleaned up duplicate rows in the trainer/Title-Search list so versions show once, correctly.
+
+---
+
 ## 3.2.69
 
 - **Bigger bundled cheat library.** Refreshed the built-in cheats from the source repos — **330 new game-versions across 302 games (132 brand-new titles, mostly PS5)** now ship inside the app, so a fresh install has them immediately instead of waiting for the first background sync. Covers for the new games load automatically from box-art lookup.
