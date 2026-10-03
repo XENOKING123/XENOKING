@@ -337,6 +337,30 @@ export default function ConnectionScreen() {
           { port: PS5_LOADER_PORT, host: target },
           `Port ${PS5_LOADER_PORT} is open on ${target}`,
         ));
+      return;
+    }
+    // :9021 (the classic ELF loader) isn't the only way in. Newer
+    // jailbreak chains (e.g. Relapse / OnionHEN) load payloads through
+    // their own manager and never bind :9021 — but if our payload is
+    // already running (launched from that manager), its mgmt port
+    // (:9114) answers and the tool is fully usable. So before failing,
+    // check whether the engine is already up and, if so, let the user
+    // straight through instead of blocking on a port they'll never have.
+    let engineUp = false;
+    try {
+      engineUp = (await payloadCheck(target)).reachable;
+    } catch {
+      /* fall through to the port-closed message */
+    }
+    if (engineUp) {
+      settleStep1(
+        "ok",
+        tr(
+          "connection_engine_already_running",
+          { host: target, port: PS5_LOADER_PORT },
+          `XENO engine already running on ${target} — you're good to go (port ${PS5_LOADER_PORT} isn't needed; the payload is already loaded).`,
+        ),
+      );
     } else {
       settleStep1(
         "fail",

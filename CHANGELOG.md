@@ -4,6 +4,12 @@ What's new in XENO TOOL, written for humans.
 
 ---
 
+## 3.2.71
+
+- **Connects on the newest jailbreaks (Relapse / OnionHEN).** The connection check and the setup wizard required port **9021** (the old ELF loader), which the newer jailbreak chains don't bind — so the app kept saying *"Port 9021 not open — is your PS5 jailbroken?"* even when everything was running. Now, if the XENO engine is already loaded (e.g. you launched it from a payload manager), the app detects it on its own port (**9114**) and lets you straight in. No more false "not jailbroken" block when you clearly are.
+
+---
+
 ## 3.2.70
 
 - **Fresh cheats (3-month refresh).** Pulled the latest from the source repos — **45 new game-versions, 22 brand-new titles** now bundled, including **Star Wars Jedi: Survivor, Final Fantasy XVI, Dynasty Warriors: Origins, Avatar: Frontiers of Pandora, 007 First Light, Onimusha: Way of the Sword, Dragon Ball FighterZ** and more. They're baked in, so a fresh install has them immediately.

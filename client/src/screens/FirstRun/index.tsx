@@ -113,24 +113,43 @@ export default function FirstRunScreen() {
       ),
     );
     const ok = await portCheck(host, PS5_LOADER_PORT);
+    let engineAlreadyUp = false;
     if (!ok) {
-      setStep1("fail");
-      setStep1Msg(
-        tr(
-          "first_run_step1_unreachable",
-          { host, port: PS5_LOADER_PORT },
-          `Port ${PS5_LOADER_PORT} not open on ${host}. Is your PS5 jailbroken and on the same LAN?`,
-        ),
-      );
-      return;
+      // Newer jailbreak chains (e.g. Relapse / OnionHEN) load payloads
+      // through their own manager and never bind :9021. If our payload
+      // is already running on one of those, the mgmt port (:9114)
+      // answers — setup is effectively done — so check that before
+      // failing rather than blocking on a port they'll never have.
+      try {
+        engineAlreadyUp = (await payloadCheck(host)).reachable;
+      } catch {
+        /* ignore — fall through to the unreachable message */
+      }
+      if (!engineAlreadyUp) {
+        setStep1("fail");
+        setStep1Msg(
+          tr(
+            "first_run_step1_unreachable",
+            { host, port: PS5_LOADER_PORT },
+            `Port ${PS5_LOADER_PORT} not open on ${host}. Is your PS5 jailbroken and on the same LAN?`,
+          ),
+        );
+        return;
+      }
     }
     setStep1("ok");
     setStep1Msg(
-      tr(
-        "first_run_step1_ok",
-        { host },
-        `${host} is reachable on the loader port.`,
-      ),
+      engineAlreadyUp
+        ? tr(
+            "first_run_step1_already_up",
+            { host, port: PS5_LOADER_PORT },
+            `${host} — XENO engine already running. You're set up; port ${PS5_LOADER_PORT} isn't needed.`,
+          )
+        : tr(
+            "first_run_step1_ok",
+            { host },
+            `${host} is reachable on the loader port.`,
+          ),
     );
     // Fire a payloadCheck to populate kernel/firmware in the store
     // so step 2's auto-pick has data to work with. Best-effort: if
