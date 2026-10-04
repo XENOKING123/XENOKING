@@ -465,7 +465,10 @@ const COVERS_SEED_ZIP: &[u8] = include_bytes!("../../resources/covers-seed.zip")
 // Avatar: Frontiers of Pandora, 007 First Light, Onimusha: Way of the Sword),
 // from TeeKay87/HEN-Cheats-Collection + RDX-Sci01 + GoldHEN (+45 cheatslist
 // entries). Bump forces a re-seed so existing installs pick up the new files.
-const SEED_VERSION: &str = "v9";
+// v10: added Marvel's Wolverine (PPSA03671 v01.001.005) trainer by Xenoking
+// — Infinite Health, Instant Rage, Max level/skill (encrypted .mc4 + plaintext
+// sidecar + cover art). Bump forces a re-seed so installs pick it up.
+const SEED_VERSION: &str = "v10";
 
 /// Best-effort, called once at startup. Never panics — a seed hiccup just means
 /// the user syncs from the repos as before.

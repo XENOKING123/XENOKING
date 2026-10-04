@@ -4,6 +4,12 @@ What's new in XENO TOOL, written for humans.
 
 ---
 
+## 3.2.72
+
+- **Marvel's Wolverine trainer added.** A fresh **Marvel's Wolverine** (PPSA03671, v01.001.005) trainer is now bundled — **Infinite Health, Instant Rage after receiving damage, Max level/skill points** — by **Xenoking**, with cover art. It's the first one out for the game; apply it from My Games like any other.
+
+---
+
 ## 3.2.71
 
 - **Connects on the newest jailbreaks (Relapse / OnionHEN).** The connection check and the setup wizard required port **9021** (the old ELF loader), which the newer jailbreak chains don't bind — so the app kept saying *"Port 9021 not open — is your PS5 jailbroken?"* even when everything was running. Now, if the XENO engine is already loaded (e.g. you launched it from a payload manager), the app detects it on its own port (**9114**) and lets you straight in. No more false "not jailbroken" block when you clearly are.
