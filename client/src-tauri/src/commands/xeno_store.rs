@@ -468,7 +468,7 @@ const COVERS_SEED_ZIP: &[u8] = include_bytes!("../../resources/covers-seed.zip")
 // v10: added Marvel's Wolverine (PPSA03671 v01.001.005) trainer by Xenoking
 // — Infinite Health, Instant Rage, Max level/skill (encrypted .mc4 + plaintext
 // sidecar + cover art). Bump forces a re-seed so installs pick it up.
-const SEED_VERSION: &str = "v10";
+const SEED_VERSION: &str = "v11";
 
 /// Best-effort, called once at startup. Never panics — a seed hiccup just means
 /// the user syncs from the repos as before.
@@ -1019,6 +1019,19 @@ fn version_from_name(name: &str) -> String {
         .to_string()
 }
 
+/// Best-effort modder/author from a trainer filename — the last `_`-separated
+/// token of the stem (e.g. `...PPSA20560_1.011_Nimrod.shn` -> `Nimrod`). Used
+/// for encrypted SHNX blobs where the author isn't readable from the bytes.
+fn modder_from_name(name: &str) -> String {
+    let stem = name.rsplit_once('.').map(|(a, _)| a).unwrap_or(name);
+    let last = stem.rsplit('_').next().unwrap_or("").trim();
+    if last.is_empty() || last.chars().all(|c| c.is_ascii_digit() || c == '.') {
+        String::new()
+    } else {
+        last.to_string()
+    }
+}
+
 /// Scan the local trainer library into lightweight rows for the browse pages.
 /// Game names are resolved from the file first, then the bundled title index
 /// (cheatslist.json / All_Titles.json) — so id-named trainers (e.g. Saros) are
@@ -1075,31 +1088,53 @@ pub async fn list_trainers(app: AppHandle) -> Result<Vec<TrainerRow>, String> {
             });
         }
     }
-    // SHN (XML)
+    // SHN — plaintext XML trainers AND the newer encrypted SHNX containers
+    // (distributed as `.ShnExt`, remapped to `.shn`). Plaintext ones we parse
+    // for name/version/cheats; encrypted ones aren't valid UTF-8 (or have no XML
+    // tags), so we derive id/version/modder from the filename and let CheatRunner
+    // decrypt the cheats on-console. Either way the row shows up and can be sent.
     if let Ok(rd) = std::fs::read_dir(root.join("shn")) {
         for e in rd.flatten() {
             let p = e.path();
             if p.extension().and_then(|s| s.to_str()) != Some("shn") {
                 continue;
             }
-            let xml = std::fs::read_to_string(&p).unwrap_or_default();
-            if xml.is_empty() {
-                continue;
-            }
             let fname = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
-            let mut tid = attr(&xml, "Cusa").split('_').next().unwrap_or("").to_uppercase();
-            if tid.is_empty() {
-                tid = id_from_name(fname);
+            match std::fs::read_to_string(&p) {
+                // plaintext XML trainer (old format)
+                Ok(xml) if !xml.is_empty() && xml.contains('<') => {
+                    let mut tid =
+                        attr(&xml, "Cusa").split('_').next().unwrap_or("").to_uppercase();
+                    if tid.is_empty() {
+                        tid = id_from_name(fname);
+                    }
+                    rows.push(TrainerRow {
+                        game: resolve(attr(&xml, "Game"), &tid),
+                        title_id: tid,
+                        version: attr(&xml, "Version"),
+                        format: "SHN".into(),
+                        modder: attr(&xml, "Moder"),
+                        cheats: cheat_texts(&xml),
+                        path: p.to_string_lossy().to_string(),
+                    });
+                }
+                // encrypted SHNX container (or any non-XML/binary blob)
+                _ => {
+                    let tid = id_from_name(fname);
+                    if tid.is_empty() {
+                        continue;
+                    }
+                    rows.push(TrainerRow {
+                        game: resolve(String::new(), &tid),
+                        title_id: tid,
+                        version: version_from_name(fname),
+                        format: "SHN".into(),
+                        modder: modder_from_name(fname),
+                        cheats: Vec::new(), // filled from cheatslist.json below
+                        path: p.to_string_lossy().to_string(),
+                    });
+                }
             }
-            rows.push(TrainerRow {
-                game: resolve(attr(&xml, "Game"), &tid),
-                title_id: tid,
-                version: attr(&xml, "Version"),
-                format: "SHN".into(),
-                modder: attr(&xml, "Moder"),
-                cheats: cheat_texts(&xml),
-                path: p.to_string_lossy().to_string(),
-            });
         }
     }
     // MC4 — list EVERY .mc4 blob (with or without a .mc4.xml sidecar). Name

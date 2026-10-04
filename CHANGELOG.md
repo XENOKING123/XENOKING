@@ -4,6 +4,14 @@ What's new in XENO TOOL, written for humans.
 
 ---
 
+## 3.2.74
+
+- **The newest encrypted trainers finally show up.** The scene's latest cheat format (the encrypted/signed `.ShnExt` / SHNX container) was being **silently skipped** in the Trainers list — even when the file was already bundled — so some games looked like they had no trainer when they actually did. XENO TOOL now lists these encrypted trainers and sends them to your console, where **CheatRunner decrypts them on the fly**. This alone un-hides trainers for **Resident Evil 4, The End is Nigh and Tomb Raider I-III Remastered** that were in the bundle all along.
+- **17 fresh trainers bundled.** Including **DOOM: The Dark Ages, Elden Ring, Black Myth: Wukong, Wo Long: Fallen Dynasty, Remnant 2, Kena: Bridge of Spirits, Resident Evil 4, Tomb Raider I-III Remastered, Source of Madness, Enotria, Anno 117: Pax Romana, Dark Light, Legacy of Kain: Defiance Remastered** and more — by **Nimrod, Trexx, Talixme, illusional, Pharaoh2k, CompoteShoes** and others. Apply them from My Games like any other.
+- **Cheat sync.** Pulled the latest from the source repos — **41 more game-versions** baked in, so a fresh install has them immediately instead of waiting for the first background sync.
+
+---
+
 ## 3.2.73
 
 - **Android app discontinued.** XENO TOOL is now **Windows desktop only** — the APK is no longer built or shipped. (Everything from 3.2.72 — the Marvel's Wolverine trainer and the rest — is included here.)
