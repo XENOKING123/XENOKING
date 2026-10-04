@@ -4,6 +4,12 @@ What's new in XENO TOOL, written for humans.
 
 ---
 
+## 3.2.73
+
+- **Android app discontinued.** XENO TOOL is now **Windows desktop only** — the APK is no longer built or shipped. (Everything from 3.2.72 — the Marvel's Wolverine trainer and the rest — is included here.)
+
+---
+
 ## 3.2.72
 
 - **Marvel's Wolverine trainer added.** A fresh **Marvel's Wolverine** (PPSA03671, v01.001.005) trainer is now bundled — **Infinite Health, Instant Rage after receiving damage, Max level/skill points** — by **Xenoking**, with cover art. It's the first one out for the game; apply it from My Games like any other.
