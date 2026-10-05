@@ -1,0 +1,124 @@
+/* XENOKING auth gate — neon gaming theme. Scoped under #xk-gate so it never
+   touches the tool UI. */
+@keyframes xk-grid-pan { from { background-position: 0 0, 0 0; } to { background-position: 0 -46px, -46px 0; } }
+@keyframes xk-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+@keyframes xk-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes xk-spin { to { transform: rotate(360deg); } }
+
+#xk-gate {
+  --cyan:#25e6ff; --purple:#a855f7; --pink:#ff3d81;
+  --txt:#eaf0ff; --muted:#8a95b8; --line:rgba(130,150,230,.18);
+  --grad:linear-gradient(135deg,#25e6ff 0%,#8b5cf6 55%,#ff3d81 100%);
+  position: fixed; inset: 0; z-index: 2147483647;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 26px 16px 44px; overflow-y: auto;
+  color: var(--txt);
+  font: 14px/1.55 system-ui,"Segoe UI",Roboto,sans-serif;
+  background:
+    radial-gradient(120% 90% at 12% -10%, rgba(37,230,255,.16), transparent 55%),
+    radial-gradient(120% 90% at 100% 110%, rgba(255,61,129,.16), transparent 55%),
+    radial-gradient(90% 70% at 88% 0%, rgba(168,85,247,.14), transparent 60%),
+    #05060c;
+}
+/* animated grid + vignette overlay */
+#xk-gate::before {
+  content:""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    linear-gradient(rgba(130,150,230,.06) 1px, transparent 1px) 0 0/46px 46px,
+    linear-gradient(90deg, rgba(130,150,230,.06) 1px, transparent 1px) 0 0/46px 46px;
+  -webkit-mask-image: radial-gradient(120% 80% at 50% 30%, #000 30%, transparent 78%);
+  mask-image: radial-gradient(120% 80% at 50% 30%, #000 30%, transparent 78%);
+  animation: xk-grid-pan 14s linear infinite;
+}
+#xk-gate > * { position: relative; z-index: 1; }
+#xk-gate * { box-sizing: border-box; }
+
+/* ---- brand / logo ---- */
+#xk-gate .xk-brand { text-align: center; margin: 4px 0 20px; animation: xk-rise .5s ease both; }
+#xk-gate .xk-emblem { width: 76px; height: 76px; filter: drop-shadow(0 0 14px rgba(37,230,255,.55)); animation: xk-float 5s ease-in-out infinite; }
+#xk-gate .xk-word {
+  margin: 8px 0 0; font-size: 27px; font-weight: 900; letter-spacing: 5px;
+  background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 0 18px rgba(139,92,246,.45));
+}
+#xk-gate .xk-tag { color: var(--muted); font-size: 11px; letter-spacing: 4px; font-weight: 700; margin-top: 1px; }
+
+/* ---- card ---- */
+#xk-gate .xk-card {
+  position: relative; width: 100%; max-width: 430px; padding: 22px 20px;
+  border-radius: 18px; background: rgba(16,20,36,.72); backdrop-filter: blur(12px);
+  border: 1px solid var(--line);
+  box-shadow: 0 20px 60px -20px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.04);
+  animation: xk-rise .5s .05s ease both;
+}
+/* neon gradient hairline around the card */
+#xk-gate .xk-card::before {
+  content:""; position: absolute; inset: 0; border-radius: 18px; padding: 1px;
+  background: var(--grad); opacity: .5;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none;
+}
+
+#xk-gate label { display: block; font-size: 11px; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); margin: 14px 0 6px; font-weight: 700; }
+#xk-gate input, #xk-gate select {
+  width: 100%; padding: 11px 13px; color: var(--txt); font-size: 14px;
+  background: rgba(6,9,18,.85); border: 1px solid var(--line); border-radius: 11px;
+  transition: border-color .15s, box-shadow .15s;
+}
+#xk-gate input::placeholder { color: #55608a; }
+#xk-gate input:focus, #xk-gate select:focus {
+  outline: none; border-color: var(--cyan);
+  box-shadow: 0 0 0 3px rgba(37,230,255,.16), 0 0 18px rgba(37,230,255,.22);
+}
+
+#xk-gate button {
+  cursor: pointer; border: 0; border-radius: 11px; padding: 11px 15px; font-size: 14px; font-weight: 800;
+  letter-spacing: .3px; color: #06070c; background: var(--grad);
+  box-shadow: 0 8px 22px -8px rgba(139,92,246,.7); transition: transform .12s, box-shadow .12s, filter .12s;
+}
+#xk-gate button:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 12px 26px -8px rgba(37,230,255,.6); filter: brightness(1.06); }
+#xk-gate button:active:not(:disabled) { transform: translateY(0); }
+#xk-gate button:disabled { opacity: .5; cursor: default; }
+#xk-gate button.xk-ghost { background: transparent; color: var(--txt); border: 1px solid var(--line); box-shadow: none; }
+#xk-gate button.xk-ghost:hover:not(:disabled) { border-color: var(--cyan); box-shadow: 0 0 14px rgba(37,230,255,.25); }
+#xk-gate .xk-full { width: 100%; margin-top: 18px; }
+
+/* small pill action buttons */
+#xk-gate button.xk-approve { background: linear-gradient(135deg,#2ee6a6,#12b981); color: #04120c; box-shadow: 0 6px 16px -8px rgba(46,230,166,.7); }
+#xk-gate button.xk-block   { background: linear-gradient(135deg,#ffb020,#f7861f); color: #1a0f00; box-shadow: none; }
+#xk-gate button.xk-ban     { background: linear-gradient(135deg,#ff5b7a,#e0294b); color: #fff; box-shadow: none; }
+#xk-gate button.xk-del     { background: rgba(255,91,122,.12); color: #ff8ea0; border: 1px solid rgba(255,91,122,.3); box-shadow: none; }
+
+#xk-gate .xk-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+#xk-gate .xk-between { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+#xk-gate .xk-switch { text-align: center; margin-top: 16px; color: var(--muted); font-size: 13px; }
+#xk-gate .xk-switch a { color: var(--cyan); cursor: pointer; font-weight: 700; text-decoration: none; }
+#xk-gate .xk-switch a:hover { text-shadow: 0 0 10px rgba(37,230,255,.6); }
+#xk-gate .xk-msg { margin-top: 12px; min-height: 18px; font-size: 13px; font-weight: 600; }
+#xk-gate .xk-msg.err { color: #ff8ea0; }
+#xk-gate .xk-msg.ok  { color: #4fe3a0; }
+#xk-gate .xk-note { color: var(--muted); font-size: 12.5px; margin-top: 12px; }
+#xk-gate h3 { margin: 0 0 6px; font-size: 17px; font-weight: 800; }
+
+/* ---- owner dashboard ---- */
+#xk-gate .xk-dash { max-width: 660px; }
+#xk-gate .xk-counts { display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; font-weight: 700; }
+#xk-gate .xk-chip { padding: 3px 10px; border-radius: 999px; background: rgba(255,255,255,.05); border: 1px solid var(--line); color: var(--muted); }
+#xk-gate .xk-userlist { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+#xk-gate .xk-ucard { padding: 12px; border-radius: 14px; background: rgba(255,255,255,.03); border: 1px solid var(--line); animation: xk-rise .3s ease both; }
+#xk-gate .xk-uhead { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+#xk-gate .xk-uemail { font-weight: 700; word-break: break-all; }
+#xk-gate .xk-uname { color: var(--muted); font-size: 12px; }
+#xk-gate .xk-uleft { font-size: 12px; color: var(--muted); margin-top: 2px; }
+#xk-gate .xk-uleft b { color: var(--cyan); }
+#xk-gate .xk-pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 800; letter-spacing: .3px; white-space: nowrap; }
+#xk-gate .xk-pill.pending  { background: rgba(255,176,32,.14); color: #ffcf6b; border: 1px solid rgba(255,176,32,.3); }
+#xk-gate .xk-pill.approved { background: rgba(46,230,166,.14); color: #5fe3a8; border: 1px solid rgba(46,230,166,.3); }
+#xk-gate .xk-pill.banned   { background: rgba(255,91,122,.14); color: #ff90a2; border: 1px solid rgba(255,91,122,.3); }
+#xk-gate .xk-pill.blocked  { background: rgba(255,140,50,.14); color: #ffab6b; border: 1px solid rgba(255,140,50,.3); }
+#xk-gate .xk-pill.expired  { background: rgba(150,160,190,.14); color: #b9c2dc; border: 1px solid rgba(150,160,190,.3); }
+#xk-gate .xk-uactions { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; margin-top: 11px; }
+#xk-gate select.xk-dur { width: auto; padding: 7px 9px; font-size: 12px; font-weight: 700; border-radius: 9px; }
+#xk-gate .xk-uactions button { padding: 7px 11px; font-size: 12px; }
+#xk-gate .xk-empty { text-align: center; color: var(--muted); padding: 22px 0; }
+#xk-gate .xk-spin { display:inline-block; width:15px; height:15px; border:2px solid rgba(255,255,255,.25); border-top-color: var(--cyan); border-radius:50%; animation: xk-spin .7s linear infinite; vertical-align:-3px; }
