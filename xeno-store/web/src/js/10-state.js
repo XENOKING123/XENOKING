@@ -128,4 +128,6 @@
     };
   }
   XS.state = state;
+  /* Screen registry: screens register themselves at load time; 50-router.js takes over the same object. */
+  XS.router = { defs: {}, order: [], register: function (id, def) { this.defs[id] = def; this.order.push(id); } };
 })();

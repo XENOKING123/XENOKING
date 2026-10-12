@@ -17,6 +17,7 @@
 
 #ifndef XENO_HOST
 #include <ps5/kernel.h>
+#include <sys/sysctl.h>
 typedef struct notify_request {
   char useless1[45];
   char message[3075];
@@ -61,11 +62,17 @@ const char *sys_fw_version(void) {
 #else
   static char ver[16];
   if (!ver[0]) {
-    /* kernel_get_fw_version() returns the SDK-style packed version where the
-     * top two bytes carry the major/minor as printed digits (13.60 → 0x1360). */
-    uint32_t v = kernel_get_fw_version();
-    unsigned major = (v >> 24) & 0xff, minor = (v >> 16) & 0xff;
-    xsnprintf(ver, sizeof ver, "%x.%02x", major, minor);
+    /* kern.sdk_version packs the firmware as BCD-style bytes: 13.60 →
+     * 0x13600000. The sysctl is a plain syscall; kernel_get_fw_version() from
+     * <ps5/kernel.h> reads kernel memory, which this repo observed faulting on
+     * some SKUs (payload/src/hw_info.c), so the sysctl is preferred. */
+    uint32_t v = 0;
+    size_t sz = sizeof v;
+    if (sysctlbyname("kern.sdk_version", &v, &sz, NULL, 0) != 0 || v == 0) {
+      xstrlcpy(ver, "unknown", sizeof ver);
+    } else {
+      xsnprintf(ver, sizeof ver, "%x.%02x", (v >> 24) & 0xff, (v >> 16) & 0xff);
+    }
   }
   return ver;
 #endif

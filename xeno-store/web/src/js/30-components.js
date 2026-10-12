@@ -472,5 +472,65 @@
     return h('section.rail', [h('div.section-head', [h('div.skel', { style: { width: '220px', height: '24px' } })]), track]);
   };
 
+  /* ---------- Virtualized grid: renders only rows within ±2 rows of the scroller viewport ---------- */
+  ui.vgrid = function (container, items, scroller, render) {
+    var cols = 0, rowH = 0, gap = 18, pitch = 0, rows = {}, rafPending = false, width = 0;
+    container.classList.add('vgrid');
+    function measure() {
+      var W = container.clientWidth;
+      if (!W) return false;
+      var cs = getComputedStyle(document.documentElement);
+      var cardW = parseFloat(cs.getPropertyValue('--card-w')) || 196;
+      gap = parseFloat(cs.getPropertyValue('--rail-gap')) || 18;
+      var c = Math.max(1, Math.floor((W + gap) / (cardW + gap)));
+      if (c === cols && W === width && rowH) return true;
+      cols = c; width = W;
+      var probe = rowEl(0); probe.style.visibility = 'hidden';
+      if (items.length) probe.appendChild(render(items[0]));
+      container.appendChild(probe);
+      rowH = probe.offsetHeight || Math.round(cardW * 1.33 + 70);
+      container.removeChild(probe);
+      pitch = rowH + gap;
+      var n = Math.ceil(items.length / cols);
+      container.style.height = Math.max(0, n * pitch - gap) + 'px';
+      for (var k in rows) { if (rows[k].parentNode) container.removeChild(rows[k]); }
+      rows = {};
+      return true;
+    }
+    function rowEl(i) {
+      var r = h('div.vrow', { data: { row: i } });
+      r.style.top = (i * pitch) + 'px';
+      r.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
+      return r;
+    }
+    function update() {
+      rafPending = false;
+      if (!container.isConnected) { detach(); return; }
+      if (!measure()) return;
+      var sb = scroller.getBoundingClientRect(), cb = container.getBoundingClientRect();
+      var top = sb.top - cb.top, bottom = top + sb.height;
+      var first = Math.max(0, Math.floor(top / pitch) - 2);
+      var last = Math.min(Math.ceil(items.length / cols) - 1, Math.ceil(bottom / pitch) + 2);
+      var active = document.activeElement;
+      for (var k in rows) {
+        var idx = Number(k);
+        if ((idx < first || idx > last) && !(active && rows[k].contains(active))) { container.removeChild(rows[k]); delete rows[k]; }
+      }
+      for (var i = first; i <= last; i++) {
+        if (rows[i]) continue;
+        var r = rowEl(i);
+        for (var c = 0; c < cols; c++) { var it = items[i * cols + c]; if (it) r.appendChild(render(it)); }
+        rows[i] = r; container.appendChild(r);
+      }
+    }
+    function schedule() { if (rafPending) return; rafPending = true; requestAnimationFrame(update); }
+    function detach() { scroller.removeEventListener('scroll', schedule); window.removeEventListener('resize', schedule); }
+    scroller.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+    requestAnimationFrame(update);
+    container.vgridUpdate = schedule;
+    return { update: schedule, detach: detach };
+  };
+
   XS.ui = ui;
 })();

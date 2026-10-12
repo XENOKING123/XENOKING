@@ -118,7 +118,8 @@ void jw_i64(jw *w, int64_t v) {
 void jw_double(jw *w, double v) {
   char tmp[64];
   int n;
-  if (isnan(v) || isinf(v)) n = snprintf(tmp, sizeof tmp, "0");
+  /* NaN/Inf are not JSON; self-comparison avoids the BSD isnan() macro. */
+  if (v != v || v > 1.7976931348623157e308 || v < -1.7976931348623157e308) n = snprintf(tmp, sizeof tmp, "0");
   else if (v == floor(v) && fabs(v) < 1e15) n = snprintf(tmp, sizeof tmp, "%.0f", v);
   else n = snprintf(tmp, sizeof tmp, "%.6g", v);
   jw_sep(w);
