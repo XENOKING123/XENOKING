@@ -938,3 +938,28 @@ game/title ID/author; "Compatible with my games" quick filter (installed titles)
 **17.22.7 API** — `GET /api/saves/store?titleId=&category=&q=` (index + compatibility fields merged), `POST /api/saves/store/{id}/install {user, backupFirst}`,
 `POST /api/saves/store/{id}/download`, `GET /api/saves/engine` → `{tier:"native"|"garlic"|"raw", detail}`, `POST /api/saves/export {user, titleId, dirName}` → zip path + manifest,
 `POST /api/saves/upload {zipPath, host}` → `{url, sha256, size}`, `POST /api/saves/submit {…metadata}` → `{issueUrl, qr}`, `GET /api/saves/installed-version?titleId=`.
+
+**17.22.8 Backends (the store talks to a real community database when one is configured)**
+- **Supabase backend (preferred, owner-deployed)** — the schema the owner already has (`public.ps5_save_collection`: `id uuid, title_id PPSA#####, game, shared_by, notes,
+  file_path, file_name, file_size, cover_path, garlic_id, created_at`; bucket `ps5-saves`; edge function `garlic-savedb` with actions list / download / sync / debug that
+  mirrors garlicsaves.com's Save DB every 6 h). XENO STORE ships the deployable backend under `xeno-store/backend/supabase/`:
+  `migrations/0000…0003` (as provided) + `0004_xeno_save_store.sql` (adds `category text`, `game_version text`, `region text`, `tags text[]`, `downloads int default 0`,
+  `status text default 'published'`, `source text default 'xeno'`, an RPC `increment_downloads(id)`, and an index on `(title_id, created_at desc)`),
+  `functions/garlic-savedb/index.ts` (ported with XENO naming; secrets `GARLIC_SAVEDB_SESSION`, `GARLIC_SAVEDB_CF`, optional username/password stay server-side),
+  `functions/xeno-save-submit/index.ts` (validates an insert: PPSA id, sizes, zip contains no sealed keys when the file is in our bucket) and a README with the exact
+  deploy steps. The console never sees Garlic cookies.
+  Runtime config: `updates/saves-backend.json` → `{"kind":"supabase","url":"https://<ref>.supabase.co","anonKey":"<public anon key>","bucket":"ps5-saves","garlicFunction":"garlic-savedb"}`
+  (fetched with the catalog; overridable in Settings → Saves → Backend). The anon key is public by design (RLS); writes are limited by the table's policies.
+  Payload adapter (`savestore_supabase.c`): list `GET {url}/rest/v1/ps5_save_collection?select=*&order=created_at.desc&limit=2000` (+ `&title_id=eq.PPSA…`) with
+  `apikey` + `Authorization: Bearer <anon>`; covers via `POST {url}/storage/v1/object/sign/ps5-saves/<path>` (signed URL, 1 h, cached); download: storage rows via a signed URL,
+  `garlic:<id>` rows via `POST {url}/functions/v1/garlic-savedb {"action":"download","id":N}` (streamed to the queue like any download); upload:
+  `POST {url}/storage/v1/object/ps5-saves/<PPSA>/<uuid>-<name>.zip` (`Content-Type: application/zip`), cover `…-cover.png` extracted from the zip's `icon0.png`,
+  then `POST {url}/rest/v1/ps5_save_collection` (`Prefer: return=representation`). Download counts via the RPC.
+- **GitHub index backend** (zero infrastructure) — `updates/saves.json` + issue intake as in §17.22.5; used when no Supabase config is present. Both can be active (merged list,
+  deduped by sha256/garlic_id).
+- **Garlic compatibility** — Garlic's "decrypted save zip" (plaintext files + `sce_sys/icon0.png`, `param.sfo`) is accepted as-is by the install path (manifest optional:
+  titleId comes from the index row, version/region from the row when present, else "unknown — check before installing"). Our uploads use the same layout plus `xeno-save.json`,
+  so XENO saves work in Garlic and Apollo-style tools too.
+- UI: store cards show cover (icon0 from the zip, else catalog art), game, title ID, category chip (from `category`, else inferred from notes keywords: "100%/platinum" →
+  platinum, "start/ng+/max" → starter, "trophy/boss" → checkpoint, "mod/glitch" → modded), description, shared_by, date, size, downloads, compatibility badge. Upload dialog
+  mirrors the owner's "Add PS5 save" form (title ID auto-filled, game, your name, description ≤ 300 chars, category, optional picture) but the zip comes from the engine export.
