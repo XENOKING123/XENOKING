@@ -216,3 +216,12 @@ key.properties
 client/public/cheatslist.json
 client/public/CHANGELOG.md
 client/public/FAQ.md
+
+# XENO STORE generated build outputs
+xeno-store/src/assets.h
+xeno-store/web/dist/
+xeno-store/web/screenshots/
+xeno-store/build/
+xeno-store/dist/
+xeno-store/*.elf
+xeno-store/*.elf.gz
