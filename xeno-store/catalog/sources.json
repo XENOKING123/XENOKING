@@ -1,0 +1,104 @@
+{
+  "sources": [
+    {
+      "id": "archive",
+      "name": "Archive.org",
+      "kind": "direct",
+      "homepage": "https://archive.org",
+      "notice": "Public archive. Direct downloads with Range support; sizes and hashes come from item metadata."
+    },
+    {
+      "id": "vikingfile",
+      "name": "Vikingfile",
+      "kind": "browser",
+      "homepage": "https://vikingfile.com",
+      "notice": "Needs a human check in the PS5 browser (or on your phone) before the file link works. Use 'Enter file link' after the check."
+    },
+    {
+      "id": "dlpsgame",
+      "name": "DLPSGAME",
+      "kind": "page",
+      "homepage": "https://dlpsgame.com",
+      "password": "DLPSGAME.COM",
+      "notice": "Game pages list mirrors per version (base, updates, DLC). Archives use the password DLPSGAME.COM."
+    },
+    {
+      "id": "superpsx",
+      "name": "SuperPSX",
+      "kind": "page",
+      "homepage": "https://www.superpsx.com",
+      "password": "SuperPSX",
+      "notice": "Game pages with mirror links."
+    },
+    {
+      "id": "pkggames",
+      "name": "pkg.games",
+      "kind": "page",
+      "homepage": "https://pkg.games",
+      "notice": "Game pages with mirror links."
+    },
+    {
+      "id": "pspkg",
+      "name": "pspkg.com",
+      "kind": "page",
+      "homepage": "https://pspkg.com",
+      "notice": "Game pages with mirror links."
+    },
+    {
+      "id": "arabicps4",
+      "name": "ArabicPS4Games",
+      "kind": "page",
+      "homepage": "https://arabicps4games.com",
+      "notice": "Game pages with mirror links."
+    },
+    {
+      "id": "xeno",
+      "name": "XENO mirrors",
+      "kind": "direct",
+      "homepage": "https://github.com/XENOKING123/XENOKING",
+      "notice": "Direct links curated by the XENO community."
+    },
+    {
+      "id": "orbit",
+      "name": "Orbit catalogue",
+      "kind": "direct",
+      "homepage": "https://github.com/saawant12/orbit-store-ps5",
+      "notice": "Releases from Orbit Store's public catalogue feed (Archive.org and Vikingfile)."
+    },
+    {
+      "id": "blackbox",
+      "name": "BlackBox catalog",
+      "kind": "direct",
+      "homepage": "https://github.com/D3ATHLY/blackbox",
+      "notice": "Releases from BlackBox's public catalog (Archive.org and Vikingfile)."
+    },
+    {
+      "id": "romsfun",
+      "name": "Romsfun",
+      "kind": "page",
+      "homepage": "https://romsfun.com",
+      "notice": "Game pages with mirror links."
+    },
+    {
+      "id": "romspure",
+      "name": "Romspure",
+      "kind": "page",
+      "homepage": "https://romspure.cc",
+      "notice": "Game pages with mirror links (expect pop-ups on the site)."
+    },
+    {
+      "id": "pkgzone",
+      "name": "Pkg-Zone",
+      "kind": "page",
+      "homepage": "https://pkg-zone.com",
+      "notice": "Game pages with direct package links, updates and backports."
+    },
+    {
+      "id": "espacypkg",
+      "name": "Espacypkg",
+      "kind": "page",
+      "homepage": "https://espacypkg.com",
+      "notice": "Game pages with package links."
+    }
+  ]
+}

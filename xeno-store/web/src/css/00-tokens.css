@@ -1,0 +1,67 @@
+/* XENO STORE — design tokens (SPEC §11.4). Themes override these in 40-themes.css only. */
+:root {
+  --bg0: #060b1c;
+  --bg1: #0a1330;
+  --card: #0f1d44;
+  --card2: #15265a;
+  --line: #22417e;
+  --line2: #2e55a3;
+  --txt: #eaf1ff;
+  --dim: #9fb4e6;
+  --mute: #6f86bf;
+  --gold: #ffce4a;
+  --gold2: #ffe08a;
+  --gold-ink: #1a1200;
+  --acc: #4aa3ff;
+  --acc2: #7cc0ff;
+  --good: #4aff8a;
+  --warn: #ff9a4a;
+  --bad: #ff5c6c;
+  --ps5: #2f7cf6;
+  --ps4: #8a94b3;
+
+  --radius-s: 8px;
+  --radius-m: 12px;
+  --radius-l: 18px;
+  --radius-xl: 24px;
+
+  --focus-ring: 0 0 0 3px var(--gold), 0 0 24px rgba(255, 206, 74, .55);
+  --focus-ring-inset: inset 0 0 0 3px var(--gold);
+  --shadow-card: 0 10px 30px rgba(0, 0, 0, .45);
+  --shadow-sheet: -24px 0 60px rgba(0, 0, 0, .55);
+
+  --glow-spot: #15295e;
+  --canvas: radial-gradient(1200px 700px at 30% -10%, var(--glow-spot) 0%, var(--bg0) 60%);
+  --glass: rgba(10, 19, 48, .72);
+  --glass-strong: rgba(6, 11, 28, .88);
+  --overlay: rgba(3, 6, 16, .72);
+  --btn2-bg: rgba(74, 163, 255, .14);
+  --btn2-bg-hover: rgba(74, 163, 255, .24);
+  --chip-bg: rgba(255, 255, 255, .06);
+  --chip-line: rgba(255, 255, 255, .10);
+
+  --font: Inter, "Segoe UI", system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --topbar-h: 64px;
+  --legend-h: 40px;
+  --phonebar-h: 60px;
+  --gutter: 40px;
+
+  --card-w: 196px;
+  --rail-gap: 18px;
+
+  --dur-fast: 120ms;
+  --dur: 220ms;
+  --dur-slow: 360ms;
+  --ease: cubic-bezier(.16, 1, .3, 1);
+}
+
+html[data-cards="s"] { --card-w: 156px; }
+html[data-cards="l"] { --card-w: 240px; }
+
+html[data-motion="reduce"] {
+  --dur-fast: 0ms;
+  --dur: 0ms;
+  --dur-slow: 0ms;
+}

@@ -1,0 +1,55 @@
+/* Themes: token overrides only (SPEC §11.4). xeno-gold is the :root default in 00-tokens.css. */
+html[data-theme="midnight"] {
+  --gold: #4aa3ff; --gold2: #8fcaff; --gold-ink: #04101f;
+  --focus-ring: 0 0 0 3px var(--gold), 0 0 24px rgba(74, 163, 255, .55);
+  --glow-spot: #10265a;
+}
+html[data-theme="oled"] {
+  --bg0: #000000; --bg1: #07070a; --card: #101014; --card2: #17171c; --line: #26262c; --line2: #3a3a44;
+  --dim: #b4b8c6; --mute: #7b7f8e; --glow-spot: #0c0c12; --glass: rgba(0, 0, 0, .78); --glass-strong: rgba(0, 0, 0, .9);
+  --canvas: radial-gradient(900px 500px at 30% -10%, #0c0c14 0%, #000 60%);
+}
+html[data-theme="crimson"] {
+  --bg0: #140608; --bg1: #1f0a0e; --card: #2a0f15; --card2: #38151c; --line: #5a2430; --line2: #7a3242;
+  --dim: #e6b4bd; --mute: #a87a86; --gold: #ff5c6c; --gold2: #ff9aa5; --gold-ink: #1f0407; --acc: #ff8a5c; --acc2: #ffb08a;
+  --focus-ring: 0 0 0 3px var(--gold), 0 0 24px rgba(255, 92, 108, .55); --glow-spot: #4a1220;
+  --btn2-bg: rgba(255, 138, 92, .14); --btn2-bg-hover: rgba(255, 138, 92, .24);
+  --canvas: radial-gradient(1200px 700px at 30% -10%, var(--glow-spot) 0%, var(--bg0) 60%);
+}
+html[data-theme="emerald"] {
+  --bg0: #04120e; --bg1: #071c16; --card: #0c2a21; --card2: #11382c; --line: #1e5a47; --line2: #2a7a60;
+  --dim: #a9e4cf; --mute: #6fa892; --gold: #4affa6; --gold2: #9affd0; --gold-ink: #03170f; --acc: #4ad7ff; --acc2: #8ae6ff;
+  --focus-ring: 0 0 0 3px var(--gold), 0 0 24px rgba(74, 255, 166, .5); --glow-spot: #0e3d2e;
+  --btn2-bg: rgba(74, 215, 255, .12); --btn2-bg-hover: rgba(74, 215, 255, .22);
+  --canvas: radial-gradient(1200px 700px at 30% -10%, var(--glow-spot) 0%, var(--bg0) 60%);
+}
+html[data-theme="royal"] {
+  --bg0: #0c0618; --bg1: #140a28; --card: #1e1040; --card2: #291656; --line: #44277e; --line2: #5d37a8;
+  --dim: #c9b8f0; --mute: #8f7cc0; --gold: #c99bff; --gold2: #e2c8ff; --gold-ink: #16062c; --acc: #ff7ad9; --acc2: #ffa8e8;
+  --focus-ring: 0 0 0 3px var(--gold), 0 0 24px rgba(201, 155, 255, .55); --glow-spot: #2d1460;
+  --btn2-bg: rgba(255, 122, 217, .12); --btn2-bg-hover: rgba(255, 122, 217, .22);
+  --canvas: radial-gradient(1200px 700px at 30% -10%, var(--glow-spot) 0%, var(--bg0) 60%);
+}
+html[data-theme="ice"] {
+  --bg0: #eef3fb; --bg1: #ffffff; --card: #ffffff; --card2: #f1f5fd; --line: #d5dff2; --line2: #b5c6ea;
+  --txt: #0d1a3a; --dim: #4a5a85; --mute: #7d8bb0; --gold: #d99a00; --gold2: #f0b324; --gold-ink: #1a1200;
+  --acc: #2b6fe0; --acc2: #4d8cf5; --ps4: #5d6a8f; --glow-spot: #dbe6ff;
+  --focus-ring: 0 0 0 3px var(--gold), 0 0 24px rgba(217, 154, 0, .35);
+  --shadow-card: 0 10px 30px rgba(13, 26, 58, .15); --shadow-sheet: -24px 0 60px rgba(13, 26, 58, .2);
+  --glass: rgba(255, 255, 255, .85); --glass-strong: rgba(255, 255, 255, .94); --overlay: rgba(13, 26, 58, .45);
+  --chip-bg: rgba(13, 26, 58, .05); --chip-line: rgba(13, 26, 58, .1);
+  --btn2-bg: rgba(43, 111, 224, .1); --btn2-bg-hover: rgba(43, 111, 224, .18);
+  --canvas: radial-gradient(1200px 700px at 30% -10%, var(--glow-spot) 0%, var(--bg0) 60%);
+}
+html[data-theme="ice"] body::before { opacity: .02; }
+html[data-theme="ice"] .topbar { background: linear-gradient(to bottom, rgba(255, 255, 255, .96), rgba(255, 255, 255, .85)); border-bottom-color: var(--line); }
+html[data-theme="ice"] .legend { background: rgba(255, 255, 255, .9); border-top-color: var(--line); }
+html[data-theme="ice"] .tab:hover, html[data-theme="ice"] .tab:focus, html[data-theme="ice"] .iconbtn, html[data-theme="ice"] .iconbtn:hover { background: rgba(13, 26, 58, .06); }
+html[data-theme="ice"] .hero .art::after { background: linear-gradient(90deg, rgba(13, 26, 58, .92) 0%, rgba(13, 26, 58, .7) 35%, rgba(13, 26, 58, .1) 70%, transparent 100%), linear-gradient(0deg, rgba(13, 26, 58, .9) 0%, rgba(13, 26, 58, .2) 50%, transparent 100%); }
+html[data-theme="ice"] .hero .body, html[data-theme="ice"] .hero .body h1, html[data-theme="ice"] .hero .tagline { color: #fff; }
+html[data-theme="ice"] .gp-backdrop::after { background: linear-gradient(180deg, rgba(238, 243, 251, .3) 0%, rgba(238, 243, 251, .85) 55%, var(--bg0) 100%); }
+html[data-theme="ice"] .input, html[data-theme="ice"] .logbox { background: rgba(13, 26, 58, .04); }
+html[data-theme="ice"] .cover .ph { color: #fff; }
+html[data-theme="ice"] .card .size, html[data-theme="ice"] .card .vtick { background: rgba(13, 26, 58, .75); }
+html[data-theme="ice"] .stepper .sb, html[data-theme="ice"] .seg-ctl, html[data-theme="ice"] .toggle { background: rgba(13, 26, 58, .1); }
+html[data-theme="ice"] .toggle.on { background: var(--gold); }
