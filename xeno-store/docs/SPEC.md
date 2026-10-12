@@ -885,3 +885,56 @@ pkg-zone.com lists homebrew PKGs (apps, emulators, tools) with versions and auth
   (compare to `/user/app/<id>` + the recorded installed version in `installed.json`).
 - The on-console payload also fetches the pkg-zone listing live (`GET /api/homebrew?refresh=1`, cached 7 days at `/data/xeno-store/homebrew.json`) so the tab works
   even before the catalog sync includes it; covers are proxied through `/api/image?url=` (allowlisted host, resized not needed — the PS5 browser handles PNG).
+
+### 17.22 PS5 Save Data Store (community saves, re-signed on the fly)
+PS5 titles only (PPSA). Two entry points: a **Saves** tab on every PS5 game page ("Saves (n)" next to Download) and **Library → Community Saves** (browse all,
+search, "My saves", "Upload my save"). Design: same cards/rails/sheets as the rest of the store; one primary gold action per screen.
+
+**17.22.1 Data model** — `updates/saves.json` (published index; fetched like the catalog, cached 1 h; `settings.saves.indexUrls` may add more feeds):
+```json
+{"schemaVersion":1,"updatedAt":"…","saves":[{"id":"sv_…","titleId":"PPSA04029","gameId":"cyberpunk-2077-ps5","title":"Cyberpunk 2077",
+ "category":"starter|platinum|checkpoint|modded|chapter|other","name":"Chapter 4 — all weapons unlocked","description":"…",
+ "author":"nick","gameVersion":"01.004.000","region":"EUR","dirName":"SAVEDATA00","size":1234567,"sha256":"…","url":"https://pixeldrain.com/api/file/…",
+ "mirror":"","format":"xeno-save-zip","createdAt":"…","downloads":0,"status":"published","tags":["ng+","max money"],"screenshot":""}]}
+```
+A **xeno-save-zip** = decrypted save files at the zip root + `xeno-save.json` manifest `{titleId, dirName, gameVersion, region, files:[{path,size,sha256}],
+accountIdStripped:true, createdBy:"XENO STORE <ver>"}` + optional `sce_sys/param.sfo` with ACCOUNT_ID zeroed.
+
+**17.22.2 Compatibility (safety net)** — for each save the UI computes: installed? (`/user/app/<titleId>`), installed version (read `/system_data/priv/appmeta/<titleId>/param.json`
+→ `contentVersion`, falling back to `/user/app/<titleId>/sce_sys/param.json`), region match (exact titleId; other regions of the same game are listed under
+"Other regions" with a warning: a save never loads on a different title ID), version compare (semantic): ✓ "Matches your 01.004.000", ⚠ "Made on 01.004.000, you have 01.000.000 —
+update the game first (one-tap: opens the game's Updates)", ✗ "Game not installed". Incompatible saves are hidden by default (toggle "Show all"). CUSA→PPSA conversion is not
+offered (there is no safe generic converter); the UI says so when a user looks for a PS4 save.
+
+**17.22.3 Re-sign engine (`savemount.c`)** — three tiers, chosen automatically, reported honestly in the UI and `/api/saves/engine`:
+1. **Native mount (preferred, needs kstuff-style save patches)**: PS5 SaveData API via dlsym from `libSceSaveData.sprx`: `sceSaveDataInitialize3(NULL)`,
+   `sceSaveDataTransferringMount(userId, &titleId, &dirName, &fingerprint, &mountResult)` (mode RDWR | CREATE2 for imports), `sceSaveDataUmount`, `sceSaveDataDelete`,
+   `sceSaveDataGetParam/SetParam` (title, subtitle, detail, user param) — the same calls the Apollo/Save-Mounter family uses. Import = create+mount a save for (current
+   user, titleId, dirName) → copy files in → set `sce_sys/param.sfo` ACCOUNT_ID to the user's account id (offline-activated id from §17.18 when PSN is absent) → umount.
+   Export = mount read-only → copy files out → strip ACCOUNT_ID (0) → zip + manifest. Every call's return code is logged; any failure aborts cleanly (umount, delete partial).
+2. **Garlic Save Manager** (when `127.0.0.1:8082` answers): hand the zip path to its import/export endpoints; show "via Garlic".
+3. **Raw copy** (same-console only): `/user/home/<uid>/savedata_prospero/<TITLEID>/` directory copy with automatic pre-backup; labelled "Same console only".
+Host build simulates tier 1 (mounts = temp dirs) so the whole flow is testable in `tests/host/test_saves.py`.
+
+**17.22.4 Install / download** — card actions: **Install to my saves** (download zip → verify sha256 → engine import → toast "Save installed — launch the game") with a
+"Back up my current save first" checkbox (on); **Download file** (to `<defaultRoot>/xeno-store/saves/community/<title>/…zip`, reachable from PC via XENO TOOL/FTP);
+**Report** (prefilled GitHub issue). Both go through the normal queue (job types `save-install`, `save-download`).
+
+**17.22.5 Upload my save (one-click share)** — wizard: pick profile → pick PS5 title (installed titles with saves, auto-filled title + cover + installed version + region from the
+catalog/appmeta) → pick the save dir → engine export (strips ACCOUNT_ID and console-specific signatures; never includes sealed keys) → zip + manifest → **upload** →
+metadata form (category chips, name, description, tags, nickname; the game, version, region, size, sha256 are auto-filled) → **submit**.
+- Upload adapters (`saveshare.c`, allowlisted hosts): **pixeldrain** (`PUT https://pixeldrain.com/api/file/<name>` → `{id}` → `https://pixeldrain.com/api/file/<id>`),
+  **catbox** (`POST https://catbox.moe/user/api.php`, `reqtype=fileupload`, ≤ 200 MB), **custom** (`settings.saves.uploadEndpoint`, multipart `file` → `{url}`). Default: pixeldrain, fallback catbox.
+- Submit adapters: **GitHub issue** (default, zero infrastructure): the console shows a QR + short URL to `https://github.com/XENOKING123/XENOKING/issues/new?template=save-submission.md&title=<…>&body=<json block>`
+  so the user finishes on their phone; **custom** (`settings.saves.submitEndpoint`, `POST` JSON). The repo gets `.github/ISSUE_TEMPLATE/save-submission.md` and
+  `.github/workflows/saves-intake.yml`: on issue opened/labeled, parse the JSON block, validate (URL reachable, size ≤ 2 GB, sha256 matches after download in CI, zip has
+  `xeno-save.json`, titleId is PPSA, no sealed keys inside), append to `updates/saves.json` as `status:"pending"`; the owner adds label `approved` → status `published`
+  (the Action rewrites the index and closes the issue; `rejected` label closes it without publishing). Consoles only show `published`.
+- Privacy: no account ids, console ids or usernames leave the console; the nickname is typed by the user.
+
+**17.22.6 Categories & browsing** — chips: Maxed Starter · 100% Platinum · Trophy checkpoint · Modded/Glitched · Chapter · Other; sort by newest/popular/version; search by
+game/title ID/author; "Compatible with my games" quick filter (installed titles); per-game rail on the game page; Discover rail "New community saves".
+
+**17.22.7 API** — `GET /api/saves/store?titleId=&category=&q=` (index + compatibility fields merged), `POST /api/saves/store/{id}/install {user, backupFirst}`,
+`POST /api/saves/store/{id}/download`, `GET /api/saves/engine` → `{tier:"native"|"garlic"|"raw", detail}`, `POST /api/saves/export {user, titleId, dirName}` → zip path + manifest,
+`POST /api/saves/upload {zipPath, host}` → `{url, sha256, size}`, `POST /api/saves/submit {…metadata}` → `{issueUrl, qr}`, `GET /api/saves/installed-version?titleId=`.
