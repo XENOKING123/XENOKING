@@ -815,3 +815,73 @@ Supported-host lists are fetched once a day (`/hosts/domains`, `/v4/hosts`, `/ap
   The readiness checklist offers "Launch ShadowMountPlus now" when its API is not answering and a copy is present.
 - **Copy / Move between drives** (Library): `POST /api/library/transfer {path, toRoot, move:bool}` → a job of type `copy` in the same queue (progress, speed, pause,
   cancel), `copyfile` chunked 8 MiB with `fdatasync`, verifies size, then unlinks the source on move; refuses when the destination lacks space or is the same drive.
+
+### 17.17 Saves hub (backup · restore · profile transfer · community saves)
+Proven paths (from this repo's payload): PS5 saves live in `/user/home/<uid>/savedata_prospero/<TITLEID>/`, PS4 saves in
+`/user/home/<uid>/savedata/<TITLEID>/` (each save = image file(s) + `sce_sys/` with param.sfo, icon and the sealed key). Users are
+enumerated with `sceUserServiceGetLoginUserIdList` / `sceUserServiceGetUserName` / `sceUserServiceGetForegroundUser` (dlsym, idempotent init).
+- `GET /api/saves/users` → `{ok, users:[{id, name, foreground}]}`; `GET /api/saves?user=<id>` → `{ok, saves:[{titleId, title?, cover?, path, size, mtime, kind:"ps5"|"ps4"}]}`.
+- **Backup**: `POST /api/saves/backup {user, titleId}` → ZIP (miniz writer) to `<defaultRoot>/xeno-store/saves/<userName>/<TITLEID>_<kind>_<YYYYMMDD-HHMM>.zip`
+  as a queue job of type `backup` (progress, cancel). `GET /api/saves/backups` lists them (all roots).
+- **Restore**: `POST /api/saves/restore {user, zipPath, overwrite:bool}` → extracts into the user's save dir for that title (backs up the current
+  save first automatically, `.pre-restore` zip).
+- **Transfer between profiles** (same console): `POST /api/saves/transfer {fromUser, toUser, titleId, move:bool}` → copies the whole title folder
+  (images + sce_sys) to the destination user; a backup of any existing destination save is taken first. The UI labels this **Beta** and explains that
+  saves are sealed to this console: same-console transfers work; saves from another console need re-signing.
+- **Re-signing / community saves**: when **Garlic Save Manager** (ELF Arsenal / garlicsaves.com worker) answers on `127.0.0.1:8082`, the game page's
+  Saves tab shows "Open in Garlic" and "Import with re-sign" (hands the file path to Garlic's local API; if the API is absent, opens its UI). Without Garlic,
+  community saves still download (zip) and can be restored as-is (works for saves made on the same console). Community feed: `updates/saves.json`
+  `{"saves":[{"id","titleId","title","type":"100%"|"starter"|"mod"|"ng+","description","author","url","sha256","size","kind":"ps5"|"ps4","needsResign":true}]}`
+  (owner-curated; also any `saves.json` URL added in Settings → Saves → Sources). Saves rail appears on the game page next to Download: "Saves (n)".
+- Settings → Saves: default backup drive, "Auto-backup before restore/transfer" (on), "Back up all saves now" (one zip per title, progress as jobs).
+
+### 17.18 Offline account activation & NP fake sign-in
+- **Activate account offline** (Settings → Accounts): the registry slot method from `ps5-payload-dev/offact` as already vendored in this repo's
+  `payload/src/profile.c` + `payload/src/sys_registry.c` (copy both, keep their GPL attribution comments; dlsym `sceRegMgrGetStr/GetBin/GetInt/SetStr/SetBin/SetInt`).
+  `GET /api/accounts` → slots 1..16 `{slot, name, id (hex), type, flags, activated:bool, foreground:bool}`; `POST /api/accounts/{slot}/activate {id?:"0x…"}` (derives
+  the FNV id from the name when omitted); `POST /api/accounts/{slot}/clear`. UI: list with "Activate" / "Clear", a warning sheet (back up saves first, reboot
+  needed, do it on a secondary profile if unsure), and "Reboot now" (`sceSystemServiceRequestReboot`, direct-linked, proven in this repo).
+- **NP fake sign-in / sign-out** (for trophies offline): not done in-process. The companion payload catalog (§17.16) lists `np-fake-signin.elf` and
+  `np-fake-signout.elf` from `earthonion/np-fake-signin` releases; Accounts shows "Fake sign-in (needs activation first)" → downloads (sha256) and sends to :9021.
+
+### 17.19 Engine notes learned from shipped PS5 homebrew (apply in `http_sce.c`, `zip.c`, `mdns.c`)
+- Shipped payloads (ELF Arsenal, successor of Sonic Loader) use the **sceHttp v1 API** on PS5: `sceNetInit`, `sceNetPoolCreate`, `sceSslInit`,
+  `sceHttpInit(net, ssl, 32K)`, `sceHttpCreateTemplate(ctx, ua, 2 /*HTTP/1.1*/, 1)`, `sceHttpSetResponseHeaderMaxSize(tmpl, 0x2000)`,
+  `sceHttpsSetSslCallback(tmpl, cb_returning_0, NULL)` (accepts any certificate — use ONLY when `downloads.allowInsecureTls` or as an automatic retry after an
+  SSL error, logged), `sceHttpCreateConnectionWithURL(tmpl, url, 0)`, `sceHttpCreateRequestWithURL(conn, 0 /*GET*/, url, 0)`, `sceHttpAddRequestHeader`,
+  `sceHttpSendRequest`, `sceHttpGetStatusCode`, `sceHttpGetAllResponseHeaders`, `sceHttpGetResponseContentLength`, `sceHttpReadData`, `sceHttpAbortRequest`,
+  `sceHttpSetRecvTimeOut/SetConnectTimeOut`, `sceHttpSetAutoRedirect`. `http_sce.c` implements **v1 first** (dlsym from `libSceHttp.sprx`/`libSceSsl.sprx`/
+  `libSceNet.sprx`), with the Http2 symbols as a secondary backend when v1 is absent. One template per segment thread (contexts are not thread-safe across
+  requests in flight); `sceHttpInit` once with a 2 MiB pool sized for 16 concurrent requests.
+- **ZIP on the console**: vendor `miniz` (single header, MIT/unlicense — keep its header) under `src/third_party/miniz.h` and write `zip.c` (streaming
+  reader with per-entry extraction to disk, 8 MiB buffers, path sanitization, size limits; writer for save backups). Enables: ZIP game archives extracted after
+  download (into `<root>/homebrew/<name>/` for folder dumps or straight to the image file), save backups/restores, companion payload zips. RAR/7z stay download-only.
+- **mDNS** (`mdns.c`, ~200 lines, no library): answer multicast DNS A queries for `xeno.local` and `xenostore.local` on 224.0.0.251:5353 with the console's IPv4
+  (TTL 120), re-announce every 60 s. Pair-a-device shows `http://xeno.local:9095` next to the IP (phones/laptops on the same Wi-Fi resolve it). Opt-out in Settings.
+- **Companion launch** stays "send bytes to the local ELF loader on :9021"; no in-process ELF loading.
+
+### 17.20 More ideas shipped in 1.0
+- **Play now**: after install, a gold "Play" button launches the title (`sceLncUtilLaunchApp(titleId, NULL, NULL)` via dlsym, the same call this repo's payload
+  uses). `POST /api/library/launch {titleId}`.
+- **Uninstall game** from Library (`sceAppInstUtilAppUnInstall(titleId)` via dlsym with a double confirm) and **Delete dump** (file) in one place.
+- **Disk analyzer**: Library → Storage shows what uses space per root (games, dumps, packages, saves, partials) with "Clean up partials" one-tap.
+- **Dump my own game** (companion): ps5-app-dumper lives in the companion catalog; Library shows "Back up this game to a dump" that launches it with instructions.
+- **Game info extras** (when enrichment finds them): How-long-to-beat hours, Metacritic, PEGI/ESRB, player count, supported languages, PS5 features (60 fps, ray tracing,
+  DualSense) — all optional chips, never placeholders.
+- **Smart notifications**: one toast per event, grouped ("3 downloads finished"), with the XENO icon; phone companion shows a browser notification when allowed.
+- **Keyboard shortcuts overlay** (desktop `?`), **command palette** (Ctrl/Cmd+K), **controller remap** (swap ✕/○ for Japanese layout).
+- **Safe mode**: holding L2 while opening the store disables animations/sounds/enrichment (for struggling consoles); also a Settings toggle.
+
+### 17.21 Homebrew apps store (pkg-zone) — one-tap install of apps, emulators and tools
+pkg-zone.com lists homebrew PKGs (apps, emulators, tools) with versions and authors; XENO STORE adds a **Homebrew** tab (nav: Discover · Browse · Homebrew · Library · Downloads).
+- Pipeline `sources/pkgzone.py` (adapter proven by a shipped payload): listing pages `https://pkg-zone.com/?page=N` (stop when a page has no cards, max 40 pages);
+  each card is `<article class="pkg …">` with: id after `/details/` (alnum + `_`), title inside `class="title font-bold"`, version inside `class="number …"`,
+  author after `text-gray-300">`, "Supports PS5" text flag, cover `https://pkg-zone.com/images/<id>/cover.png`, details `https://pkg-zone.com/details/<id>`,
+  downloads `https://pkg-zone.com/download/ps5/<id>/latest` and `https://pkg-zone.com/download/ps4/<id>/latest`. The details page adds description, category,
+  size and changelog when present. These become catalog entries with `platform:"HOMEBREW"`, `category` (Emulator/Tool/Game/Media/…), `author`, `supportsPs5`, releases of
+  `format:"PKG"`, `kind:"app"`.
+- Homebrew tab: rails "Essentials" (owner-curated in `updates/featured.json` → `homebrew` list), "Emulators", "Tools", "New versions", search + category chips, app page
+  with Install (downloads the PKG and auto-installs, PS5 build preferred, PS4 build with a warning), "Installed · Update available" when a newer version is listed
+  (compare to `/user/app/<id>` + the recorded installed version in `installed.json`).
+- The on-console payload also fetches the pkg-zone listing live (`GET /api/homebrew?refresh=1`, cached 7 days at `/data/xeno-store/homebrew.json`) so the tab works
+  even before the catalog sync includes it; covers are proxied through `/api/image?url=` (allowlisted host, resized not needed — the PS5 browser handles PNG).
