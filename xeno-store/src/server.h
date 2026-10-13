@@ -33,6 +33,11 @@ typedef struct http_req {
   char range[64];              /* raw "bytes=a-b" value or "" */
   char pin[16];                /* X-XENO-PIN */
   char content_type[64];
+  char host[260];              /* Host header value (DNS-rebind gate, SPEC §15) */
+  char origin[300];            /* Origin header, "" when absent */
+  char sec_fetch_site[24];     /* Sec-Fetch-Site, "" when absent */
+  char authorization[160];     /* Authorization header ("Bearer <token>") */
+  int host_count, origin_count, site_count;  /* duplicate-header smuggling guard */
   int responded;
 } http_req;
 

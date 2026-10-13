@@ -40,14 +40,21 @@
 #endif
 
 #define CONN_RING 64
-#define CORS_HEADERS                                                                 \
-  "Access-Control-Allow-Origin: *\r\n"                                               \
-  "Access-Control-Allow-Methods: GET,POST,PUT,DELETE,OPTIONS\r\n"                    \
-  "Access-Control-Allow-Headers: Content-Type, X-XENO-PIN, If-None-Match, Range\r\n" \
+#define CORS_HEADERS                                                                              \
+  "Access-Control-Allow-Origin: *\r\n"                                                            \
+  "Access-Control-Allow-Methods: GET,POST,PUT,DELETE,OPTIONS\r\n"                                 \
+  "Access-Control-Allow-Headers: Content-Type, X-XENO-PIN, Authorization, If-None-Match, Range\r\n" \
   "Access-Control-Expose-Headers: ETag, Content-Length, Content-Range\r\n"
+/* Defence-in-depth headers on every response (SPEC §15): never sniff a
+ * content type, never leak the store URL as a referrer to a third party. */
+#define SECURITY_HEADERS            \
+  "X-Content-Type-Options: nosniff\r\n" \
+  "Referrer-Policy: no-referrer\r\n"
 
 static int listen_fd = -1;
 static volatile int running = 0;
+static volatile int force_rebind = 0;   /* host test hook (SIGUSR1) forces a listener rebuild */
+static int g_listen_port = 0;
 static pthread_t acceptor_th, worker_th[HTTP_WORKERS];
 static pthread_mutex_t ring_mu = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t ring_cv = PTHREAD_COND_INITIALIZER;
@@ -107,7 +114,7 @@ void http_send(http_req *r, int status, const char *content_type, const void *bo
                     "Content-Type: %s\r\n"
                     "Content-Length: %zu\r\n"
                     "Connection: close\r\n"
-                    "Server: XENO-STORE/%s\r\n" CORS_HEADERS "%s\r\n",
+                    "Server: XENO-STORE/%s\r\n" SECURITY_HEADERS CORS_HEADERS "%s\r\n",
                     status, http_status_text(status), content_type ? content_type : "application/octet-stream",
                     len, XENO_VERSION, extra_headers ? extra_headers : "");
   if (send_all(r->fd, hdr, (size_t)n) != 0) return;
@@ -202,6 +209,10 @@ static void parse_header_line(http_req *r, char *line, int64_t *content_length) 
   else if (util_strieq(line, "Range")) xstrlcpy(r->range, v, sizeof r->range);
   else if (util_strieq(line, "X-XENO-PIN")) xstrlcpy(r->pin, v, sizeof r->pin);
   else if (util_strieq(line, "Content-Type")) xstrlcpy(r->content_type, v, sizeof r->content_type);
+  else if (util_strieq(line, "Host")) { xstrlcpy(r->host, v, sizeof r->host); r->host_count++; }
+  else if (util_strieq(line, "Origin")) { xstrlcpy(r->origin, v, sizeof r->origin); r->origin_count++; }
+  else if (util_strieq(line, "Sec-Fetch-Site")) { xstrlcpy(r->sec_fetch_site, v, sizeof r->sec_fetch_site); util_lower(r->sec_fetch_site); r->site_count++; }
+  else if (util_strieq(line, "Authorization")) xstrlcpy(r->authorization, v, sizeof r->authorization);
 }
 
 /* Returns 0 ok, otherwise an HTTP status to answer with. */
@@ -363,7 +374,7 @@ static void route_pkgsrv(http_req *r) {
   char hdr[768];
   int n = xsnprintf(hdr, sizeof hdr,
                     "HTTP/1.1 %d %s\r\nContent-Type: application/octet-stream\r\nContent-Length: %lld\r\n"
-                    "Accept-Ranges: bytes\r\nConnection: close\r\n" CORS_HEADERS,
+                    "Accept-Ranges: bytes\r\nConnection: close\r\n" SECURITY_HEADERS CORS_HEADERS,
                     partial ? 206 : 200, partial ? "Partial Content" : "OK", (long long)len);
   if (partial) n += xsnprintf(hdr + n, sizeof hdr - (size_t)n, "Content-Range: bytes %lld-%lld/%lld\r\n", (long long)start, (long long)end, (long long)total);
   n += xsnprintf(hdr + n, sizeof hdr - (size_t)n, "\r\n");
@@ -400,7 +411,84 @@ static const static_route STATIC_ROUTES[] = {
   { "/pkgsrv/", 1, route_pkgsrv },
 };
 
+/* DNS-rebind defence (SPEC §15, Orbit parity). Accept only Host values that
+ * name this console on the LAN — a literal IPv4, "localhost", or a name in a
+ * local-use namespace (*.local / *.home.arpa / *.localhost). No DNS lookup is
+ * done: a public name an attacker points at the console with a hostile
+ * resolver is refused on the Host header alone. An optional ":port" must match
+ * the port we are listening on. Returns 1 when the Host is one of ours. */
+static int host_is_local(const char *host, int port) {
+  if (!host || !*host) return 0;
+  size_t len = strlen(host);
+  if (len > 259) return 0;
+  char h[260];
+  memcpy(h, host, len + 1);
+  if (h[0] == '[') return 0;                 /* bracketed IPv6 — we serve IPv4 only */
+  char *colon = strrchr(h, ':');
+  if (colon) {
+    *colon = 0;
+    const char *p = colon + 1;
+    if (!*p) return 0;
+    long pr = 0;
+    for (; *p; p++) { if (*p < '0' || *p > '9') return 0; pr = pr * 10 + (*p - '0'); if (pr > 65535) return 0; }
+    if (port > 0 && pr != port) return 0;
+  }
+  len = strlen(h);
+  if (len == 0 || len > 253) return 0;
+  if (h[len - 1] == '.') { h[--len] = 0; if (!len) return 0; }
+  size_t label = 0;
+  for (size_t i = 0; i < len; i++) {
+    char ch = h[i];
+    if (ch >= 'A' && ch <= 'Z') h[i] = ch = (char)(ch - 'A' + 'a');
+    if (ch == '.') { if (!label || h[i - 1] == '-') return 0; label = 0; }
+    else {
+      int ok = (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-';
+      if (!ok || (!label && ch == '-') || ++label > 63) return 0;
+    }
+  }
+  if (!label || h[len - 1] == '-') return 0;
+  if (strcmp(h, "localhost") == 0) return 1;
+  struct in_addr a;
+  if (inet_pton(AF_INET, h, &a) == 1) return 1;
+  static const char *suffix[] = { ".home.arpa", ".local", ".localhost" };
+  for (size_t i = 0; i < XS_ARRAY_LEN(suffix); i++) {
+    size_t n = strlen(suffix[i]);
+    if (len > n && strcmp(h + len - n, suffix[i]) == 0) return 1;
+  }
+  return 0;
+}
+
+/* Request-authority gate run before any routing. Returns 1 to allow, 0 after
+ * answering the request with a 403 (the browser on the console and a phone on
+ * the LAN both pass; evil.com in the Host header does not). */
+static int security_gate(http_req *r) {
+  if (r->host_count != 1 || r->origin_count > 1 || r->site_count > 1) {
+    http_send_error(r, 403, "forbidden", "Request authority headers are malformed.");
+    return 0;
+  }
+  if (!host_is_local(r->host, g_cfg.port)) {
+    http_send_error(r, 403, "forbidden",
+                    "Reach XENO STORE by the console's IP address or a .local / .home.arpa name.");
+    return 0;
+  }
+  if (r->origin[0]) {
+    char expected[300];
+    xsnprintf(expected, sizeof expected, "http://%s", r->host);
+    if (!util_strieq(r->origin, expected)) {
+      http_send_error(r, 403, "forbidden", "Origin does not match this console.");
+      return 0;
+    }
+  }
+  if ((util_starts_with(r->path, "/api/") || strcmp(r->path, "/api") == 0) && r->sec_fetch_site[0] &&
+      strcmp(r->sec_fetch_site, "same-origin") != 0 && strcmp(r->sec_fetch_site, "none") != 0) {
+    http_send_error(r, 403, "forbidden", "Open XENO STORE directly on this console or your local network.");
+    return 0;
+  }
+  return 1;
+}
+
 static void dispatch(http_req *r) {
+  if (!security_gate(r)) return;
   if (strcmp(r->method, "OPTIONS") == 0) { http_send(r, 204, "text/plain", NULL, 0, "Access-Control-Max-Age: 600\r\n"); return; }
   if (util_starts_with(r->path, "/api/") || strcmp(r->path, "/api") == 0) { api_handle(r); return; }
   if (strcmp(r->method, "GET") != 0 && strcmp(r->method, "HEAD") != 0) {
@@ -468,11 +556,100 @@ static void *worker_main(void *arg) {
   }
 }
 
+/* Binds a fresh listening socket on `port`. Returns the fd or -1 (errno kept). */
+static int bind_listener(int port) {
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd < 0) return -1;
+  int one = 1;
+  setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+  struct sockaddr_in a;
+  memset(&a, 0, sizeof a);
+  a.sin_family = AF_INET;
+  a.sin_addr.s_addr = htonl(INADDR_ANY);
+  a.sin_port = htons((uint16_t)port);
+  if (bind(fd, (struct sockaddr *)&a, sizeof a) != 0 || listen(fd, 64) != 0) {
+    int e = errno;
+    close(fd);
+    errno = e;
+    return -1;
+  }
+  return fd;
+}
+
+/* The listener still reports as a listening socket. A stale fd whose network
+ * stack was reset after a sleep/wake can keep fd >= 0 while refusing every
+ * connection — checked separately by listener_refused(). */
+static int listener_listening(int fd) {
+  if (fd < 0) return 0;
+  int on = 0;
+  socklen_t sl = sizeof on;
+  if (getsockopt(fd, SOL_SOCKET, SO_ACCEPTCONN, &on, &sl) != 0) return 0;
+  return on != 0;
+}
+
+/* A loopback connect to our own port is actively refused (the listener is
+ * gone), as opposed to merely busy. Only ECONNREFUSED is conclusive; a full
+ * backlog or resource limit is inconclusive and ignored. */
+static int listener_refused(int port) {
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd < 0) return 0;
+  int flags = fcntl(fd, F_GETFL, 0);
+  if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) { close(fd); return 0; }
+  struct sockaddr_in a;
+  memset(&a, 0, sizeof a);
+  a.sin_family = AF_INET;
+  a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  a.sin_port = htons((uint16_t)port);
+  int rc = connect(fd, (struct sockaddr *)&a, sizeof a);
+  int err = rc == 0 ? 0 : errno;
+  if (err == EINPROGRESS || err == EWOULDBLOCK) {
+    struct pollfd pf = { fd, POLLOUT, 0 };
+    socklen_t el = sizeof err;
+    err = 0;
+    if (poll(&pf, 1, 50) > 0 && getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &el) != 0) err = 0;
+  }
+  close(fd);
+  return err == ECONNREFUSED;
+}
+
+/* Self-healing listener (SPEC §17.15): a watchdog closes a dead :port socket
+ * and rebinds with 500 ms → 8 s backoff so downloads survive a network blip.
+ * Runs in the acceptor thread, which is the only owner of listen_fd. */
 static void *acceptor_main(void *arg) {
   (void)arg;
+  int64_t next_check = 0;
+  int refused = 0;
+  unsigned backoff = 500;
   while (running) {
+    if (listen_fd < 0) {   /* (re)bind with bounded backoff */
+      for (unsigned slept = 0; running && slept < backoff; slept += 50) util_sleep_ms(50);
+      if (!running) break;
+      int fd = bind_listener(g_listen_port);
+      if (fd < 0) { LOGW("server: rebind on :%d failed (%s), retrying", g_listen_port, strerror(errno)); backoff = backoff < 8000 ? backoff * 2 : 8000; continue; }
+      listen_fd = fd;
+      backoff = 500;
+      refused = 0;
+      next_check = 0;
+      LOGW("server: listener rebound on :%d", g_listen_port);
+      continue;
+    }
     struct pollfd pf = { listen_fd, POLLIN, 0 };
     int pr = poll(&pf, 1, 250);
+    if (!running) break;
+    if (force_rebind || (pf.revents & (POLLERR | POLLNVAL | POLLHUP)) || (pr < 0 && errno != EINTR)) {
+      force_rebind = 0;
+      LOGW("server: listener on :%d is unhealthy — rebinding", g_listen_port);
+      close(listen_fd);
+      listen_fd = -1;
+      continue;
+    }
+    int64_t now = util_now_ms();
+    if (now >= next_check) {
+      next_check = now + 2000;
+      if (!listener_listening(listen_fd)) { close(listen_fd); listen_fd = -1; LOGW("server: listener stopped listening — rebinding"); continue; }
+      if (listener_refused(g_listen_port)) { if (++refused >= 3) { close(listen_fd); listen_fd = -1; refused = 0; LOGW("server: listener refusing connections — rebinding"); continue; } }
+      else refused = 0;
+    }
     if (pr <= 0) continue;
     struct sockaddr_in peer;
     socklen_t pl = sizeof peer;
@@ -489,24 +666,20 @@ static void *acceptor_main(void *arg) {
   return NULL;
 }
 
+#ifdef XENO_HOST
+/* Host test hook: SIGUSR1 forces one listener rebuild so the self-healing
+ * path can be exercised without taking the console's network interface down. */
+static void on_force_rebind(int sig) { (void)sig; force_rebind = 1; }
+#endif
+
 int server_start(int port) {
   signal(SIGPIPE, SIG_IGN);
-  listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+#ifdef XENO_HOST
+  signal(SIGUSR1, on_force_rebind);
+#endif
+  g_listen_port = port;
+  listen_fd = bind_listener(port);
   if (listen_fd < 0) return -1;
-  int one = 1;
-  setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
-  struct sockaddr_in a;
-  memset(&a, 0, sizeof a);
-  a.sin_family = AF_INET;
-  a.sin_addr.s_addr = htonl(INADDR_ANY);
-  a.sin_port = htons((uint16_t)port);
-  if (bind(listen_fd, (struct sockaddr *)&a, sizeof a) != 0 || listen(listen_fd, 64) != 0) {
-    int e = errno;
-    close(listen_fd);
-    listen_fd = -1;
-    errno = e;
-    return -1;
-  }
   running = 1;
   for (int i = 0; i < HTTP_WORKERS; i++) {
     if (pthread_create(&worker_th[i], NULL, worker_main, NULL) != 0) { LOGE("server: cannot create worker %d", i); return -1; }

@@ -239,7 +239,11 @@ Phase 2 keys: `general.{largeText,highContrast,safeMode,screensaver,screensaverM
 ### `GET /api/collections` → `{"ok":true,"collections":[{"id":"wishlist","name":"Wishlist","icon":"star","ids":[]}]}` · `PUT /api/collections {"collections":[…]}`.
 ### `GET /api/recent` → `{"ok":true,"ids":[…]}` · `POST /api/recent {"id":"…"}` (keeps 30).
 ### `GET /api/export` → one JSON with settings, favorites, collections, recent · `POST /api/import {…}` → `{"ok":true,"imported":true}`.
-### `GET /api/pair` → `{"ok":true,"url":"http://192.168.1.20:9095/","ip":"192.168.1.20","port":9095,"pinRequired":false}` (the UI renders the QR and shows the `xeno.local` address from `/api/mdns`).
+### `GET /api/pair` → `{"ok":true,"url":"http://192.168.1.20:9095/","ip":"192.168.1.20","port":9095,"pinRequired":false,"code":"418203","cooldown":0}`
+The UI renders the QR and shows the `xeno.local` address from `/api/mdns`. `code` is the live 6-digit pairing code **only when the caller is the console's own browser (loopback)** — a LAN device gets `"code":""` and must read it off the PS5 toast. `cooldown` is the seconds left before `/api/pair/show` may be called again. `pinRequired` reflects `settings.pairing.pin`.
+### `POST /api/pair/show` → `{"ok":true,"shown":true,"retryAfter":30}` — re-shows the current code as a console toast. Within the 30 s cooldown it answers `429 {"error":"cooldown","retryAfter":<s>}`; `-1` from the notifier answers `500`.
+### `POST /api/pair {"code":"418203"}` → `{"ok":true,"token":"<64-hex>","paired":true}` — redeems the code for a bearer token (constant-time compare; up to 16 tokens kept, persisted to `<data>/pairing.json`). Send the token as `Authorization: Bearer <token>` on later mutating requests. Errors: `429 locked_out` (too many wrong tries, `retryAfter` set), `403 bad_code`, `409 slots_full`, `503 save_failed`.
+### `GET /api/session` (loopback only) → `{"ok":true,"address":"192.168.1.20","port":9095,"token":"<64-hex>","pairUrl":"http://192.168.1.20:9095/","code":"418203"}` — the console browser's own trusted token (created on first call). `403 forbidden` for any non-loopback caller.
 ### `GET /api/mdns` → `{"ok":true,"mdns":{"enabled":true,"running":true,"names":["xeno.local","xenostore.local"],"ip":"…","port":9095,"url":"http://xeno.local:9095","error":""}}`. `POST /api/mdns/build` exists in the host build only (packet builder test hook).
 
 ---

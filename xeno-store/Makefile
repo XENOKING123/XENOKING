@@ -7,6 +7,8 @@
 #   make test     host build + tests/host/run.sh
 #   make ps5      xeno-store.elf + xeno-store-browser.elf (needs PS5_PAYLOAD_SDK)
 #   make pkg      tools/make_homebrew.py          -> dist/XENO-STORE/ + zip
+#   make ffpkg    tools/make_ffpkg.py             -> dist/XENO-STORE.pkg (needs fpkg_build)
+#   make launcher app/build_launcher.sh          -> app/dist/xeno-store-launcher.elf (needs PS5_PAYLOAD_SDK)
 #   make all      web catalog assets ps5 pkg
 #   make clean
 
@@ -41,11 +43,20 @@ HOST_OBJS := $(addprefix $(BUILD_DIR)/host/,$(HOST_SRCS:.c=.o))
 HOST_BIN  := $(BUILD_DIR)/host/xeno-store
 
 # ---- ps5 ---------------------------------------------------------------------
-PS5_LIBS := -lSceSystemService -lSceUserService -lSceAppInstUtil -lSceNotification -lkernel_sys
+# The library set mirrors this repo's proven payloads (payload/Makefile and
+# payload/dpi/Makefile): every one is a DT_NEEDED entry, because a payload whose
+# dependency graph rtld cannot resolve is rejected silently at load time.
+# --no-as-needed keeps them all, including libSceNotification and the libSceNet
+# the SDK wrapper appends, exactly as before.
+# libSceIpmi is the one addition: launcher_icon.c resolves libSceAppInstUtil's
+# title installer by NID at runtime, and that path needs libSceIpmi loaded even
+# though no symbol is referenced directly. PS5_LIBS is used only by the PS5 link
+# rules, so the host build never sees it.
+PS5_LIBS := -Wl,--no-as-needed -lSceSystemService -lSceUserService -lSceIpmi -lSceAppInstUtil -lSceNotification -lkernel_sys
 ELF         := xeno-store.elf
 ELF_BROWSER := xeno-store-browser.elf
 
-.PHONY: all web catalog assets host test ps5 ps5-check pkg clean distclean
+.PHONY: all web catalog assets host test ps5 ps5-check pkg ffpkg launcher clean distclean
 
 all: web catalog assets ps5 pkg
 
@@ -119,10 +130,25 @@ endif
 pkg:
 	$(PYTHON) tools/make_homebrew.py
 
+# Installable .pkg built by ps5upload's fpkg_build. Skips cleanly (exit 3) when
+# the builder is not available, so 'make ffpkg' never breaks a build without it.
+ffpkg:
+	@$(PYTHON) tools/make_ffpkg.py; rc=$$?; \
+	  if [ $$rc -eq 3 ]; then echo "make: ffpkg skipped — fpkg_build not found (set \$$XENO_FPKG_BUILD or pass --fpkg)"; \
+	  elif [ $$rc -ne 0 ]; then exit $$rc; fi
+
+# App-launcher ELF (eboot for the .pkg): probes the store, starts it via the ELF
+# loader if needed, then opens the browser. Server-only link set.
+launcher:
+ifndef PS5_PAYLOAD_SDK
+	$(error PS5_PAYLOAD_SDK is not set — export it to the ps5-payload-dev SDK directory)
+endif
+	PS5_PAYLOAD_SDK=$(PS5_PAYLOAD_SDK) app/build_launcher.sh
+
 # 'clean' removes the payload build outputs; web/dist belongs to 'make web'
 # (and the UI builders working in parallel), so only 'distclean' removes it.
 clean:
-	rm -rf $(BUILD_DIR) $(ELF) $(ELF_BROWSER) $(ASSETS) dist
+	rm -rf $(BUILD_DIR) $(ELF) $(ELF_BROWSER) $(ASSETS) dist app/dist
 
 distclean: clean
 	rm -rf web/dist

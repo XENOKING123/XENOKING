@@ -250,6 +250,13 @@ static int tcp_connect(xhttp_conn *c, const char *host, int port, int timeout_ms
     set_nonblock(fd);
     int one = 1;
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
+    /* Raise the receive buffer toward 1 MiB for high-throughput downloads;
+     * never shrink a larger system default and never fail if it is denied. */
+    int cur_rcv = 0;
+    socklen_t rl = sizeof cur_rcv;
+    if (getsockopt(fd, SOL_SOCKET, SO_RCVBUF, &cur_rcv, &rl) != 0) cur_rcv = 0;
+    int want_rcv = 1 << 20;
+    if (want_rcv > cur_rcv) setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &want_rcv, sizeof want_rcv);
     int r = connect(fd, ai->ai_addr, ai->ai_addrlen);
     if (r == 0) break;
     if (errno == EINPROGRESS) {

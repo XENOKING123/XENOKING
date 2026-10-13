@@ -54,7 +54,19 @@ MiB = 1024 * 1024
 FILES = {"big.bin": 64 * MiB, "mid.bin": 32 * MiB, "small.bin": 8 * MiB, "tiny.pkg": 2 * MiB,
          "flipA.bin": 32 * MiB, "flipB.bin": 8 * MiB,
          "set-game.pkg": 2 * MiB, "set-update.pkg": 1 * MiB, "set-dlc.pkg": 3 * MiB // 2}   # flip*.bin are rewritten by the source_changed tests
-ZIPS = ("folder.zip", "single.zip")
+ZIPS = ("folder.zip", "single.zip", "secretcom.zip", "secretpw.zip", "slip.zip")
+# Classic ZipCrypto fixtures (built with the `zip` CLI): the community password
+# "SuperPSX" and a custom password not in the built-in list. The plaintext is a
+# fixed pattern so a test can recompute its SHA-256 without a side channel.
+ENCRYPTED_ZIPS = {
+    "secretcom.zip": ("PPSA07001 Community.ffpfsc", "SuperPSX"),
+    "secretpw.zip": ("PPSA07002 Custom.ffpfsc", "xeno-secret-42"),
+}
+ENCRYPTED_ENTRY_SIZE = MiB
+
+
+def encrypted_entry_bytes():
+    return bytes((i * 37 + 11) & 0xFF for i in range(ENCRYPTED_ENTRY_SIZE))
 PKG_CONTENT_ID = b"UP0001-PPSA01234_00-XENOTESTPKG00000"   # 36 chars, title id at 7..15
 PKG_CONTENT_IDS = {"set-game.pkg": b"UP0001-PPSA02222_00-XENOSETGAME00000",
                    "set-update.pkg": b"UP0001-PPSA02222_00-XENOSETUPDATE000",
@@ -95,6 +107,8 @@ class State:
         for name in ZIPS:
             if keep and os.path.exists(self.path(name)):
                 self.adopt(name)
+            elif name in ENCRYPTED_ZIPS:
+                self.write_encrypted_zip(name)
             else:
                 self.write_zip(name)
 
@@ -131,11 +145,39 @@ class State:
                 zf.writestr("../evil-parent.txt", b"evil")
                 zf.writestr("/abs/evil-abs.txt", b"evil")
                 zf.writestr("MyGame/../../evil-nested.txt", b"evil")
+            elif name == "slip.zip":
+                zf.writestr("safe/keep.bin", os.urandom(1 * MiB))      # survivors (folder dump)
+                zf.writestr("safe/readme.txt", b"ok")
+                zf.writestr("../slip-parent.bin", b"evil")
+                zf.writestr("/abs/slip-abs.bin", b"evil")
+                zf.writestr("a/../../slip-nested.bin", b"evil")
+                zf.writestr("win\\slip-back.bin", b"evil")
+                zf.writestr("__MACOSX/safe/._keep.bin", b"junk")
             else:
                 zf.writestr("PPSA05555 Single Game.ffpfsc", os.urandom(4 * MiB))
         data = buf.getvalue()
         with open(self.path(name), "wb") as f:
             f.write(data)
+        with self.lock:
+            self.sha[name] = hashlib.sha256(data).hexdigest()
+            self.mtime[name] = time.time()
+
+    def write_encrypted_zip(self, name):
+        import subprocess, tempfile, shutil
+        entry, password = ENCRYPTED_ZIPS[name]
+        out = self.path(name)
+        if os.path.exists(out):
+            os.remove(out)
+        tdir = tempfile.mkdtemp()
+        try:
+            fp = os.path.join(tdir, entry)
+            with open(fp, "wb") as f:
+                f.write(encrypted_entry_bytes())
+            subprocess.run(["zip", "-q", "-P", password, "-j", out, fp], check=True)
+        finally:
+            shutil.rmtree(tdir, ignore_errors=True)
+        with open(out, "rb") as f:
+            data = f.read()
         with self.lock:
             self.sha[name] = hashlib.sha256(data).hexdigest()
             self.mtime[name] = time.time()

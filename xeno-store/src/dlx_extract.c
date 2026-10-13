@@ -74,14 +74,22 @@ static int finish_fail(dl_job *j, const char *code, const char *msg, const char 
   return -1;
 }
 
+/* Well-known community passwords for scene ZIPs (classic ZipCrypto). The
+ * catalog-supplied / user-override password (job->extractPassword) is tried
+ * first. SPEC §17.19. */
+static const char *const DLX_COMMUNITY_PW[] = {
+  "DLPSGAME.COM", "[DLPSGAME.COM]", "www.DLPSGAME.COM", "SuperPSX", "downloadgameps3.com", "hako",
+};
+
 int dlx_extract_run(dl_job *j, const settings_t *s) {
-  char archive[1024], root[256], label[32], filename[256], id[16];
+  char archive[1024], root[256], label[32], filename[256], id[16], password[128];
   dl_lock();
   xstrlcpy(archive, j->path, sizeof archive);
   xstrlcpy(root, j->root, sizeof root);
   xstrlcpy(label, j->rootLabel, sizeof label);
   xstrlcpy(filename, j->filename, sizeof filename);
   xstrlcpy(id, j->id, sizeof id);
+  xstrlcpy(password, j->extractPassword, sizeof password);
   j->state = DL_EXTRACTING;
   xstrlcpy(j->phase, "extracting", sizeof j->phase);
   xstrlcpy(j->extract.state, "extracting", sizeof j->extract.state);
@@ -101,6 +109,7 @@ int dlx_extract_run(dl_job *j, const settings_t *s) {
   uint64_t total = 0;
   for (int i = 0; i < n; i++) {
     if (entries[i].is_dir) continue;
+    if (zip_name_is_junk(entries[i].name)) continue;
     if (!zip_name_is_safe(entries[i].name)) continue;
     files++;
     last_file = i;
@@ -108,6 +117,17 @@ int dlx_extract_run(dl_job *j, const settings_t *s) {
   }
   if (files == 0) { free(entries); return finish_fail(j, "extract_failed", "The archive holds no usable files", NULL); }
   if (st.entries > MAX_ENTRIES) { free(entries); return finish_fail(j, "extract_failed", "The archive holds too many entries to extract on the console", NULL); }
+  /* AES-ZIP is outside miniz: report it clearly instead of failing obscurely. */
+  int aes = 0;
+  if (zip_is_encrypted(archive, &aes) && aes) {
+    free(entries);
+    return finish_fail(j, "extract_aes", "This archive uses AES encryption, which the console cannot open. Download a non-AES version or extract it on a PC.", NULL);
+  }
+  /* Password list: the job's catalog/user password first, then community defaults. */
+  const char *pwlist[1 + (int)(sizeof DLX_COMMUNITY_PW / sizeof DLX_COMMUNITY_PW[0])];
+  int npw = 0;
+  if (password[0]) pwlist[npw++] = password;
+  for (size_t pi = 0; pi < sizeof DLX_COMMUNITY_PW / sizeof DLX_COMMUNITY_PW[0]; pi++) pwlist[npw++] = DLX_COMMUNITY_PW[pi];
   int64_t fr;
   if (storage_free_space(root, &fr, NULL) == 0 && (uint64_t)fr < total + (uint64_t)DL_RESERVE_BYTES) {
     char a[32], b[32], m[200];
@@ -144,7 +164,7 @@ int dlx_extract_run(dl_job *j, const settings_t *s) {
     xsnprintf(tmpdir, sizeof tmpdir, "%s/xeno-store/files/%s", root, tmpname);
     rm_tree(tmpdir, 0);
     dl_jlog(j, "extracting %s → %s", single_base, dest);
-    rc = zip_extract_to_dir(archive, tmpdir, total + (1u << 20), progress_cb, &p, &st);
+    rc = zip_extract_to_dir_pw(archive, tmpdir, total + (1u << 20), pwlist, npw, progress_cb, &p, &st);
     if (rc == 1) { rm_tree(tmpdir, 0); free(entries); return 1; }
     if (rc != 0) { free(entries); return finish_fail(j, "extract_failed", st.error[0] ? st.error : "Extraction failed", tmpdir); }
     char produced[1024];
@@ -165,10 +185,19 @@ int dlx_extract_run(dl_job *j, const settings_t *s) {
       return finish_fail(j, "extract_failed", "Cannot build a safe folder name for the archive", NULL);
     }
     if (util_file_exists(dest)) { free(entries); return finish_fail(j, "exists", "A file with the archive's name already exists in homebrew/", NULL); }
+    /* Stage into a sibling temp folder, then publish atomically with rename so
+     * a cancelled/failed extraction never leaves a half-written app behind. */
+    char tmpname[64];
+    xsnprintf(tmpname, sizeof tmpname, ".xeno-extract-%s", id);
+    xsnprintf(tmpdir, sizeof tmpdir, "%s/xeno-store/files/%s", root, tmpname);
+    rm_tree(tmpdir, 0);
     dl_jlog(j, "extracting %d files → %s/", files, dest);
-    rc = zip_extract_to_dir(archive, dest, total + (1u << 20), progress_cb, &p, &st);
-    if (rc == 1) { rm_tree(dest, 0); free(entries); return 1; }
-    if (rc != 0) { free(entries); return finish_fail(j, "extract_failed", st.error[0] ? st.error : "Extraction failed", dest); }
+    rc = zip_extract_to_dir_pw(archive, tmpdir, total + (1u << 20), pwlist, npw, progress_cb, &p, &st);
+    if (rc == 1) { rm_tree(tmpdir, 0); free(entries); return 1; }
+    if (rc != 0) { free(entries); return finish_fail(j, "extract_failed", st.error[0] ? st.error : "Extraction failed", tmpdir); }
+    storage_ensure_parent_dir(dest);
+    if (rename(tmpdir, dest) != 0) { free(entries); return finish_fail(j, "extract_failed", "Cannot move the extracted files into place", tmpdir); }
+    util_fsync_dir(dest);
     xstrlcpy(name, dest, sizeof name);
   }
   free(entries);

@@ -40,10 +40,22 @@ Contents: [Requirements](#requirements) · [Install](#install) · [First run](#f
 2. Extract it so the folder is exactly `/data/homebrew/XENO-STORE/` containing `eboot.bin`, `homebrew.json` and `sce_sys/` (XENO TOOL → Files, FTP, or etaHEN's file manager). Every entry in the zip carries mode `0777`, so it runs no matter which tool extracts it.
 3. Launch **XENO STORE** from your homebrew launcher. It starts the server and opens the browser.
 
-### C. Payload Manager (auto-start on boot)
+### C. Games-row app (`.pkg`)
+
+`XENO-STORE.pkg` installs XENO STORE as a full application in the PS5 **Games home row** (title id `PPSA99500`), rather than the homebrew launcher — the closest thing to a stock-store tile.
+
+1. Download `XENO-STORE.pkg` from the release, or build it yourself with `make ffpkg` (see Build from source).
+2. Install it with your package installer — from a USB drive, or by sending it to the DPI daemon (`:9040`) / etaHEN DPI (`:12800`).
+3. Launch **XENO STORE** from the Games row. Its app-launcher `eboot.bin` probes `:9095`, starts the store through the ELF loader if it is not already up, then opens the PS5 browser to it.
+
+The package is a debug `.pkg` staged by `tools/make_ffpkg.py` around the proven `fpkg_build` engine (titleId `PPSA99500`, 512×512 XENO icon) and verified before it is written. It needs the same FPKG-capable firmware as any fake package (11.60 or lower as of October 2026); on newer firmware, use route A or B, which work wherever an ELF loader does.
+
+### D. Payload Manager (auto-start on boot)
 
 Add `https://raw.githubusercontent.com/XENOKING123/XENOKING/main/xeno-store/updates/payloads.json` as a source, pick **XENO STORE** and enable auto-start.
 CI writes the sha256 of every release into that file, so the manager verifies the download. Settings → Setup shows the same URL as a QR code.
+
+All four routes run the same store on `:9095`, sharing one settings file, queue and save library — mix and match freely.
 
 ---
 
@@ -238,7 +250,17 @@ Settings → Setup → **Payloads** lists the owner-curated catalog from `update
 
 ## Phone companion
 
-Settings → **Pair a device** shows a QR code and both addresses: `http://<ps5-ip>:9095` and `http://xeno.local:9095` (the store answers mDNS for `xeno.local` and `xenostore.local`; opt out in Settings → General → mDNS). Open it on any phone on the same Wi-Fi: phone layout, bottom tabs, full-screen sheets, **Add to home screen**. An optional 4-digit PIN (Settings → Pairing) is required as a header for every change once set; the UI remembers it after the first entry.
+Settings → **Pair a device** shows a QR code and both addresses: `http://<ps5-ip>:9095` and `http://xeno.local:9095` (the store answers mDNS for `xeno.local` and `xenostore.local`; opt out in Settings → General → mDNS). Open it on any phone on the same Wi-Fi: phone layout, bottom tabs, full-screen sheets, **Add to home screen**.
+
+### Pairing with a code
+
+So that only devices in the room can change anything, a phone proves itself with a **6-digit code** shown on the TV:
+
+1. The console generates a random 6-digit code at start and shows it as a PS5 toast. **Pair a device → Show code** re-shows it (30-second cooldown).
+2. On the phone, open the store and enter the code.
+3. The phone receives a 64-character bearer token (up to 16 are remembered, persisted to `/data/pairing.json`). From then on the phone acts without re-entering anything; its requests carry `Authorization: Bearer <token>`.
+
+The literal code is only ever returned to the console's own browser (loopback), so a device that cannot see the screen cannot read it — `GET /api/pair` answers `"code":""` for a LAN caller. The console browser trusts itself automatically through `/api/session`. An optional 4-digit **PIN** (Settings → Pairing) adds a second gate, sent as the `X-XENO-PIN` header on every change; the UI remembers it after the first entry. A paired token or the PIN satisfies the gate; the GET endpoints stay open so browsing never needs either.
 
 ---
 

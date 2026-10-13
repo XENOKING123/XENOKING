@@ -115,27 +115,35 @@ here is the honest picture, based on their public READMEs when this was written 
 
 ## 📸 Screenshots
 
-<sub>1920×1080 captures from the real UI (`docs/screenshots/`). Phone captures are 390×844.</sub>
-
 | Discover | Game page | Download options |
 |:--:|:--:|:--:|
 | ![Discover](docs/screenshots/discover.png) | ![Game](docs/screenshots/game.png) | ![Download options](docs/screenshots/download-options.png) |
 
-| Downloads | Library | Settings |
+| Downloads | Library | Browse facets |
 |:--:|:--:|:--:|
-| ![Downloads](docs/screenshots/downloads.png) | ![Library](docs/screenshots/library.png) | ![Settings](docs/screenshots/settings.png) |
+| ![Downloads](docs/screenshots/downloads.png) | ![Library](docs/screenshots/library.png) | ![Browse facets](docs/screenshots/browse-facets.png) |
 
-| Save Data Store | Homebrew | Phone |
+| Save Data Store | Homebrew | Settings |
 |:--:|:--:|:--:|
-| ![Save Data Store](docs/screenshots/saves-store.png) | ![Homebrew](docs/screenshots/homebrew.png) | ![Phone](docs/screenshots/phone.png) |
+| ![Save Data Store](docs/screenshots/saves-store.png) | ![Homebrew](docs/screenshots/homebrew.png) | ![Settings](docs/screenshots/settings.png) |
+
+| Pair a device | Phone layout | |
+|:--:|:--:|:--:|
+| ![Pair a device](docs/screenshots/pair.png) | ![Phone](docs/screenshots/phone-discover.png) | |
+
+<sub>
+1920×1080 captures from the real UI (`docs/screenshots/`); the phone shot is 390×844. These are genuine renders of the shipped build —
+the cover art and screenshots you see are <b>neutral placeholders</b> (marked <code>MOCK ART · XENO STORE</code>) because the build machine has no CDN access; on a
+real console every tile pulls the actual box art and media from the catalog's art sources.
+</sub>
 
 ---
 
 ## 🚀 Install
 
-You need a jailbroken PS5 with an ELF loader listening on **port 9021** (etaHEN, the ps5-payload-dev `elfldr`, XENO TOOL's Payloads tab all do). Then pick **one** of the three ways:
+You need a jailbroken PS5 with an ELF loader listening on **port 9021** (etaHEN, the ps5-payload-dev `elfldr`, XENO TOOL's Payloads tab all do). Then pick **one** of the three install routes — all three run the same store, so settings, queue and saves carry over between them:
 
-### 1 · Send the ELF (fastest)
+### 1 · Launcher ELF (fastest)
 
 ```text
 1.  ⬇️   Download  xeno-store-browser.elf  from the xeno-store-v1.0.0 release
@@ -145,7 +153,7 @@ You need a jailbroken PS5 with an ELF loader listening on **port 9021** (etaHEN,
 4.  ✅   First run: pick your sources, pick a default drive, read the readiness checklist
 ```
 
-### 2 · Home-screen app (etaHEN / itemzflow)
+### 2 · Home-screen app — homebrew folder (etaHEN / itemzflow)
 
 ```text
 1.  ⬇️   Download  XENO-STORE.zip
@@ -154,9 +162,22 @@ You need a jailbroken PS5 with an ELF loader listening on **port 9021** (etaHEN,
 3.  🏠   The XENO icon appears in your homebrew launcher — start it like any app
 ```
 
-### 3 · Payload Manager (auto-start on every boot)
+### 3 · Games-row app (.pkg)
 
-Add this URL as a **source** in Payload Manager and enable auto-start for **XENO STORE**:
+A real application tile in the PS5 **Games home row** (title id `PPSA99500`), not just the homebrew launcher — closest to a stock-store feel.
+
+```text
+1.  ⬇️   Download  XENO-STORE.pkg  (or build it yourself: make ffpkg)
+2.  💿   Install it with your package installer (USB or the DPI daemon / etaHEN DPI)
+3.  🎮   "XENO STORE" lands in the Games row — launch it; the app-launcher eboot
+         starts the store and opens the browser to it
+```
+
+<sub>The .pkg is a debug package staged by <code>tools/make_ffpkg.py</code> around the proven <code>fpkg_build</code> engine and verified before it is written; it needs the same FPKG-capable firmware as any fake package. On firmware that cannot install fake packages, use route 1 or 2 — they work everywhere a loader does.</sub>
+
+### 🔁 Auto-start & self-update — Payload Manager
+
+Add this URL as a **source** in Payload Manager and enable auto-start for **XENO STORE** so it comes up on every boot:
 
 ```text
 https://raw.githubusercontent.com/XENOKING123/XENOKING/main/xeno-store/updates/payloads.json
@@ -216,12 +237,49 @@ Full details, paths and sidecar formats: [`docs/FORMATS.md`](docs/FORMATS.md).
 
 ---
 
+## 💾 Save Data Store
+
+<img src="docs/screenshots/saves-store.png" width="100%" alt="Save Data Store"/>
+
+A community library of PS5 saves — maxed starters, 100% platinums, trophy checkpoints, chapter picks — **re-signed for your account on this console** so they load like your own. Every save is checked before it touches your card:
+
+* **Compatibility first.** Each card shows whether the game is **installed**, whether its **region** matches and whether the **version** lines up; "Compatible with my games" filters the grid to saves you can actually use.
+* **Honest re-sign tiers.** The store reports the engine it will use, never fakes it: **Native** (the Sony save API, when kstuff-style patches are loaded), **Garlic** (Garlic Save Manager on `:8082`), or **Raw** (a same-console copy). The current tier is shown on the header pill.
+* **Safe installs.** Download is sha256-checked, the install **backs up your current save first**, and a save for the wrong title id is refused outright.
+* **Share yours in one flow.** *Upload my save* exports the chosen save, strips the account id, uploads it to a file host and opens a pre-filled submission — your save joins the library for everyone.
+
+The companion **Saves hub** (Library → Saves hub) backs up any profile to ZIP, restores it, transfers saves between profiles on the same console, and has a "Back up all saves now". Full walkthrough: [`docs/SAVES.md`](docs/SAVES.md).
+
+---
+
+## 🚀 Debrid
+
+Connect **Real-Debrid, AllDebrid, TorBox or Premiumize** with your own API key (Settings → Debrid). When a release points at a host your service supports, XENO STORE **unrestricts it into a direct, range-capable link** and the segmented engine downloads it at full speed with resume — no browser step, no waiting-room page.
+
+* The key is validated against the service's own user endpoint before it is stored, and it **never leaves the console** except to the service you chose.
+* Supported hosts are resolved transparently; unsupported links fall back to the normal flow (direct download, or **Enter file link** for pages that need a human check).
+* Add or forget a key any time; forgetting it clears it from the console immediately.
+
+---
+
 ## 📱 Phone pairing
+
+<img src="docs/screenshots/pair.png" width="100%" alt="Pair a device screen"/>
 
 Settings → **Pair a device** shows a QR code and the two addresses `http://<ps5-ip>:9095` and `http://xeno.local:9095`.
 Scan it with any phone on the same Wi-Fi: same store, phone layout, bottom tabs. Everything works from the phone —
 browse, queue, pause, **Enter file link** (paste the link you unlocked in a mobile browser), the Save Data Store upload wizard,
-and "Add to home screen" via the PWA manifest. Optional 4-digit PIN in Settings → Pairing.
+and "Add to home screen" via the PWA manifest.
+
+**Proving the phone is in the room.** When a device changes anything on the console, the store can ask it to pair with a **6-digit code**:
+
+```text
+1.  🔢   The console shows a 6-digit code as a PS5 toast (Pair a device → "Show code" re-shows it, 30 s cooldown)
+2.  📲   On the phone, open the store, enter the code
+3.  🔑   The phone gets a bearer token (up to 16 remembered), and from then on it acts without re-entering
+```
+
+The literal code is only ever returned to the console's own browser (loopback); a phone must read it off the TV, so a device that cannot see the screen cannot pair. An optional 4-digit **PIN** in Settings → Pairing adds a second gate for every mutating request. The console browser itself is trusted automatically via `/api/session`.
 
 ---
 

@@ -713,10 +713,14 @@ int cx_savestore_install(const char *id, uint32_t uid, int backup_first, int dow
     if (storage_get_roots(roots, STORAGE_MAX_ROOTS) < 1) { free(a); xstrlcpy(code, "root_unavailable", ccap); xsnprintf(err, errcap, "no drive available"); return -1; }
     sr = roots[0];
   }
-  char tdir[64], fname[200], safe_id[80];
-  if (storage_sanitize_filename(a->row.title[0] ? a->row.title : a->row.titleId, tdir, sizeof tdir) != 0) xstrlcpy(tdir, a->row.titleId, sizeof tdir);
+  /* titleId/id/title all come from the community index (external data): every
+   * component of the destination path goes through storage_sanitize_filename,
+   * so a hostile "../" titleId cannot escape the saves folder. */
+  char tdir[64], fname[200], safe_id[80], safe_tid[24];
+  if (storage_sanitize_filename(a->row.titleId, safe_tid, sizeof safe_tid) != 0) xstrlcpy(safe_tid, "save", sizeof safe_tid);
+  if (storage_sanitize_filename(a->row.title[0] ? a->row.title : a->row.titleId, tdir, sizeof tdir) != 0) xstrlcpy(tdir, safe_tid, sizeof tdir);
   if (storage_sanitize_filename(a->row.id, safe_id, sizeof safe_id) != 0) xstrlcpy(safe_id, "save", sizeof safe_id);
-  xsnprintf(fname, sizeof fname, "%s_%s.zip", a->row.titleId, safe_id);
+  xsnprintf(fname, sizeof fname, "%s_%s.zip", safe_tid, safe_id);
   xsnprintf(a->dest, sizeof a->dest, "%s/xeno-store/saves/community/%s/%s", sr.path, tdir, fname);
   char title[256];
   xsnprintf(title, sizeof title, "%s — %s", a->row.title[0] ? a->row.title : a->row.titleId, a->row.name[0] ? a->row.name : a->row.id);

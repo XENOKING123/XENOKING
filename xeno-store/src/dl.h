@@ -33,7 +33,8 @@ enum { DL_STOP_NONE = 0, DL_STOP_PAUSE = 1, DL_STOP_CANCEL = 2, DL_STOP_REMOVE =
 
 typedef struct dl_chunk {
   int64_t start, end;   /* [start, end) ; end == -1 → until EOF (unknown size) */
-  int64_t cur;          /* next byte to write */
+  int64_t cur;          /* next byte to write (live progress) */
+  int64_t durable;      /* bytes up to here are fsynced; only the sidecar reads this */
   int active;           /* a segment thread owns it */
 } dl_chunk;
 
@@ -108,6 +109,7 @@ typedef struct dl_job {
   dl_turbo turbo;
   char scheduledFor[8];                /* "22:00" while the schedule window holds the job */
   int startNow;                        /* "Start now anyway" override */
+  char extractPassword[128];           /* catalog-supplied / user override ZIP password (SPEC §17.19) */
   char srcPath[1024];                  /* copy jobs: source file */
   int move;                            /* copy jobs: unlink the source afterwards */
   dl_extract extract;
@@ -131,6 +133,7 @@ typedef struct dl_job {
   int nchunks;
   int64_t chunk_size;
   int segmented, window, active_segments;
+  int usb;                             /* exFAT/USB root: bounded 8 MiB in-flight window, no preallocation */
   int64_t clean_bytes, last_fsync, last_space_check;
   int seg_fatal, seg_status;           /* set by a segment thread on a non-retryable error */
   char seg_error[160];
@@ -163,6 +166,7 @@ typedef struct dl_add_req {
   const char *via;          /* direct | auto | realdebrid | alldebrid | torbox | premiumize */
   const char *kind;         /* game | update | dlc | backport | app */
   const char *group;        /* install set id, "" = none */
+  const char *password;     /* ZIP extraction password (catalog or user override), "" = none */
   int groupOrder;
 } dl_add_req;
 

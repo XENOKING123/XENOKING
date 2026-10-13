@@ -14,7 +14,9 @@
 #include "config.h"
 #include "dl.h"
 #include "http_client.h"
+#include "launcher_icon.h"   /* [launcher builder] deep-link home-screen icon */
 #include "log.h"
+#include "pairing.h"
 #include "server.h"
 #include "settings.h"
 #include "storage.h"
@@ -128,6 +130,7 @@ int main(int argc, char **argv) {
   LOGI("%s %s starting (%s, data %s, port %d)", XENO_APP_NAME, XENO_VERSION, sys_platform(), g_cfg.data_dir, g_cfg.port);
 
   settings_init(g_cfg.data_dir);
+  pairing_init(g_cfg.data_dir);
   if (xhttp_global_init() != 0) LOGW("transport init failed: %s — downloads unavailable", xhttp_last_error());
   else LOGI("transport: %s", xhttp_backend_name());
   catalog_init(g_cfg.data_dir);
@@ -145,6 +148,10 @@ int main(int argc, char **argv) {
   }
   pthread_t hk;
   if (pthread_create(&hk, NULL, housekeeping, NULL) != 0) { LOGE("cannot start housekeeping thread"); return 1; }
+
+  /* [launcher builder] Server is bound — publish the deep-link home-screen icon
+   * (/user/app/XENO00002). Idempotent, never fatal; a logged no-op on host. */
+  launcher_icon_register();
 
   char ip[48];
   sys_local_ip(ip, sizeof ip);

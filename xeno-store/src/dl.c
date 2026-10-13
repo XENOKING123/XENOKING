@@ -58,9 +58,41 @@
 #define REST_WAIT_MAX_MS (15 * 60 * 1000)
 #define REST_POLL_MS 2000
 #define MAX_GROUPS 64
+#define USB_WINDOW (8LL << 20)   /* exFAT/USB: cap the combined in-flight span (Orbit run_usb_ranges) */
 
 /* Outcomes of the probe/transfer phases. */
 enum { OUT_DONE = 0, OUT_RETRY, OUT_FAILOVER, OUT_FATAL, OUT_STOPPED };
+
+/* exFAT/USB destination: a /mnt/usbN root. ftruncate-preallocating a multi-GB
+ * file there (no sparse support) stalls the whole volume, and far-apart writes
+ * force large gap allocations, so these jobs run a bounded ascending window. */
+static int root_is_usb(const char *root) {
+#ifdef XENO_HOST
+  const char *force = getenv("XENO_HOST_USB");
+  if (force && strcmp(force, "1") == 0) return 1;
+#endif
+  if (!root) return 0;
+  size_t n = strlen(root);
+  return n == 9 && strncmp(root, "/mnt/usb", 8) == 0 && root[8] >= '0' && root[8] <= '7';
+}
+
+/* Caller holds queue_mu. The lowest start offset among chunks still to finish;
+ * the USB window extends USB_WINDOW bytes above it. INT64_MAX when all done. */
+static int64_t usb_floor_locked(const dl_job *j) {
+  int64_t floor = INT64_MAX;
+  for (int i = 0; i < j->nchunks; i++) {
+    const dl_chunk *c = &j->chunks[i];
+    if (c->end < 0 || c->cur < c->end) if (c->start < floor) floor = c->start;
+  }
+  return floor;
+}
+
+/* Caller holds queue_mu. 1 when chunk `c` lies within the current USB window. */
+static int usb_chunk_in_window_locked(const dl_job *j, const dl_chunk *c) {
+  if (!j->usb) return 1;
+  int64_t floor = usb_floor_locked(j);
+  return floor == INT64_MAX || c->start < floor + USB_WINDOW;
+}
 
 static pthread_mutex_t queue_mu = PTHREAD_MUTEX_INITIALIZER;
 static dl_job *jobs[DL_MAX_JOBS];
@@ -75,7 +107,28 @@ static int64_t last_install_poll_ms;
 static pthread_mutex_t bucket_mu = PTHREAD_MUTEX_INITIALIZER;
 static int64_t bucket_tokens, bucket_last_ms, bucket_rate;
 
+/* 1 only while serialising queue.json (under queue_mu): the ZIP password is
+ * persisted for resume but never written into the /api/queue response. */
+static int persist_mode;
+
 static const int BACKOFF_S[] = {5, 15, 45, 120, 300};
+
+#ifdef XENO_HOST
+/* Host-only fault injection for the durability drill (SPEC §7.2 test): when
+ * XENO_HOST_FSYNC_FAIL_AFTER is set, the covering fsync "fails" once the span
+ * about to be made durable passes that many bytes, so a test can prove the
+ * persisted resume cursor never advances past a failed flush. A no-op on the
+ * console (direct fsync). `covered` is the durable high-water about to commit. */
+static int host_fsync(int fd, int64_t covered) {
+  static int read_env = 0;
+  static long long fail_after = -1;
+  if (!read_env) { const char *e = getenv("XENO_HOST_FSYNC_FAIL_AFTER"); fail_after = (e && *e) ? atoll(e) : -1; read_env = 1; }
+  if (fail_after >= 0 && covered > fail_after) { errno = EIO; return -1; }
+  return fsync(fd);
+}
+#else
+#define host_fsync(fd, covered) fsync(fd)
+#endif
 
 /* ---- small helpers ------------------------------------------------------ */
 
@@ -274,6 +327,7 @@ static void job_write_json(jw *w, const dl_job *j, int history) {
   jw_kv_str(w, "type", j->type[0] ? j->type : "download");
   jw_kv_str(w, "group", j->group);
   jw_kv_int(w, "groupOrder", j->groupOrder);
+  if (persist_mode && j->extractPassword[0]) jw_kv_str(w, "extractPassword", j->extractPassword);
   jw_kv_str(w, "kind", j->kind[0] ? j->kind : "game");
   jw_kv_str(w, "via", j->viaLabel);             /* "Real-Debrid" when a service unrestricted the link, "" = direct */
   jw_kv_str(w, "viaService", j->viaService);
@@ -370,6 +424,7 @@ static dl_job *job_from_json(jv o) {
   if (strcmp(j->type, "copy") != 0) xstrlcpy(j->type, "download", sizeof j->type);
   xstrlcpy(j->group, jv_get_str(o, "group", ""), sizeof j->group);
   j->groupOrder = (int)jv_get_i64(o, "groupOrder", 0);
+  xstrlcpy(j->extractPassword, jv_get_str(o, "extractPassword", ""), sizeof j->extractPassword);
   xstrlcpy(j->kind, jv_get_str(o, "kind", "game"), sizeof j->kind);
   xstrlcpy(j->via, jv_get_str(o, "viaRequested", ""), sizeof j->via);
   if (strcmp(j->via, "direct") == 0) j->via[0] = 0;
@@ -415,7 +470,9 @@ static char *queue_text_locked(size_t *len) {
   jw_kv_int(&w, "v", 1);
   jw_kv_i64(&w, "savedAt", (int64_t)util_now());
   jw_key(&w, "jobs"); jw_arr_begin(&w);
+  persist_mode = 1;
   for (int i = 0; i < n_jobs; i++) job_write_json(&w, jobs[i], 0);
+  persist_mode = 0;
   jw_arr_end(&w);
   jw_obj_end(&w);
   return jw_detach(&w, len);
@@ -450,11 +507,13 @@ static int range_cmp(const void *a, const void *b) {
   return x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0;
 }
 
-/* Merges [start,cur) of every chunk into sorted, non-overlapping ranges. */
+/* Merges the DURABLE [start,durable) span of every chunk into sorted,
+ * non-overlapping ranges. Only fsynced bytes are reported, so a crash never
+ * lets a resume trust bytes that never reached the platter (SPEC §7.2). */
 static int done_ranges_locked(const dl_job *j, int64_t (*out)[2], int max) {
   int n = 0;
   for (int i = 0; i < j->nchunks && n < max; i++) {
-    if (j->chunks[i].cur > j->chunks[i].start) { out[n][0] = j->chunks[i].start; out[n][1] = j->chunks[i].cur; n++; }
+    if (j->chunks[i].durable > j->chunks[i].start) { out[n][0] = j->chunks[i].start; out[n][1] = j->chunks[i].durable; n++; }
   }
   if (n == 0) return 0;
   qsort(out, (size_t)n, sizeof out[0], range_cmp);
@@ -484,10 +543,13 @@ static char *sidecar_text_locked(dl_job *j, size_t *len, time_t createdAt) {
   jw_kv_str(&w, "etag", j->etag);
   jw_kv_str(&w, "lastModified", j->lastModified);
   jw_kv_i64(&w, "chunk", j->chunk_size);
+  int64_t durable_written = 0;
   jw_key(&w, "done"); jw_arr_begin(&w);
-  for (int i = 0; i < n; i++) { jw_arr_begin(&w); jw_i64(&w, done[i][0]); jw_i64(&w, done[i][1]); jw_arr_end(&w); }
+  for (int i = 0; i < n; i++) { jw_arr_begin(&w); jw_i64(&w, done[i][0]); jw_i64(&w, done[i][1]); jw_arr_end(&w); durable_written += done[i][1] - done[i][0]; }
   jw_arr_end(&w);
-  jw_kv_i64(&w, "written", j->written);
+  /* "written" mirrors the durable ranges above, not the live counter, so a
+   * reader of the sidecar sees a self-consistent, crash-safe snapshot. */
+  jw_kv_i64(&w, "written", durable_written);
   jw_kv_i64(&w, "createdAt", (int64_t)createdAt);
   jw_kv_i64(&w, "updatedAt", (int64_t)util_now());
   jw_kv_str(&w, "sha256Expected", j->sha256Expected);
@@ -551,7 +613,15 @@ static int plan_alloc_locked(dl_job *j) {
 static void plan_add_locked(dl_job *j, int64_t start, int64_t end, int64_t cur) {
   if (j->nchunks >= MAX_CHUNKS) return;
   dl_chunk *c = &j->chunks[j->nchunks++];
-  c->start = start; c->end = end; c->cur = cur; c->active = 0;
+  c->start = start; c->end = end; c->cur = cur; c->durable = cur; c->active = 0;
+}
+
+/* Chunk size for a fresh/resumed plan. USB jobs use small chunks so a whole
+ * 8 MiB window's worth run in parallel; others use max(16 MiB, total/conns). */
+static int64_t plan_chunk_size(const dl_job *j) {
+  if (j->usb) { int w = j->window > 0 ? j->window : 1; int64_t cs = USB_WINDOW / w; return cs < (1LL << 20) ? (1LL << 20) : cs; }
+  int64_t cs = (j->total + j->connections - 1) / j->connections;
+  return cs < MIN_CHUNK ? MIN_CHUNK : cs;
 }
 
 /* Fresh plan: equal chunks of max(16 MiB, total/connections). */
@@ -562,8 +632,7 @@ static int plan_fresh_locked(dl_job *j) {
     plan_add_locked(j, 0, j->total > 0 ? j->total : -1, 0);
     return 0;
   }
-  int64_t cs = (j->total + j->connections - 1) / j->connections;
-  if (cs < MIN_CHUNK) cs = MIN_CHUNK;
+  int64_t cs = plan_chunk_size(j);
   j->chunk_size = cs;
   for (int64_t off = 0; off < j->total && j->nchunks < MAX_CHUNKS - 64; off += cs)
     plan_add_locked(j, off, XS_MIN(off + cs, j->total), off);
@@ -609,9 +678,9 @@ static dl_chunk *take_chunk(dl_job *j) {
   dl_chunk *pick = NULL;
   for (int i = 0; i < j->nchunks; i++) {
     dl_chunk *c = &j->chunks[i];
-    if (!c->active && (c->end < 0 || c->cur < c->end)) { pick = c; break; }
+    if (!c->active && (c->end < 0 || c->cur < c->end) && usb_chunk_in_window_locked(j, c)) { pick = c; break; }
   }
-  if (!pick && j->segmented && j->nchunks < MAX_CHUNKS) {
+  if (!pick && j->segmented && !j->usb && j->nchunks < MAX_CHUNKS) {   /* no work-stealing split on USB */
     dl_chunk *big = NULL;
     for (int i = 0; i < j->nchunks; i++) {
       dl_chunk *c = &j->chunks[i];
@@ -719,7 +788,7 @@ static int publish_progress_locked(dl_job *j, dl_chunk *ck, int n, int64_t *cur,
   j->written += n;
   j->clean_bytes += n;
   j->seg_err_streak = 0;
-  if (j->segmented && j->clean_bytes >= WINDOW_GROW_BYTES) {
+  if (j->segmented && !j->usb && j->clean_bytes >= WINDOW_GROW_BYTES) {
     j->clean_bytes = 0;
     if (j->window < j->connections) j->window++;
   }
@@ -852,9 +921,9 @@ static void spawn_segments_locked(dl_job *j) {
   if (j->last_seg_error_ms && now - j->last_seg_error_ms < SEG_RESPAWN_DELAY_MS) return;
   while (j->active_segments < j->window && j->active_segments < DL_MAX_SEGMENTS) {
     int idle = 0;
-    for (int i = 0; i < j->nchunks; i++) if (!j->chunks[i].active && (j->chunks[i].end < 0 || j->chunks[i].cur < j->chunks[i].end)) { idle = 1; break; }
+    for (int i = 0; i < j->nchunks; i++) if (!j->chunks[i].active && (j->chunks[i].end < 0 || j->chunks[i].cur < j->chunks[i].end) && usb_chunk_in_window_locked(j, &j->chunks[i])) { idle = 1; break; }
     int splittable = 0;
-    if (!idle && j->segmented)
+    if (!idle && j->segmented && !j->usb)
       for (int i = 0; i < j->nchunks; i++) if (j->chunks[i].active && j->chunks[i].end >= 0 && j->chunks[i].end - j->chunks[i].cur >= 2 * SPLIT_MIN) { splittable = 1; break; }
     if (!idle && !splittable) break;
     int slot = -1;
@@ -1066,6 +1135,7 @@ static int probe_and_plan(dl_job *j) {
   j->probe_status = st;
   j->resumable = (st == 206) || resp.accept_ranges;
   j->segmented = st == 206 && total > 0 && (strong_etag || resp.last_modified[0]) && j->connections > 1;
+  j->usb = root_is_usb(j->root);
   if (total > 0 && j->total > 0 && j->total != total && !j->chunks && !util_file_exists(j->xpart)) {
     jlog_locked(j, "catalog size %lld differs from server size %lld", (long long)j->total, (long long)total);
   }
@@ -1074,6 +1144,7 @@ static int probe_and_plan(dl_job *j) {
   xstrlcpy(j->etag, resp.etag, sizeof j->etag);
   xstrlcpy(j->lastModified, resp.last_modified, sizeof j->lastModified);
   j->window = j->segmented ? j->connections : 1;
+  if (j->usb && j->window > 8) j->window = 8;   /* 8 × 1 MiB = one 8 MiB window */
   j->clean_bytes = 0;
   pthread_mutex_unlock(&queue_mu);
   char fb[32];
@@ -1093,7 +1164,10 @@ static int open_partial(dl_job *j) {
   int fd = open(j->xpart, O_RDWR | O_CREAT, 0644);
   if (fd < 0) { seg_fail(j, 0, 0, "io_error", "Cannot create the download file"); return -1; }
   struct stat st;
-  if (j->total > 0 && fstat(fd, &st) == 0 && st.st_size != j->total) {
+  /* exFAT/USB has no cheap sparse file: preallocating a multi-GB game would
+   * zero-fill the whole volume. The bounded ascending window keeps gaps small,
+   * so the file simply grows as it is written (Orbit USB behaviour). */
+  if (!j->usb && j->total > 0 && fstat(fd, &st) == 0 && st.st_size != j->total) {
     if (ftruncate(fd, j->total) != 0) {
       int e = errno;
       close(fd);
@@ -1141,6 +1215,15 @@ static int space_check(dl_job *j) {
   /* Known size: the rest of the file plus the 256 MiB reserve must fit.
    * Unknown size: only the reserve can be checked. */
   int64_t need = (j->total > 0 ? j->total - j->written : 0);
+  /* Discount blocks already allocated to the partial from the space we still
+   * need: a preallocated (or partially written) file does not re-consume them
+   * (Orbit download_remaining). Never let the estimate grow. */
+  struct stat pst;
+  if (j->total > 0 && j->fd >= 0 && fstat(j->fd, &pst) == 0 && pst.st_blocks > 0) {
+    int64_t allocated = (int64_t)pst.st_blocks * 512;
+    int64_t unallocated = allocated >= j->total ? 0 : j->total - allocated;
+    if (unallocated < need) need = unallocated;
+  }
   if (fr < need + DL_RESERVE_BYTES) {
     char a[32], b[32];
     util_fmt_bytes(need, a, sizeof a);
@@ -1162,6 +1245,38 @@ static void wait_segments(dl_job *j) {
     if (n == 0) return;
     util_sleep_ms(100);
   }
+}
+
+/* Durability checkpoint (Orbit transfer_writer checkpoint() model): fsync the
+ * file, and ONLY if that returns, advance each chunk's durable cursor to the
+ * live cursor it had when the flush began. The sidecar reads the durable
+ * cursors, so a crash (or a failed flush) never lets a resume continue past
+ * bytes that are not on the platter. Returns 0, or -1 when the flush failed
+ * (durable cursors left untouched). */
+static int dl_checkpoint(dl_job *j) {
+  pthread_mutex_lock(&queue_mu);
+  int fd = j->fd;
+  int n = j->nchunks;
+  pthread_mutex_unlock(&queue_mu);
+  if (fd < 0) return 0;
+  int64_t *snap = n > 0 ? malloc((size_t)n * sizeof *snap) : NULL;
+  int64_t covered = 0;
+  pthread_mutex_lock(&queue_mu);
+  if (n > j->nchunks) n = j->nchunks;
+  if (snap) for (int i = 0; i < n; i++) { snap[i] = j->chunks[i].cur; covered += snap[i] - j->chunks[i].start; }
+  else covered = j->written;
+  pthread_mutex_unlock(&queue_mu);
+  (void)covered;   /* consumed by host_fsync's fault hook; a plain fsync on PS5 */
+  int rc;
+  do { rc = host_fsync(fd, covered); } while (rc != 0 && errno == EINTR);
+  if (rc != 0) { free(snap); return -1; }
+  if (snap) {
+    pthread_mutex_lock(&queue_mu);
+    for (int i = 0; i < n && i < j->nchunks; i++) if (snap[i] > j->chunks[i].durable) j->chunks[i].durable = snap[i];
+    pthread_mutex_unlock(&queue_mu);
+  }
+  free(snap);
+  return 0;
 }
 
 /* Runs the segment threads until the plan is complete or an error stops it. */
@@ -1197,9 +1312,11 @@ static int transfer(dl_job *j) {
     int need_space = j->written - j->last_space_check >= SPACE_CHECK_EVERY;
     if (need_space) j->last_space_check = j->written;
     int need_sidecar = util_now_ms() - j->last_sidecar_ms >= SIDECAR_EVERY_MS;
-    int fd = j->fd;
     pthread_mutex_unlock(&queue_mu);
-    if (need_fsync) fsync(fd);
+    /* A checkpoint (fsync + durable-cursor advance) precedes every sidecar
+     * write so the persisted resume point never runs ahead of durable bytes. */
+    if ((need_fsync || need_sidecar) && dl_checkpoint(j) != 0)
+      seg_fail(j, 0, 0, "io_error", "Downloaded bytes could not be flushed to the drive.");
     if (need_space) space_check(j);
     if (need_sidecar) sidecar_persist(j);
     util_sleep_ms(200);
@@ -1207,12 +1324,13 @@ static int transfer(dl_job *j) {
   if (out != OUT_DONE) { pthread_mutex_lock(&queue_mu); j->stop_io = 1; pthread_mutex_unlock(&queue_mu); }
   wait_segments(j);
   pthread_mutex_lock(&queue_mu);
-  int fd = j->fd;
   j->speed = 0;
   j->eta = 0;
   if (j->transfer_started_ms) { j->transfer_ms += util_now_ms() - j->transfer_started_ms; j->transfer_started_ms = 0; }
   pthread_mutex_unlock(&queue_mu);
-  if (fd >= 0) fsync(fd);
+  /* Final flush: make every written byte durable and record it before we
+   * leave the transfer (pause, stop or completion all land here). */
+  dl_checkpoint(j);
   sidecar_persist(j);
   return out;
 }
@@ -1262,7 +1380,14 @@ static int finish_job(dl_job *j) {
   int do_verify = strcmp(j->verify, "sha256") == 0 && j->sha256Expected[0];
   if (do_verify) { j->state = DL_VERIFYING; xstrlcpy(j->phase, "sha256", sizeof j->phase); j->written = 0; }
   pthread_mutex_unlock(&queue_mu);
-  if (fd >= 0) { fsync(fd); close(fd); }
+  /* The completion flush must succeed before we rename and declare the file
+   * done — a failed final fsync means the bytes are not durable. */
+  if (fd >= 0) {
+    int frc;
+    do { frc = fsync(fd); } while (frc != 0 && errno == EINTR);
+    close(fd);
+    if (frc != 0) { seg_fail(j, 0, 0, "io_error", "The finished file could not be flushed to the drive."); return OUT_FATAL; }
+  }
   if (do_verify) {
     char hex[65] = "";
     int v = verify_file(j, j->xpart, hex);
@@ -2467,6 +2592,8 @@ int dl_add(const dl_add_req *r, char *job_id, size_t idcap, char *code, size_t c
   const char *via = r->via && r->via[0] ? r->via : jv_get_str(body, "via", "");
   const char *kind = r->kind && r->kind[0] ? r->kind : jv_get_str(body, "kind", "");
   const char *group = r->group && r->group[0] ? r->group : jv_get_str(body, "group", "");
+  const char *password = r->password && r->password[0] ? r->password : jv_get_str(body, "password", "");
+  xstrlcpy(j->extractPassword, password, sizeof j->extractPassword);
   if (!via[0]) via = s.debrid.preferred;
   if (util_strieq(via, "direct")) via = "";
   if (via[0] && !util_strieq(via, "auto") && !dlx_debrid_known(via)) {

@@ -46,6 +46,19 @@ int zip_extract_to_memory(const char *zip_path, const char *basename, void **out
 int zip_extract_to_dir(const char *zip_path, const char *dest_dir, uint64_t max_total,
                        zip_progress_fn progress, void *user, zip_stats *st);
 
+/* Like zip_extract_to_dir, but tries each password (in order) on any classic
+ * ZipCrypto entry; unencrypted entries ignore passwords. An AES-ZIP entry is
+ * reported in st->error rather than silently failing. */
+int zip_extract_to_dir_pw(const char *zip_path, const char *dest_dir, uint64_t max_total,
+                          const char *const *passwords, int npasswords,
+                          zip_progress_fn progress, void *user, zip_stats *st);
+
+/* 1 when the archive has any encrypted entry; *aes is set for AES-ZIP (method 99). */
+int zip_is_encrypted(const char *zip_path, int *aes);
+
+/* 1 for archive housekeeping entries that are silently dropped (__MACOSX, .DS_Store). */
+int zip_name_is_junk(const char *name);
+
 /* Creates/overwrites zip_path from every regular file below src_dir (recursively,
  * stored with paths relative to src_dir, deflate level 6). Returns 0 or -1. */
 int zip_create_from_dir(const char *zip_path, const char *src_dir, zip_progress_fn progress, void *user, zip_stats *st);

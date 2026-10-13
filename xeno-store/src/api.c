@@ -14,6 +14,7 @@
 #include "http_client.h"
 #include "install.h"
 #include "log.h"
+#include "pairing.h"
 #include "settings.h"
 #include "storage.h"
 #include "sys.h"
@@ -250,6 +251,7 @@ static void h_queue_add(api_ctx *c) {
   r.format = body_str(c, "format", "");
   r.title = body_str(c, "title", "");
   r.sha256 = body_str(c, "sha256", "");
+  r.password = body_str(c, "password", "");
   r.mirrors = jv_get(c->body, "mirrors");
   r.size = jv_get_i64(c->body, "size", 0);
   r.connections = (int)jv_get_i64(c->body, "connections", 0);
@@ -495,6 +497,87 @@ static void h_pair(api_ctx *c) {
   jw_kv_str(&w, "ip", ip);
   jw_kv_int(&w, "port", g_cfg.port);
   jw_kv_bool(&w, "pinRequired", s.pin[0] != 0);
+  /* The literal code is shown only on the console (loopback peer); a LAN phone
+   * must read it off the PS5 toast. `cooldown` throttles POST /api/pair/show. */
+  jw_kv_str(&w, "code", c->req->client_is_loopback ? pairing_code() : "");
+  jw_kv_int(&w, "cooldown", pairing_show_cooldown());
+  api_send(c, &w);
+}
+
+static void h_pair_show(api_ctx *c) {
+  int retry = 0;
+  int rc = pairing_show(&retry);
+  if (rc == 1) {   /* within cooldown */
+    jw w;
+    jw_init(&w);
+    jw_obj_begin(&w);
+    jw_kv_bool(&w, "ok", 0);
+    jw_kv_str(&w, "error", "cooldown");
+    jw_kv_str(&w, "message", "Wait a moment before showing the code again.");
+    jw_kv_int(&w, "retryAfter", retry);
+    jw_kv_int(&w, "status", 429);
+    jw_obj_end(&w);
+    http_send_json(c->req, 429, &w);
+    return;
+  }
+  jw w;
+  api_begin(&w);
+  jw_kv_bool(&w, "shown", 1);
+  jw_kv_int(&w, "retryAfter", retry);
+  api_send(c, &w);
+}
+
+static void h_pair_redeem(api_ctx *c) {
+  const char *code = body_str(c, "code", "");
+  char token[72];
+  int retry = 0;
+  int rc = pairing_redeem(code, token, sizeof token, &retry);
+  if (rc == 0) {
+    jw w;
+    api_begin(&w);
+    jw_kv_str(&w, "token", token);
+    jw_kv_bool(&w, "paired", 1);
+    api_send(c, &w);
+    return;
+  }
+  int status = -rc;
+  if (status == 429) {
+    jw w;
+    jw_init(&w);
+    jw_obj_begin(&w);
+    jw_kv_bool(&w, "ok", 0);
+    jw_kv_str(&w, "error", "locked_out");
+    jw_kv_str(&w, "message", "Too many attempts. Wait a minute and try again.");
+    jw_kv_int(&w, "retryAfter", retry);
+    jw_kv_int(&w, "status", 429);
+    jw_obj_end(&w);
+    http_send_json(c->req, 429, &w);
+    return;
+  }
+  const char *scode = status == 409 ? "slots_full" : status == 503 ? "save_failed" : "bad_code";
+  const char *msg = status == 409 ? "All pairing slots are in use."
+                    : status == 503 ? "Could not save the pairing."
+                                    : "Pairing failed. Check the code shown on the console.";
+  api_error(c, status, scode, msg);
+}
+
+static void h_session(api_ctx *c) {
+  if (!c->req->client_is_loopback) {
+    api_error(c, 403, "forbidden", "Pair this device using the code shown on the console.");
+    return;
+  }
+  char token[72];
+  if (pairing_ensure_token(token, sizeof token) != 0) { api_error(c, 503, "save_failed", "Could not create a session token."); return; }
+  char ip[48], url[96];
+  sys_local_ip(ip, sizeof ip);
+  xsnprintf(url, sizeof url, "http://%s:%d/", ip, g_cfg.port);
+  jw w;
+  api_begin(&w);
+  jw_kv_str(&w, "address", ip);
+  jw_kv_int(&w, "port", g_cfg.port);
+  jw_kv_str(&w, "token", token);
+  jw_kv_str(&w, "pairUrl", url);
+  jw_kv_str(&w, "code", pairing_code());
   api_send(c, &w);
 }
 
@@ -537,6 +620,9 @@ static const api_route ROUTES[] = {
   { "GET", "/api/export", h_export },
   { "POST", "/api/import", h_import },
   { "GET", "/api/pair", h_pair },
+  { "POST", "/api/pair/show", h_pair_show },
+  { "POST", "/api/pair", h_pair_redeem },
+  { "GET", "/api/session", h_session },
 };
 
 /* Extension route tables (registered by Phase 2 modules). */
@@ -615,12 +701,18 @@ void api_handle(http_req *req) {
     else http_send_error(req, 404, "not_found", "Unknown API route");
     return;
   }
-  if (strcmp(req->method, "GET") != 0 && strcmp(req->method, "HEAD") != 0) {
+  if (strcmp(req->method, "GET") != 0 && strcmp(req->method, "HEAD") != 0 &&
+      !util_starts_with(req->path, "/api/pair")) {   /* pairing itself must stay reachable */
     settings_t s;
     settings_get(&s);
-    if (s.pin[0] && strcmp(s.pin, req->pin) != 0) {
-      http_send_error(req, 401, "pin_required", "This XENO STORE requires the pairing PIN (X-XENO-PIN header)");
-      return;
+    if (s.pin[0]) {
+      const char *bearer = util_istarts_with(req->authorization, "Bearer ") ? req->authorization + 7 : NULL;
+      int authed = strcmp(s.pin, req->pin) == 0 || (bearer && pairing_token_valid(bearer));
+      if (!authed) {
+        http_send_error(req, 401, "pin_required",
+                        "This XENO STORE requires the pairing PIN (X-XENO-PIN) or a paired device token (Authorization: Bearer)");
+        return;
+      }
     }
   }
   if (req->body && req->body_len) {
