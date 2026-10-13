@@ -856,16 +856,19 @@ class ConsoleTests(unittest.TestCase):
         self.assertTrue(p["installed"])
         self.assertEqual(p["installedVersion"], "1.2")
         self.assertEqual(p["localPath"], local)
-        # launch → bytes arrive at the loader
+        # launch → bytes arrive at the loader. GET /api/payloads probes the
+        # loader (connect-then-close), so the sink also records empty buffers;
+        # wait for the ELF itself to appear among the new connections rather
+        # than assuming the next recorded connection carries it.
         before = len(self.loader.received)
         st, b = self.srv.api("POST", "/api/payloads/shadowmountplus/launch", {})
         self.assertEqual(st, 200, b)
         self.assertEqual(b["bytes"], len(self.elf))
         self.assertEqual(b["port"], self.loader.port)
         deadline = time.time() + 5
-        while len(self.loader.received) <= before and time.time() < deadline:
+        while self.elf not in self.loader.received[before:] and time.time() < deadline:
             time.sleep(0.05)
-        self.assertEqual(self.loader.received[-1], self.elf)
+        self.assertIn(self.elf, self.loader.received[before:])
         # sha mismatch and non-ELF downloads fail cleanly
         for pid, needle in (("badhash", "sha256"), ("notelf", "not an ELF"), ("webpage", "web page")):
             st, b = self.srv.api("POST", f"/api/payloads/{pid}/install", {})
