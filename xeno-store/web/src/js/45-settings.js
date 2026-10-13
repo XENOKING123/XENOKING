@@ -216,7 +216,8 @@
         var busy = ui.toast({ cls: 'gold', icon: 'cloud', title: t('debrid.checking', { name: def.name }), timeout: 30000 });
         cb.api.debridConnect(def.id, v).then(function (r) {
           busy.close();
-          var s = r.service || {};
+          /* the console answers with the whole service list (GET shape); older mocks answer {service} */
+          var s = r.service || (r.services || []).filter(function (x) { return x.id === def.id; })[0] || {};
           ui.toast({ cls: 'good', title: t('debrid.connectedToast', { name: def.name }), desc: s.user ? t('debrid.user', { name: s.user }) : '' });
           if (XS.ca && XS.ca.api && XS.ca.api.debrid) XS.ca.api.debrid(true);
           loadDebrid(true).then(function () { rerenderGroup('debrid'); });
@@ -501,7 +502,7 @@
     var state = !mdOn ? t('common.off') : (md ? (md.running ? t('settings2.mdnsRunning') : (md.error ? t('settings2.mdnsError', { err: md.error }) : t('settings2.mdnsStarting'))) : t('settings2.mdnsUnknown'));
     list.appendChild(ui.valueRow({ id: 'pair-local', icon: 'globe', label: t('settings2.localName'), desc: state + (md && md.names && md.names.length ? ' · ' + md.names.join(', ') : ''), valueEl: h('span.mono', { text: localUrl }), hints: 'select', onClick: function () { U.copyText(localUrl).then(function (ok) { ui.toast({ cls: ok ? 'good' : 'bad', title: ok ? t('toast.copied') : t('toast.copyFailed') }); }); } }));
     sec.appendChild(list);
-    if (mdOn && !md && Date.now() - mdns.at > 15000) { mdns.at = Date.now(); cb.api.mdns().then(function (r) { mdns.data = r; rerenderGroup('pair'); }, function () { /* no mdns endpoint on this build */ }); }
+    if (mdOn && !md && Date.now() - mdns.at > 15000) { mdns.at = Date.now(); cb.api.mdns().then(function (r) { mdns.data = r && r.mdns && typeof r.mdns === 'object' ? r.mdns : r; rerenderGroup('pair'); }, function () { /* no mdns endpoint on this build */ }); }
   };
   function paintPair(box, url, local) {
     U.clear(box);

@@ -17,7 +17,7 @@
     "duplicate_url": 998
   },
   "droppedSamples": [],
-  "elapsed": 5.2,
+  "elapsed": 5.6,
   "enrichment": {
     "psStoreCache": 0,
     "seeds": {
@@ -38,7 +38,7 @@
     "exFAT": 673
   },
   "games": 1965,
-  "generatedAt": "2026-10-13T13:10:55Z",
+  "generatedAt": "2026-10-13T13:38:51Z",
   "genres": {
     "Action": 239,
     "Adventure": 136,
@@ -75,7 +75,7 @@
       "draftGames": 1505,
       "draftReleases": 1801,
       "dropped": 8,
-      "elapsed": 0.2,
+      "elapsed": 0.4,
       "error": "",
       "games": 1505,
       "id": "blackbox",
@@ -87,7 +87,7 @@
       "draftGames": 699,
       "draftReleases": 990,
       "dropped": 990,
-      "elapsed": 0.1,
+      "elapsed": 0.2,
       "error": "",
       "games": 699,
       "id": "orbit",
@@ -99,7 +99,7 @@
       "draftGames": 799,
       "draftReleases": 799,
       "dropped": 0,
-      "elapsed": 0.0,
+      "elapsed": 0.1,
       "error": "",
       "games": 799,
       "id": "dlpsgame",

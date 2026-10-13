@@ -483,12 +483,32 @@
   }, true);
 
   /* ---------- Rest-mode pill text (§17.15) from the queue summary, with a local fallback ---------- */
+  /* /api/queue summary.restMode is {pill, keepAwake, autoResume, resuming, lastWakeAt} (dl.c); older builds sent a string. */
   cb.restModeText = function (summary) {
     var s = summary || {};
-    if (typeof s.restMode === 'string' && s.restMode) return { on: !!s.keepAwake, text: s.restMode };
-    if (s.restMode && typeof s.restMode === 'object') return { on: !!(s.restMode.keepAwake || s.keepAwake), text: s.restMode.text || s.restMode.label || s.restMode.message || '' };
+    var rm = s.restMode;
+    if (typeof rm === 'string' && rm) return { on: !!s.keepAwake, text: rm, resuming: 0 };
+    if (rm && typeof rm === 'object') {
+      var txt = rm.pill || rm.text || rm.label || rm.message || '';
+      var on = !!(rm.keepAwake || s.keepAwake);
+      if (!txt) txt = on ? t('dl2.restAwake') : (rm.autoResume === false ? t('dl2.restAllowedManual') : t('dl2.restAllowedResume'));
+      return { on: on, text: txt, resuming: Number(rm.resuming) || 0, lastWakeAt: rm.lastWakeAt || 0 };
+    }
     var auto = cb.sget('downloads.restModeAutoResume', true) !== false;
-    if (s.keepAwake) return { on: true, text: t('dl2.restAwake') };
-    return { on: false, text: auto ? t('dl2.restAllowedResume') : t('dl2.restAllowedManual') };
+    if (s.keepAwake) return { on: true, text: t('dl2.restAwake'), resuming: 0 };
+    return { on: false, text: auto ? t('dl2.restAllowedResume') : t('dl2.restAllowedManual'), resuming: 0 };
+  };
+  /* Schedule window (§17.5) from summary.schedule {configured, open, start, end, nextStart, waiting}, else from settings. */
+  cb.scheduleInfo = function (summary) {
+    var s = (summary && summary.schedule) || null;
+    if (s && typeof s === 'object' && typeof s.configured === 'boolean') return { configured: s.configured && !!s.start && !!s.end, open: !!s.open, start: s.start || '', end: s.end || '', nextStart: s.nextStart || s.start || '', waiting: Number(s.waiting) || 0 };
+    var st = cb.sget('downloads.scheduleStart', ''), en = cb.sget('downloads.scheduleEnd', '');
+    if (!st || !en) return { configured: false, open: true, start: '', end: '', nextStart: '', waiting: 0 };
+    var now = new Date(), mins = now.getHours() * 60 + now.getMinutes();
+    var toMin = function (hhmm) { var m = /^(\d{1,2}):(\d{2})$/.exec(hhmm); return m ? (parseInt(m[1], 10) * 60 + parseInt(m[2], 10)) % 1440 : -1; };
+    var a = toMin(st), b = toMin(en), open = true;
+    if (a >= 0 && b >= 0) open = a === b ? true : a < b ? (mins >= a && mins < b) : (mins >= a || mins < b);
+    var waiting = 0; ((S.data.queue && S.data.queue.jobs) || []).forEach(function (j) { if (j.state === 'queued' && j.scheduledFor && !j.startNow) waiting++; });
+    return { configured: true, open: open, start: st, end: en, nextStart: st, waiting: waiting };
   };
 })();

@@ -1,0 +1,104 @@
+name: xeno-store-catalog-sync
+
+# Keeps xeno-store/catalog/ fresh without a code change (SPEC §13, §17.12):
+# every 6 hours (and on demand) the live sources are scraped, every release
+# link is audited, the result is validated and committed only when something
+# actually changed. The console refreshes its catalog from the committed
+# revision.json / xeno-catalog.json, and the next xeno-store.yml run on main
+# re-embeds it in the ELF.
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      audit_budget_seconds:
+        description: 'Seconds the link audit may run (0 = skip the audit)'
+        required: false
+        default: '1500'
+      enrich_budget_seconds:
+        description: 'Seconds for the Steam / PS Store enrichment passes'
+        required: false
+        default: '240'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: xeno-store-catalog-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    defaults:
+      run:
+        working-directory: xeno-store
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build the catalog from the live sources
+        env:
+          ENRICH_BUDGET: ${{ github.event.inputs.enrich_budget_seconds || '240' }}
+        run: |
+          set -euo pipefail
+          python3 tools/catalog/build_catalog.py --online --enrich-budget "$ENRICH_BUDGET"
+
+      - name: Audit release links
+        env:
+          AUDIT_BUDGET: ${{ github.event.inputs.audit_budget_seconds || '1500' }}
+        run: |
+          set -euo pipefail
+          if [ "$AUDIT_BUDGET" = "0" ]; then echo "audit skipped by request"; exit 0; fi
+          # Resumable: verdicts land in catalog/snapshots/audit/results.json (committed
+          # below) and merge.py applies them on the next build, so a budget that runs
+          # out simply continues next time. An --offline rebuild here would drop the
+          # live-only sources, so the fold-in deliberately waits for the next sync.
+          python3 tools/catalog/audit.py --budget-seconds "$AUDIT_BUDGET" --quiet
+
+      - name: Validate
+        run: python3 tools/catalog/build_catalog.py --validate
+
+      - name: Summary
+        run: |
+          python3 - <<'PY'
+          import json
+          rev = json.load(open('catalog/revision.json'))
+          rep = json.load(open('catalog/report.json'))
+          print("revision %s · %s games · %s releases · %s verified · audited %s" % (
+              rev.get('revision'), rev.get('games'), rev.get('releases'), rev.get('verifiedReleases'), rev.get('auditedAt') or 'never'))
+          for sid, info in sorted((rep.get('sources') or {}).items()):
+              if isinstance(info, dict):
+                  print("  %-12s %-9s %s" % (sid, info.get('status', '?'), info.get('games', info.get('count', ''))))
+          PY
+
+      - name: Commit catalog changes
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "xeno-store-catalog-sync"
+          git config user.email "xeno-store-catalog-sync@users.noreply.github.com"
+          git add xeno-store/catalog/xeno-catalog.json xeno-store/catalog/revision.json xeno-store/catalog/report.json
+          git add -A xeno-store/catalog/snapshots/audit xeno-store/catalog/snapshots/enrich
+          if git diff --cached --quiet; then
+            echo "catalog unchanged — nothing to commit"
+            exit 0
+          fi
+          REV="$(python3 -c "import json; print(json.load(open('xeno-store/catalog/revision.json'))['revision'])")"
+          git commit -m "catalog: sync (revision ${REV}) [catalog-sync]"
+          for attempt in 1 2 3; do
+            if git pull --rebase origin main && git push origin HEAD:main; then exit 0; fi
+            echo "push attempt $attempt failed — retrying"
+            sleep 10
+          done
+          echo "::error::could not push the catalog sync"
+          exit 1

@@ -1,0 +1,117 @@
+name: saves-intake
+
+# XENO STORE Save Data Store intake (xeno-store/docs/SPEC.md §17.22.5):
+# every `save-submission` issue (opened from the console's Upload wizard, or
+# filled in by hand from the template) is checked by tools/saves/intake.py —
+# fields, download with a 2 GiB cap, sha256, zip layout, no sealed keys — and
+# recorded in xeno-store/updates/saves.json:
+#
+#   no label        → status "pending"   (checked, waiting for the XENO team)
+#   label approved  → status "published" (consoles list it within the hour)
+#   label rejected  → status "rejected"  (hidden; the issue is closed)
+#
+# A submission that fails a check is never published, whatever the labels say.
+# The index is committed with "saves: intake #<n> [skip ci]" and the result is
+# posted (and kept up to date) as one comment on the issue.
+
+on:
+  issues:
+    types: [opened, edited, reopened, labeled, unlabeled]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: saves-intake
+  cancel-in-progress: false
+
+jobs:
+  intake:
+    if: >-
+      contains(github.event.issue.labels.*.name, 'save-submission') ||
+      startsWith(github.event.issue.title, '[save]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run the intake checks
+        id: intake
+        env:
+          EVENT_PATH: ${{ github.event_path }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/save-download"
+          python3 -I xeno-store/tools/saves/intake.py \
+            --event "$EVENT_PATH" \
+            --index xeno-store/updates/saves.json \
+            --download-dir "$RUNNER_TEMP/save-download" \
+            --out "$RUNNER_TEMP/intake-result.json"
+          python3 -I xeno-store/tools/saves/intake.py --validate-index xeno-store/updates/saves.json
+          python3 - "$RUNNER_TEMP/intake-result.json" >> "$GITHUB_OUTPUT" <<'PY'
+          import json, sys
+          r = json.load(open(sys.argv[1]))
+          print("status=%s" % r.get("status", "rejected"))
+          print("changed=%s" % ("true" if r.get("changed") else "false"))
+          print("ok=%s" % ("true" if r.get("ok") else "false"))
+          PY
+
+      - name: Commit the index
+        if: steps.intake.outputs.changed == 'true'
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          git config user.name "xeno-store-saves-intake"
+          git config user.email "xeno-store-saves-intake@users.noreply.github.com"
+          git add xeno-store/updates/saves.json
+          if git diff --cached --quiet; then
+            echo "index unchanged — nothing to commit"
+            exit 0
+          fi
+          git commit -m "saves: intake #${ISSUE_NUMBER} [skip ci]"
+          for attempt in 1 2 3; do
+            if git pull --rebase origin main && git push origin HEAD:main; then exit 0; fi
+            echo "push attempt $attempt failed — retrying"
+            sleep 10
+          done
+          echo "::error::could not push the save index"
+          exit 1
+
+      - name: Comment on the issue
+        uses: actions/github-script@v7
+        env:
+          RESULT_PATH: ${{ runner.temp }}/intake-result.json
+        with:
+          script: |
+            const fs = require('fs');
+            const result = JSON.parse(fs.readFileSync(process.env.RESULT_PATH, 'utf8'));
+            const marker = '<!-- xeno-saves-intake -->';
+            const body = result.comment || (marker + '\nThe intake could not produce a result. The XENO team will take a look.\n\n— XENO team · automated intake');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
+            const mine = comments.find(c => c.user && c.user.type === 'Bot' && (c.body || '').includes(marker));
+            if (mine) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+            // published / rejected submissions are closed (the index keeps the record);
+            // pending ones stay open until the XENO team labels them.
+            if (result.status === 'published' || result.status === 'rejected') {
+              const labels = (context.payload.issue.labels || []).map(l => l.name);
+              const byLabel = labels.includes('approved') || labels.includes('rejected');
+              if (byLabel && context.payload.issue.state === 'open') {
+                await github.rest.issues.update({ owner, repo, issue_number, state: 'closed', state_reason: result.status === 'published' ? 'completed' : 'not_planned' });
+              }
+            }

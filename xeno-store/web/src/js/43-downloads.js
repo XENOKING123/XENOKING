@@ -5,7 +5,7 @@
 (function () {
   'use strict';
   var XS = window.XS, U = XS.util, S = XS.state, ui = XS.ui, api = XS.api, cb = XS.cb, h = U.h, t = XS.t;
-  var root = null, tab = 'active', listEl = null, summaryEl = null, statsEl = null, tabsEl = null, rows = {}, groupEls = {}, stats = null, statsAt = 0;
+  var root = null, tab = 'active', listEl = null, summaryEl = null, statsEl = null, schedEl = null, tabsEl = null, rows = {}, groupEls = {}, stats = null, statsAt = 0;
   var TABS = {
     active: ['downloading', 'connecting', 'verifying', 'installing', 'paused', 'extracting'],
     queued: ['queued'],
@@ -31,6 +31,7 @@
     root.appendChild(inner);
     summaryEl = h('div.dl-summary'); inner.appendChild(summaryEl);
     statsEl = h('div.dl-stats'); inner.appendChild(statsEl);
+    schedEl = h('div.dl-sched', { hidden: true, data: { navRegion: '' } }); inner.appendChild(schedEl);
     var tools = h('div.dl-tools', { data: { navRegion: '' } });
     var c = counts();
     tabsEl = ui.subtabs({ id: 'dltab', value: tab, tabs: ['active', 'queued', 'finished', 'failed', 'cancelled'].map(function (k) { return { id: k, label: t('dl.tab.' + k), count: c[k] }; }), onChange: function (id) { tab = id; renderList(); } });
@@ -74,8 +75,27 @@
     summaryEl.appendChild(stat(t('dl.sum.free'), r ? U.fmtBytes(r.free) : '—', '', r ? r.label : ''));
     summaryEl.appendChild(stat(t('dl.sum.active'), String(active), '', t('dl.sum.queuedN', { n: s.queued || jobs.filter(function (j) { return j.state === 'queued'; }).length })));
     var rm = cb.restModeText(s);
-    var pill = h('div.stat.pill.rest' + (rm.on ? '.on' : ''), { title: t('dl2.restHint') }, [h('i.dot'), h('div', [h('div.k', { text: rm.on ? t('dl.sum.keepAwake') : t('dl2.restMode') }), h('div.v', { text: rm.text })])]);
+    var pill = h('div.stat.pill.rest' + (rm.on ? '.on' : '') + (rm.resuming ? '.resuming' : ''), { title: t('dl2.restHint') }, [h('i.dot'), h('div', [h('div.k', { text: rm.resuming ? t('dl2.restResumingN', { n: rm.resuming }) : rm.on ? t('dl.sum.keepAwake') : t('dl2.restMode') }), h('div.v', { text: rm.text })])]);
     summaryEl.appendChild(pill);
+    renderSchedule(s);
+  }
+  /* Download window line (§17.5): shown only when a window is configured; "Start now" lives on each waiting row. */
+  function renderSchedule(s) {
+    if (!schedEl) return;
+    var sc = cb.scheduleInfo(s);
+    U.clear(schedEl);
+    if (!sc.configured) { schedEl.hidden = true; return; }
+    schedEl.hidden = false;
+    schedEl.className = 'dl-sched' + (sc.open ? ' open' : ' closed');
+    schedEl.appendChild(h('span.ic', { html: U.icon('clock') }));
+    schedEl.appendChild(h('span.seg', [h('b', { text: t('dl2.windowLabel') }), ' ' + sc.start + ' – ' + sc.end]));
+    schedEl.appendChild(h('span.dot', { text: '·' }));
+    schedEl.appendChild(h('span.seg' + (sc.open ? '.good' : ''), { text: sc.open ? t('dl2.windowOpen') : t('dl2.windowClosed', { time: sc.nextStart || sc.start }) }));
+    if (sc.waiting) { schedEl.appendChild(h('span.dot', { text: '·' })); schedEl.appendChild(h('span.seg', { text: t('dl2.windowWaiting', { n: sc.waiting }) })); }
+    schedEl.appendChild(h('span.spacer'));
+    var edit = h('button.btn.sm.ghost', { nav: 'dl-sched-edit', html: U.icon('settings') + '<span>' + U.escapeHtml(t('set.schedule')) + '</span>' });
+    edit.addEventListener('click', function () { XS.router.go('settings', { group: 'downloads' }); });
+    schedEl.appendChild(edit);
   }
   function stat(k, v, cls, small) {
     return h('div.stat' + (cls ? '.' + cls : ''), [h('div.k', { text: k }), h('div.v', [v, small ? h('small', { text: small }) : null])]);
@@ -87,6 +107,9 @@
   function renderStats() {
     if (!statsEl) return;
     U.clear(statsEl);
+    /* /api/queue carries the same counters as summary.lifetime: use them until /api/stats answers */
+    var lt = S.data.queue.summary && S.data.queue.summary.lifetime;
+    if ((!stats || (!stats.totalBytes && !stats.totalJobs)) && lt && (lt.totalBytes || lt.totalJobs)) stats = lt;
     if (!stats || (!stats.totalBytes && !stats.totalJobs)) { statsEl.hidden = true; return; }
     statsEl.hidden = false;
     var parts = [];

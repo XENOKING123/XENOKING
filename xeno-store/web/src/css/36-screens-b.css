@@ -43,6 +43,17 @@
 .dl-stats .dot { color: var(--mute); }
 .stat.pill.rest .v { font-size: 14px; }
 .stat.pill.rest:not(.on) .dot { background: var(--acc); box-shadow: 0 0 0 4px rgba(74, 163, 255, .16); }
+.stat.pill.rest.resuming .dot { background: var(--gold); box-shadow: 0 0 0 4px rgba(255, 206, 74, .18); animation: blink 1.2s ease-in-out infinite; }
+.dl-sched { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0 0; padding: 8px 12px 8px 10px; border-radius: 12px; font-size: 13.5px; color: var(--dim); background: var(--el-1); border: 1px solid var(--line-soft); box-shadow: inset 0 1px 0 var(--hl); }
+.dl-sched[hidden] { display: none; }
+.dl-sched .ic { width: 26px; height: 26px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; background: rgba(74, 163, 255, .14); color: var(--acc2); flex: 0 0 auto; }
+.dl-sched.open .ic { background: rgba(74, 255, 138, .12); color: var(--good); }
+.dl-sched .ic svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.dl-sched .seg b { color: var(--txt); font-weight: 800; }
+.dl-sched .seg.good { color: var(--good); font-weight: 700; }
+.dl-sched .dot { color: var(--mute); }
+.dl-sched .spacer { flex: 1; }
+.dl-sched .btn.sm.ghost { height: 30px; }
 .chip.turbo { color: var(--gold2); border-color: rgba(255, 206, 74, .45); background: rgba(255, 206, 74, .1); }
 .chip.turbo svg, .chip.via svg { width: 12px; height: 12px; }
 .job.type-copy .cover, .job.type-backup .cover { background: linear-gradient(160deg, var(--card2), var(--card)); }
@@ -204,6 +215,9 @@
 /* ---------- phone tweaks ---------- */
 @media (max-width: 819px) {
   .dl-stats { font-size: 12.5px; gap: 6px; }
+  .dl-sched { font-size: 12.5px; gap: 6px; }
+  .dl-sched .spacer { flex: 1 0 100%; display: none; }
+  .dl-sched .btn.sm.ghost { margin-inline-start: auto; }
   .stat.pill.rest { grid-column: span 2; }
   .jobgroup .ghead { grid-template-columns: 52px minmax(0, 1fr); grid-template-areas: "cover ttl" "cover meta" "bar bar" "stats stats" "side side" "err err"; padding: 12px; gap: 6px 12px; }
   .jobgroup .ghead .cover { width: 52px; height: 68px; }

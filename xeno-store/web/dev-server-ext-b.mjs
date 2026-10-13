@@ -10,7 +10,7 @@
  *   POST /api/saves/backup|restore|transfer · GET /api/saves/backups · GET /api/saves/jobs[/{id}] · POST …/cancel
  *   GET  /api/accounts · POST /api/accounts/{slot}/activate|clear · POST /api/accounts/reboot
  *   GET  /api/mdns
- *   GET  /api/queue (adds groups + summary.restMode + a virtual scheduled job) · POST /api/queue/{id}/startnow
+ *   GET  /api/queue (summary.restMode/schedule/groups/lifetime as dl.c + a virtual scheduled job) · POST /api/queue/{id}/startNow
  *   fallbacks for /api/debrid, /api/saves/users and /api/saves?user= when part A's mock is absent
  * Seeds: an install set paused at its update step, a downloading install set, turbo results on the running job,
  * a debrid job, a copy job, a backup job, a ZIP being extracted, a scheduled job, Phase 2 settings defaults.
@@ -56,12 +56,14 @@ export function register({ route, state }) {
 
   /* ============================== stats (§17.5) ============================== */
   const statsBase = { totalBytes: 2.1e12, totalJobs: 148, bestSpeed: 94e6, avgSpeed: 41e6, totalSeconds: 51000, since: now() - 86400 * 61 };
-  route('GET', /^\/api\/stats$/, () => {
+  function lifetime() {
     const done = state.jobs.filter((j) => (j.state === 'done' || j.state === 'installed' || j.state === 'extracted') && j.type !== 'copy');
     const byProvider = { 'Archive.org': { bytes: 1.62e12, jobs: 96, bestSpeed: 94e6 }, 'Real-Debrid': { bytes: 3.1e11, jobs: 21, bestSpeed: 88e6 }, 'pkg-zone': { bytes: 4.2e9, jobs: 19, bestSpeed: 36e6 }, 'XENO mirrors': { bytes: 1.64e11, jobs: 12, bestSpeed: 72e6 } };
     for (const j of done) { const p = j.provider || 'other'; byProvider[p] = byProvider[p] || { bytes: 0, jobs: 0, bestSpeed: 0 }; }
-    return { ok: true, v: 1, ...statsBase, totalBytes: statsBase.totalBytes + done.reduce((n, j) => n + (j.total || 0), 0), totalJobs: statsBase.totalJobs + done.length, byProvider, updatedAt: now() };
-  });
+    return { v: 1, ...statsBase, totalBytes: statsBase.totalBytes + done.reduce((n, j) => n + (j.total || 0), 0), totalJobs: statsBase.totalJobs + done.length, byProvider, updatedAt: now() };
+  }
+  route('GET', /^\/api\/stats$/, () => ({ ok: true, ...lifetime() }));
+  route('POST', /^\/api\/stats\/reset$/, () => { statsBase.totalBytes = 0; statsBase.totalJobs = 0; statsBase.bestSpeed = 0; statsBase.avgSpeed = 0; statsBase.totalSeconds = 0; statsBase.since = now(); return { ok: true, ...lifetime() }; });
 
   /* ============================== setup checklist (§17.6) ============================== */
   const PAYLOADS_URL = 'https://raw.githubusercontent.com/XENOKING123/XENOKING/main/xeno-store/updates/payloads.json';
@@ -139,11 +141,16 @@ export function register({ route, state }) {
     const sel = { data: !!body.data, homebrew: !!body.homebrew, payloadManager: !!body.payloadManager, downloads: !!body.downloads };
     if (!sel.data && !sel.homebrew && !sel.payloadManager && !sel.downloads) throw new ApiError(400, 'bad_request', 'Nothing selected: pass data, homebrew, payloadManager and/or downloads');
     await sleep(900);
+    /* same path rules as cx_uninstall(): home-screen app, the Payload Manager copy we recorded, recorded downloads +
+       <root>/xeno-store/pkg|files on every drive (save backups are never deleted), and the data dir last */
     const removed = [], kept = [], failed = [];
-    (sel.data ? removed : kept).push('/data/xeno-store/');
-    (sel.homebrew ? removed : kept).push('/data/homebrew/XENO-STORE/');
-    if (sel.payloadManager) removed.push('/data/etaHEN/payloads/xeno-store.elf'); else kept.push('/data/etaHEN/payloads/xeno-store.elf');
-    for (const r of state.roots) { if (sel.downloads) { removed.push(`${r.path}/xeno-store/`); removed.push(`${r.path}/homebrew/`); } else kept.push(`${r.path}/xeno-store/ (downloads)`); }
+    (sel.homebrew ? removed : kept).push('/data/homebrew/XENO-STORE');
+    if (sel.payloadManager) removed.push('/data/etaHEN/payloads/xeno-store.elf');
+    if (sel.downloads) {
+      for (const j of state.jobs) if (j.path && (j.state === 'done' || j.state === 'installed' || j.state === 'extracted' || j.written > 0)) removed.push(j.path + (j.written > 0 && j.state !== 'done' && j.state !== 'installed' && j.state !== 'extracted' ? '.xpart' : ''));
+      for (const r of state.roots) { removed.push(`${r.path}/xeno-store/pkg`); removed.push(`${r.path}/xeno-store/files`); kept.push(`${r.path}/xeno-store/saves`); }
+    } else for (const r of state.roots) kept.push(`${r.path}/xeno-store`);
+    (sel.data ? removed : kept).push('/data/xeno-store');
     if (sel.data && args.includes('--uninstall-fail')) { failed.push('/data/xeno-store/log.txt'); }
     log('warn', `uninstall: removed ${removed.length}, kept ${kept.length} (mock keeps running)`);
     return { ok: true, removed, kept, failed, removedCount: removed.length, failedCount: failed.length, stopping: true };
@@ -207,7 +214,7 @@ export function register({ route, state }) {
     if (root.path === '/mnt/ext0') partialsList.push({ path: '/mnt/ext0/homebrew/PPSA02020 Orphaned Download.ffpfsc.xpart', size: Math.round(6.4 * GB), mtime: now() - 86400 * 9 });
     const partials = partialsList.reduce((n, p) => n + p.size, 0);
     const used = Math.max(0, root.total - root.free);
-    return { path: root.path, label: root.label, kind: root.kind, free: Math.round(root.free), total: Math.round(root.total), used: Math.round(used), default: !!root.default, categories: { games: Math.round(games), dumps: Math.round(dumps), packages: Math.round(packages), files: Math.round(files), saves: Math.round(saves), partials: Math.round(partials), xenoTotal: Math.round(dumps + packages + files + saves + partials) }, partials: partialsList, _x: x };
+    return { path: root.path, label: root.label, kind: root.kind, free: Math.round(root.free), total: Math.round(root.total), used: Math.round(used), default: !!root.default, categories: { games: Math.round(games), dumps: Math.round(dumps), packages: Math.round(packages), files: Math.round(files), saves: Math.round(saves), partials: Math.round(partials) }, xenoTotal: Math.round(dumps + packages + files + saves + partials), partials: partialsList, _x: x };
   }
   route('GET', /^\/api\/library\/usage$/, async () => { await sleep(600); return { ok: true, roots: state.roots.map((r) => { const u = usageFor(r); delete u._x; return u; }), scannedAt: now() }; });
   route('POST', /^\/api\/library\/usage\/clean$/, async (q, body) => {
@@ -307,24 +314,25 @@ export function register({ route, state }) {
     await sleep(500);
     s.id = id ? (id.startsWith('0x') ? id : '0x' + id) : s.derivedId; s.flags |= 0x1;
     log('info', `account slot ${s.slot} (${s.name}) activated with ${s.id}`);
-    return { ok: true, slot: pubSlot(s), rebootRequired: true };
+    return { ok: true, slot: s.slot, id: s.id, activated: true, rebootRequired: true, note: 'Reboot the console for the activation to take effect. Back up your saves first.' };
   });
   route('POST', /^\/api\/accounts\/(\d+)\/clear$/, async (q, body, m) => {
     const s = slots[Number(m[1]) - 1]; if (!s || !s.name) throw new ApiError(404, 'not_found', 'Empty slot');
     await sleep(300); s.id = '0x0'; s.flags &= ~0x1;
-    return { ok: true, slot: pubSlot(s), rebootRequired: true };
+    return { ok: true, slot: s.slot, activated: false, rebootRequired: true };
   });
   route('POST', /^\/api\/accounts\/reboot$/, () => { log('warn', 'reboot requested (mock keeps running)'); return { ok: true, rebooting: true, simulated: true }; });
 
   /* ============================== mDNS (§17.19) ============================== */
   const mdnsStatus = () => { const on = !state.settings.general || state.settings.general.mdns !== false; const ip = state.HOST === '0.0.0.0' ? '192.168.1.20' : state.HOST; return { enabled: on, running: on, names: ['xeno.local', 'xenostore.local'], ip, port: 5353, url: `http://xeno.local:${state.PORT}/`, error: '' }; };
-  route('GET', /^\/api\/mdns$/, () => ({ ok: true, ...mdnsStatus() }));
+  route('GET', /^\/api\/mdns$/, () => ({ ok: true, mdns: mdnsStatus() }));
 
   /* ============================== debrid fallback (part A owns the live one) ============================== */
   const dbServices = [{ id: 'realdebrid', name: 'Real-Debrid', connected: true, user: 'xenoking', expires: iso(-40 * 86400), hosts: ['1fichier.com', 'mediafire.com', 'gofile.io', 'pixeldrain.com'] }, { id: 'alldebrid', name: 'AllDebrid', connected: false, user: '', expires: '', hosts: [] }, { id: 'torbox', name: 'TorBox', connected: false, user: '', expires: '', hosts: [] }, { id: 'premiumize', name: 'Premiumize', connected: false, user: '', expires: '', hosts: [] }];
-  route('GET', /^\/api\/debrid$/, () => ({ ok: true, services: dbServices }));
-  route('PUT', /^\/api\/debrid$/, async (q, body) => { const s = dbServices.find((x) => x.id === body.service); if (!s) throw new ApiError(400, 'bad_service', 'Unknown debrid service'); if (String(body.apiKey || '').length < 8) throw new ApiError(400, 'bad_key', `${s.name} rejected that API key`); await sleep(500); s.connected = true; s.user = 'user_' + hash32(String(body.apiKey)).toString(36).slice(0, 6); s.expires = iso(-30 * 86400); return { ok: true, service: s }; });
-  route('DELETE', /^\/api\/debrid\/([^/]+)$/, (q, body, m) => { const s = dbServices.find((x) => x.id === m[1]); if (!s) throw new ApiError(404, 'not_found', 'Unknown debrid service'); s.connected = false; s.user = ''; s.expires = ''; return { ok: true }; });
+  const debridList = () => ({ ok: true, preferred: (state.settings.debrid && state.settings.debrid.preferred) || 'auto', services: dbServices.map((s) => ({ id: s.id, name: s.name, connected: s.connected, user: s.user, expires: s.expires, hostsKnown: s.hosts.length > 0, hostsUpdatedAt: s.connected ? now() - 3600 : 0, error: '', hosts: s.connected ? s.hosts : [] })) });
+  route('GET', /^\/api\/debrid$/, () => debridList());
+  route('PUT', /^\/api\/debrid$/, async (q, body) => { const s = dbServices.find((x) => x.id === (body.service || body.id)); if (!s) throw new ApiError(400, 'bad_request', 'Unknown debrid service'); if (String(body.apiKey || body.key || '').length < 8) throw new ApiError(401, 'bad_key', `${s.name} rejected that API key`); await sleep(500); s.connected = true; s.user = 'user_' + hash32(String(body.apiKey || body.key)).toString(36).slice(0, 6); s.expires = iso(-30 * 86400); return debridList(); });
+  route('DELETE', /^\/api\/debrid\/([^/]+)$/, (q, body, m) => { const s = dbServices.find((x) => x.id === m[1]); if (!s) throw new ApiError(404, 'not_found', 'Unknown debrid service'); s.connected = false; s.user = ''; s.expires = ''; return debridList(); });
 
   /* ============================== queue: groups, rest-mode pill, scheduled jobs, start now ============================== */
   const virtual = [];   /* scheduled jobs that the base simulation must not start */
@@ -346,8 +354,25 @@ export function register({ route, state }) {
     }
     s.speed = Math.round(s.speed); s.eta = s.speed > 0 ? Math.round(s.remaining / s.speed) : 0;
     s.keepAwake = (state.settings.downloads.keepAwake !== false) && all.some((j) => j.state === 'downloading');
-    s.restMode = restPill();
+    s.extracting = all.filter((j) => j.state === 'extracting').length;
+    s.copying = all.filter((j) => j.type === 'copy' && ACTIVE.indexOf(j.state) >= 0).length;
+    const d = state.settings.downloads || {};
+    /* same keys as dl_queue_json() in dl.c: restMode, schedule, groups, lifetime */
+    s.restMode = { pill: restPill(), keepAwake: s.keepAwake, autoResume: d.restModeAutoResume !== false, resuming: all.filter((j) => j.restResuming).length, lastWakeAt: 0 };
+    const sched = scheduleState(d);
+    s.schedule = { configured: sched.configured, open: sched.open, start: d.scheduleStart || '', end: d.scheduleEnd || '', nextStart: sched.configured ? (d.scheduleStart || '') : '', waiting: all.filter((j) => j.state === 'queued' && j.scheduledFor && !j.startNow).length };
+    s.groups = groupStatuses(all);
+    s.lifetime = lifetime();
     return s;
+  }
+  /* dlx_sched_open(): the window may wrap past midnight; start == end means always open */
+  function scheduleState(d) {
+    const toMin = (hhmm) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || '')); return m ? (Number(m[1]) * 60 + Number(m[2])) % 1440 : -1; };
+    const a = toMin(d.scheduleStart), b = toMin(d.scheduleEnd);
+    if (a < 0 || b < 0) return { configured: false, open: true };
+    const n = new Date(), mins = n.getHours() * 60 + n.getMinutes();
+    const open = a === b ? true : a < b ? (mins >= a && mins < b) : (mins >= a || mins < b);
+    return { configured: true, open };
   }
   function groupStatuses(all) {
     const out = [];
@@ -375,7 +400,8 @@ export function register({ route, state }) {
     const all = state.jobs.map((j) => state.publicJob(j, q.history === '1')).concat(virtual.map((v) => ({ ...v })));
     return { ok: true, jobs: all, summary: summary(all), groups: groupStatuses(all) };
   });
-  route('POST', /^\/api\/queue\/([^/]+)\/startnow$/, (q, body, m) => {
+  route('POST', /^\/api\/queue\/([^/]+)\/(startNow|startnow|start)$/, (q, body, m) => {
+    log('info', `startNow ${m[1]} via /${m[2]}`);
     const vi = virtual.findIndex((v) => v.id === m[1]);
     if (vi >= 0) {
       const v = virtual[vi]; const hit = state.releaseIndex.get(v.releaseId); const g = state.gamesById.get(v.gameId);

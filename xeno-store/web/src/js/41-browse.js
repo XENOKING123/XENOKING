@@ -249,14 +249,30 @@
       ],
       onClose: function () { sheetHandle = null; rerender('browse-filters'); }
     });
-    requestAnimationFrame(function () { focusSection(focusFacet); });
+    /* The body is painted synchronously by ui.sheet, so marking the requested
+       section's first option as the autofocus target (before openLayer's own
+       focusFirst runs on the next frame) lands focus inside that facet. */
+    markSection(focusFacet);
+  }
+  function sectionTarget(fid) {
+    if (!sheetHandle || !fid) return null;
+    var sec = sheetHandle.body.querySelector('[data-facet="' + fid + '"]');
+    if (!sec) return null;
+    var first = sec.querySelector('[data-nav]');
+    if (first) return first;
+    var head = sec.querySelector('h3');
+    if (head && !head.hasAttribute('tabindex')) head.setAttribute('tabindex', '-1');
+    return head;
+  }
+  function markSection(fid) {
+    var el = sectionTarget(fid);
+    if (el) el.setAttribute('data-autofocus', '');
   }
   function focusSection(fid) {
-    if (!sheetHandle || !fid) return;
-    var sec = sheetHandle.body.querySelector('[data-facet="' + fid + '"]');
-    if (!sec) return;
-    var first = sec.querySelector('[data-nav]');
-    if (first) XS.nav.focus(first, false);
+    var el = sectionTarget(fid);
+    if (!el) return;
+    if (el.hasAttribute('data-nav')) XS.nav.focus(el, false);
+    else try { el.focus(); } catch (e) { /* ignore */ }
   }
   function paintFacetBody(body) {
     U.clear(body);

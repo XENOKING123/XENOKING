@@ -63,7 +63,12 @@
       "extracting": "Extracting",
       "extracted": "Extracted",
       "scheduled": "Scheduled"
-    }
+    },
+    "restResumingN": "{n, plural, one{Resuming # download after wake-up} other{Resuming # downloads after wake-up}}",
+    "windowLabel": "Download window",
+    "windowOpen": "open now — downloads run",
+    "windowClosed": "closed — scheduled downloads start at {time}",
+    "windowWaiting": "{n, plural, one{# waiting} other{# waiting}}"
   },
   "lib2": {
     "justNow": "just now",
@@ -180,7 +185,7 @@
     "transferProfile": "Transfer to profile…",
     "beta": "Beta",
     "transferSub": "Copies the save to another profile on this console",
-    "backupDone": "Backup done · {title}",
+    "backupDone": "{title} backed up",
     "backUpAllText": "{n, plural, one{# save} other{# saves}} of {name} will be zipped one by one to the backup drive. Each title is one job.",
     "backupAllNone": "Nothing to back up",
     "backupAllStarted": "{n, plural, one{# backup started} other{# backups started}}",

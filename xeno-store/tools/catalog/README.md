@@ -19,6 +19,9 @@ tools/catalog/
   sources/wpsite.py    §17.10 generic WordPress site adapter (REST → sitemap → category pages; page rules)
   sources/<id>.py      one module per source (see table)
   tests/               unittest suite + fixtures/ (HTML/JSON/XML samples for every adapter)
+                       test_wpsite (generic rules + strategies), test_sites (SuperPSX / pkg.games / pspkg /
+                       ArabicPS4Games / dlpsgame page fallback / romsfun-romspure-espacypkg configs), test_pkgzone,
+                       test_backports, test_seeds, test_enrich (Steam / PS Store), test_orbit, test_audit, test_merge
 ```
 
 ## Running
@@ -37,7 +40,7 @@ All commands run from `xeno-store/`:
 | `--limit N` | debug: cap games/pages per source |
 | `--out PATH` | write somewhere else (`revision.json` / `report.json` go next to it) |
 | `--sources blackbox,dlpsgame` | run a subset of the registry |
-| `python3 -I -m unittest discover -s tools/catalog/tests -v` | tests (108, offline, with a local HTTP server for the audit) |
+| `python3 -I -m unittest discover -s tools/catalog/tests -v` | tests (125, offline: canned HTTP for every adapter, a local HTTP server for the audit) |
 
 Outputs:
 
@@ -172,7 +175,9 @@ yields posts: (1) WP REST `/wp-json/wp/v2/posts?per_page=100&page=N&_fields=…`
 capped), platform categories resolved from `/wp-json/wp/v2/categories`; (2) sitemaps
 (`/sitemap_index.xml`, `/post-sitemap*.xml`, `/wp-sitemap-posts-post-N.xml`, `/sitemap.xml`) → post
 URLs → every page fetched; (3) category listing pages with pagination (the site's own listing
-parser when it has one, else the generic card parser), then the post pages for the links.
+parser when it has one, else the generic card parser), then the post pages for the links. A platform
+whose listing is gone (404 / blocked) is skipped, not fatal: the other platform's games still count,
+and the strategy only fails when no listing produced anything.
 Page rules (`parse_post`): title cleanup (`merge.clean_title`: `PS4/PS5`, `[FPKG]`, `Backport …`,
 `v1.xx`, `+ Update + DLC`, sizes, regions, title ids); platform from categories → URL → title → title
 ids; title ids `(PPSA|CUSA)\d{5}`; versions `v?\d+\.\d{2}`; firmware tags (`5.05`, `9.00`, `11.00`,
@@ -264,7 +269,8 @@ history. The main build workflow (`xeno-store.yml`) runs the `--offline` build a
 3. Add the `sourceId` to `catalog/sources.json` (`kind` direct/browser/page, `notice`,
    `password`).
 4. Add a fixture under `tests/fixtures/` and a test that feeds it to the parser (`tests/fakes.py`
-   has a canned `FakeHttp` and `make_ctx`).
+   has a canned `FakeHttp` and `make_ctx`; `tests/test_sites.py` shows one per site, including an
+   end-to-end `fetch_online` run through the strategy chain with the fixture served by `FakeHttp`).
 5. Run `--offline`, `--validate` and the tests.
 
 Snapshots live under `catalog/snapshots/<name>/` and are plain upstream files; refresh them by

@@ -1,0 +1,10 @@
+{
+  "kind": "supabase",
+  "url": "https://YOUR-PROJECT-REF.supabase.co",
+  "anonKey": "YOUR-PUBLIC-ANON-KEY",
+  "bucket": "ps5-saves",
+  "garlicFunction": "garlic-savedb",
+  "submitFunction": "xeno-save-submit",
+  "indexUrl": "https://raw.githubusercontent.com/XENOKING123/XENOKING/main/xeno-store/updates/saves.json",
+  "_about": "Drop this object into xeno-store/updates/saves-backend.json (consoles fetch it with the catalog) or paste url + anonKey into Settings → Saves → Backend on the console. The anon key is public by design: row-level security limits it to reading rows, inserting pending submissions and uploading into the bucket. Keep indexUrl so the GitHub index stays merged with the database (deduped by sha256 / garlic id)."
+}

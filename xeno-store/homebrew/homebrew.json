@@ -1,0 +1,10 @@
+{
+  "title": "XENO STORE",
+  "id": "XENO00002",
+  "exec": "eboot.bin",
+  "args": "",
+  "icon": "sce_sys/icon0.png",
+  "version": "1.0.0",
+  "author": "XENOKING",
+  "description": "PS5 game store + download manager. Serves the store on http://127.0.0.1:9095 (and xeno.local:9095 on your Wi-Fi) and opens the PS5 browser to it. Downloads keep running after the browser closes."
+}

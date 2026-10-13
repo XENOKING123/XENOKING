@@ -1,0 +1,347 @@
+name: xeno-store
+
+# XENO STORE pipeline (xeno-store/docs/SPEC.md §13):
+#
+#   web-and-catalog  Node 22 + Python 3.12: bundle the UI, build + validate the
+#                    offline catalog, run the catalog unit tests, upload both.
+#   host-tests       gcc + OpenSSL: `make test` (host binary + tests/host/run.sh).
+#   ps5-elf          LLVM 18 + ps5-payload-dev SDK v0.40 (same recipe as
+#                    release.yml): `make ps5 pkg` → xeno-store.elf,
+#                    xeno-store-browser.elf, dist/XENO-STORE.zip.
+#   release          main only: create/update the GitHub release
+#                    xeno-store-v<VERSION> with both ELFs, the homebrew zip,
+#                    SHA256SUMS and the catalog; then patch
+#                    updates/payloads.json (url/version/sha256) and commit it
+#                    back with [skip ci].
+#
+# Every push to any branch that touches xeno-store/ runs the first three jobs,
+# so a pull request shows green before it is merged.
+
+on:
+  push:
+    paths:
+      - 'xeno-store/**'
+      - '.github/workflows/xeno-store.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: xeno-store-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PS5_SDK_TAG: v0.40
+
+jobs:
+  web-and-catalog:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: xeno-store
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build web UI
+        run: make web
+
+      - name: Build + validate the offline catalog
+        run: make catalog
+
+      - name: Catalog pipeline unit tests
+        run: python3 -I -m unittest discover -s tools/catalog/tests -v
+
+      - name: Validate the published feeds
+        run: |
+          set -euo pipefail
+          for f in updates/*.json homebrew/homebrew.json homebrew/sce_sys/param.json catalog/sources.json; do
+            python3 -c "import json,sys; json.load(open(sys.argv[1])); print('ok', sys.argv[1])" "$f"
+          done
+          python3 - <<'PY'
+          import json
+          cat = json.load(open('catalog/xeno-catalog.json'))
+          ids = {g['id'] for g in cat['games']}
+          feat = json.load(open('updates/featured.json'))
+          missing = [i for i in feat.get('hero', []) if i not in ids]
+          for row in feat.get('rows', []):
+              missing += [i for i in row.get('ids', []) if i not in ids]
+          if missing:
+              raise SystemExit('featured.json references unknown game ids: %s' % missing)
+          print('featured.json: every game id exists in the catalog')
+          PY
+
+      - name: Upload web + catalog
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-and-catalog
+          path: |
+            xeno-store/web/dist/index.html
+            xeno-store/catalog/xeno-catalog.json
+            xeno-store/catalog/revision.json
+            xeno-store/catalog/report.json
+          if-no-files-found: error
+
+  host-tests:
+    needs: [web-and-catalog]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: xeno-store
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build deps (gcc, OpenSSL)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev
+
+      - name: Restore web + catalog
+        uses: actions/download-artifact@v4
+        with:
+          name: web-and-catalog
+          path: xeno-store
+
+      - name: Host build + tests
+        run: |
+          set -euo pipefail
+          test -s web/dist/index.html
+          test -s catalog/xeno-catalog.json
+          pkg-config --exists openssl && echo "OpenSSL $(pkg-config --modversion openssl) found"
+          make test
+
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: host-test-logs
+          path: /tmp/xeno-tests.*/*.log
+          if-no-files-found: ignore
+
+  ps5-elf:
+    needs: [host-tests]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: xeno-store
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install payload toolchain (pinned LLVM 18)
+        run: |
+          # The SDK's prospero-clang/prospero-lld wrappers resolve a host LLVM
+          # via prospero-llvm-config (searches PATH for llvm-config-NN). Pin
+          # LLVM 18 to match the SDK contract and release.yml.
+          sudo apt-get update
+          sudo apt-get install -y clang-18 lld-18 llvm-18 llvm-18-dev unzip file
+          echo "/usr/lib/llvm-18/bin" >> "$GITHUB_PATH"
+
+      - name: Download PS5 Payload SDK
+        run: |
+          curl --retry 3 --retry-delay 5 --retry-connrefused \
+            --fail --location --silent --show-error \
+            -o /tmp/ps5-payload-sdk.zip \
+            "https://github.com/ps5-payload-dev/sdk/releases/download/${PS5_SDK_TAG}/ps5-payload-sdk.zip"
+          sudo unzip -q /tmp/ps5-payload-sdk.zip -d /opt
+
+      - name: Smoke-check the prospero toolchain
+        env:
+          PS5_PAYLOAD_SDK: /opt/ps5-payload-sdk
+        run: |
+          # Fail fast with a clear message if the wrapper cannot resolve LLVM,
+          # instead of a confusing mid-compile error inside `make ps5`.
+          "$PS5_PAYLOAD_SDK/bin/prospero-clang" --version
+
+      - name: Restore web + catalog
+        uses: actions/download-artifact@v4
+        with:
+          name: web-and-catalog
+          path: xeno-store
+
+      - name: Cross-compile the payloads + homebrew package
+        env:
+          PS5_PAYLOAD_SDK: /opt/ps5-payload-sdk
+        run: |
+          set -euo pipefail
+          test -s web/dist/index.html
+          test -s catalog/xeno-catalog.json
+          make assets
+          make ps5 pkg
+
+      - name: Verify artifacts
+        run: |
+          set -euo pipefail
+          test -s xeno-store.elf
+          test -s xeno-store-browser.elf
+          test -s dist/XENO-STORE.zip
+          file xeno-store.elf xeno-store-browser.elf
+          unzip -l dist/XENO-STORE.zip
+          # The embedded catalog must be the one this run built, not a placeholder.
+          grep -q 'XENO_ASSETS_PLACEHOLDER_CATALOG 0' src/assets.h
+          grep -q 'XENO_ASSETS_PLACEHOLDER_UI 0' src/assets.h
+          ls -la xeno-store.elf xeno-store-browser.elf dist/XENO-STORE.zip
+
+      - name: Upload payloads
+        uses: actions/upload-artifact@v4
+        with:
+          name: ps5-elf
+          path: |
+            xeno-store/xeno-store.elf
+            xeno-store/xeno-store-browser.elf
+            xeno-store/dist/XENO-STORE.zip
+          if-no-files-found: error
+
+  release:
+    needs: [ps5-elf]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The payloads.json patch is committed back, so a full ref is needed.
+          fetch-depth: 0
+
+      - name: Resolve version and tag
+        id: ver
+        working-directory: xeno-store
+        run: |
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=xeno-store-v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag=xeno-store-v$VERSION"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Stage release assets + SHA256SUMS
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          for name in xeno-store.elf xeno-store-browser.elf XENO-STORE.zip xeno-catalog.json; do
+            f="$(find artifacts -type f -name "$name" -print -quit)"
+            if [ -z "$f" ]; then echo "::error::$name missing from artifacts"; exit 1; fi
+            cp -v "$f" "release/$name"
+          done
+          (cd release && sha256sum xeno-store.elf xeno-store-browser.elf XENO-STORE.zip xeno-catalog.json > SHA256SUMS)
+          cat release/SHA256SUMS
+
+      - name: Write release notes
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REV="$(python3 -c "import json; print(json.load(open('xeno-store/catalog/revision.json'))['revision'])")"
+          GAMES="$(python3 -c "import json; print(json.load(open('xeno-store/catalog/revision.json'))['games'])")"
+          {
+            printf 'XENO STORE %s — PS5 game store + download manager by XENOKING.\n\n' "$VERSION"
+            printf '## Files\n'
+            printf -- '- **xeno-store.elf** — the store (server only). Send it with any ELF loader (XENO TOOL → Payloads, port 9021) and open `http://<ps5-ip>:9095` or `http://xeno.local:9095`.\n'
+            printf -- '- **xeno-store-browser.elf** — the same store, and it opens the PS5 browser to it.\n'
+            printf -- '- **XENO-STORE.zip** — home-screen app for etaHEN / itemzflow: extract into `/data/homebrew/`.\n'
+            printf -- '- **xeno-catalog.json** — catalog revision %s (%s games), the same data embedded in the ELF.\n' "$REV" "$GAMES"
+            printf -- '- **SHA256SUMS** — verify what you downloaded; the in-app updater checks the same hashes.\n'
+            printf '\n## Payload Manager\n'
+            printf 'Add `https://raw.githubusercontent.com/XENOKING123/XENOKING/main/xeno-store/updates/payloads.json` as a source and enable auto-start.\n'
+            printf '\n## Docs\n'
+            printf -- '- [README](https://github.com/XENOKING123/XENOKING/tree/main/xeno-store#readme) · [User guide](https://github.com/XENOKING123/XENOKING/blob/main/xeno-store/docs/GUIDE.md) · [Changelog](https://github.com/XENOKING123/XENOKING/blob/main/xeno-store/docs/CHANGELOG.md)\n'
+            printf '\n```\n'
+            cat release/SHA256SUMS
+            printf '```\n'
+          } > /tmp/release-notes.md
+          cat /tmp/release-notes.md
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "XENO STORE $VERSION" --notes-file /tmp/release-notes.md
+          else
+            gh release create "$TAG" --title "XENO STORE $VERSION" --notes-file /tmp/release-notes.md
+          fi
+          gh release upload "$TAG" release/* --clobber
+          echo "Uploaded $(find release -type f | wc -l) assets to $TAG"
+
+      - name: Patch updates/payloads.json (url, version, sha256)
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          tag, version = os.environ["TAG"], os.environ["VERSION"]
+          sums = {}
+          for line in open("release/SHA256SUMS", encoding="utf-8"):
+              digest, name = line.split()
+              sums[name.lstrip("*")] = digest
+          path = "xeno-store/updates/payloads.json"
+          doc = json.load(open(path, encoding="utf-8"))
+          for p in doc["payloads"]:
+              fn = p["filename"]
+              if fn not in sums:
+                  raise SystemExit("no checksum for %s" % fn)
+              p["version"] = version
+              p["url"] = "https://github.com/XENOKING123/XENOKING/releases/download/%s/%s" % (tag, fn)
+              p["sha256"] = sums[fn]
+          doc["minimumVersion"] = doc.get("minimumVersion") or version
+          with open(path, "w", encoding="utf-8") as fh:
+              json.dump(doc, fh, indent=2, ensure_ascii=False)
+              fh.write("\n")
+          print(open(path, encoding="utf-8").read())
+          PY
+
+      - name: Commit payloads.json back
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "xeno-store-ci"
+          git config user.email "xeno-store-ci@users.noreply.github.com"
+          if git diff --quiet -- xeno-store/updates/payloads.json; then
+            echo "payloads.json unchanged — nothing to commit"
+            exit 0
+          fi
+          git add xeno-store/updates/payloads.json
+          git commit -m "xeno-store: publish ${{ steps.ver.outputs.tag }} hashes in payloads.json [skip ci]"
+          # Another job (catalog sync) may have pushed in the meantime.
+          for attempt in 1 2 3; do
+            if git pull --rebase origin main && git push origin HEAD:main; then exit 0; fi
+            echo "push attempt $attempt failed — retrying"
+            sleep 5
+          done
+          echo "::error::could not push payloads.json"
+          exit 1

@@ -101,6 +101,8 @@ const put = (path, body) => api(path, { method: 'PUT', headers: { 'Content-Type'
     await page.waitForFunction(() => { const s = document.querySelector('#scr-downloads .dl-stats'); return s && !s.hidden && /Lifetime/.test(s.textContent); }, null, { timeout: 8000 }).catch(() => fail('lifetime stats line (/api/stats) missing on Downloads'));
     await expect(async () => !!(await page.$('#scr-downloads .stat.pill.rest')), 'rest-mode pill missing');
     await expect(async () => page.evaluate(() => /awake|Rest mode/.test(document.querySelector('#scr-downloads .stat.pill.rest').textContent)), 'rest-mode pill text missing');
+    await expect(async () => (await api('/api/queue')).summary.restMode.pill === await page.evaluate(() => document.querySelector('#scr-downloads .stat.pill.rest .v').textContent), 'rest-mode pill should show summary.restMode.pill verbatim (dl.c shape)');
+    await page.waitForFunction(() => { const s = document.querySelector('#scr-downloads .dl-sched'); return s && !s.hidden && /Download window 22:00 – 07:00/.test(s.textContent) && /open now|closed/.test(s.textContent); }, null, { timeout: 6000 }).catch(() => fail('download window line (summary.schedule) missing on Downloads'));
     await expect(async () => !!(await page.$('#scr-downloads .job .chip.turbo')), 'turbo result chip ("Fastest mirror") missing on the running row');
     await expect(async () => page.evaluate(() => /Fastest mirror/.test(document.querySelector('#scr-downloads .job .chip.turbo').textContent)), 'turbo chip should read "Fastest mirror: …"');
     await expect(async () => !!(await page.$('#scr-downloads .job .chip.via')), '"via Real-Debrid" label missing');
@@ -123,6 +125,7 @@ const put = (path, body) => api(path, { method: 'PUT', headers: { 'Content-Type'
       await startNow.click();
       await waitToast(page, 'starts now');
       await page.waitForFunction(() => fetch('/api/queue').then((r) => r.json()).then((q) => q.jobs.some((j) => j.startNow === true && j.scheduledFor === '22:00' && !/^j_sched/.test(j.id))), null, { timeout: 6000, polling: 300 }).catch(() => fail('Start now should turn the scheduled entry into a real queued job with startNow:true'));
+      await expect(async () => serverLog.some((l) => /startNow j_sched[0-9a-f]+ via \/startNow/.test(l)), 'the UI should call POST /api/queue/{id}/startNow (the dl_action name)');
     }
     /* failed tab: paused install set + Retry */
     await page.click('[data-nav-id="dltab-failed"]');
@@ -307,6 +310,7 @@ const put = (path, body) => api(path, { method: 'PUT', headers: { 'Content-Type'
     await page.waitForSelector('#scr-settings [data-nav-id="pair-local"]');
     await sleep(700);
     await expect(async () => page.evaluate(() => /xeno\.local:/.test(document.querySelector('#scr-settings [data-nav-id="pair-local"]').textContent)), 'Pair a device should show http://xeno.local:<port>');
+    await expect(async () => page.evaluate(() => /Answering on this network/.test(document.querySelector('#scr-settings [data-nav-id="pair-local"]').textContent)), 'Pair a device should read the mDNS state from the {ok, mdns:{…}} envelope');
     await expect(async () => !!(await page.$('#scr-settings [data-nav-id="pair-mdns"]')), 'mDNS toggle missing');
     await sleep(200);
     await shot(page, 'tv-b-settings-pair.png');
@@ -392,7 +396,7 @@ const put = (path, body) => api(path, { method: 'PUT', headers: { 'Content-Type'
     await page.click('.sheet [data-nav-id="un-go"]');
     await confirmDialog(page);
     await page.waitForSelector('.uninstalled', { timeout: 10000 });
-    await expect(async () => page.evaluate(() => /removed/.test(document.querySelector('.uninstalled').textContent) && /downloads/.test(document.querySelector('.uninstalled').textContent)), 'final screen should list what was removed and kept');
+    await expect(async () => page.evaluate(() => { const tx = document.querySelector('.uninstalled').textContent; return /removed/.test(tx) && /\/data\/homebrew\/XENO-STORE/.test(tx) && /Kept/.test(tx) && /\/mnt\/ext0\/xeno-store/.test(tx); }), 'final screen should list what was removed (home-screen app + data dir) and kept (downloads on every drive)');
     await sleep(400);
     await shot(page, 'tv-b-uninstalled.png');
 

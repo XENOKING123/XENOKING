@@ -1,0 +1,104 @@
+{
+  "hero": [
+    "ghost-of-yotei-ps5",
+    "clair-obscur-expedition-33-ps5",
+    "monster-hunter-wilds-ps5",
+    "death-stranding-2-on-the-beach-ps5",
+    "doom-the-dark-ages-ps5",
+    "kingdom-come-deliverance-2-ps5",
+    "astro-bot-ps5",
+    "black-myth-wukong-ps5",
+    "stellar-blade-ps5",
+    "elden-ring-nightreign-ps5"
+  ],
+  "rows": [
+    {
+      "title": {
+        "en": "Staff picks",
+        "ar": "اختيارات الفريق",
+        "de": "Empfehlungen der Redaktion",
+        "es": "Selección del equipo",
+        "fr": "Sélection de l'équipe",
+        "it": "Scelti dal team",
+        "ja": "スタッフのおすすめ",
+        "ko": "스태프 추천",
+        "nl": "Keuze van het team",
+        "pl": "Wybór redakcji",
+        "pt-BR": "Escolhas da equipe",
+        "ru": "Выбор команды",
+        "tr": "Ekibin seçimi",
+        "zh-CN": "编辑精选"
+      },
+      "ids": [
+        "elden-ring-ps5",
+        "baldurs-gate-3-ps5",
+        "metaphor-refantazio-ps5",
+        "cyberpunk-2077-ps5",
+        "god-of-war-ragnarok-ps5",
+        "marvels-spider-man-2-ps5",
+        "alan-wake-2-ps5",
+        "last-of-us-part-ii-remastered-ps5",
+        "last-of-us-part-i-ps5",
+        "prince-of-persia-the-lost-crown-ps5",
+        "street-fighter-6-ps5",
+        "tekken-8-ps5"
+      ]
+    },
+    {
+      "title": {
+        "en": "Big worlds, big downloads",
+        "ar": "عوالم ضخمة وتنزيلات كبيرة",
+        "de": "Große Welten, große Downloads",
+        "es": "Mundos enormes, descargas enormes",
+        "fr": "Grands mondes, gros téléchargements",
+        "it": "Mondi enormi, download enormi",
+        "ja": "広大な世界、大容量ダウンロード",
+        "ko": "거대한 세계, 거대한 다운로드",
+        "nl": "Grote werelden, grote downloads",
+        "pl": "Wielkie światy, wielkie pobierania",
+        "pt-BR": "Mundos enormes, downloads enormes",
+        "ru": "Большие миры, большие загрузки",
+        "tr": "Büyük dünyalar, büyük indirmeler",
+        "zh-CN": "大世界，大体积"
+      },
+      "ids": [
+        "grand-theft-auto-5-ps5",
+        "assassins-creed-shadows-ps5",
+        "call-of-duty-modern-warfare-3-ps5",
+        "forza-horizon-5-ps5",
+        "ea-sports-fc-26-ps5",
+        "f1-25-ps5",
+        "crimson-desert-ps5",
+        "wuchang-fallen-feathers-ps5",
+        "killing-floor-3-ps5",
+        "mortal-kombat-1-ps5",
+        "fatal-fury-city-of-the-wolves-ps5",
+        "sonic-frontiers-ps5"
+      ]
+    }
+  ],
+  "homebrew": [
+    "RetroArch_1_19",
+    "etaHEN_v2",
+    "ps5_ftp"
+  ],
+  "banner": {
+    "text": {
+      "en": "XENO STORE 1.0 is out. Add the XENOKING source to Payload Manager so the store starts with your console.",
+      "ar": "صدر XENO STORE 1.0. أضف مصدر XENOKING إلى Payload Manager ليبدأ المتجر مع جهازك.",
+      "de": "XENO STORE 1.0 ist da. Füge die XENOKING-Quelle im Payload Manager hinzu, damit der Store mit der Konsole startet.",
+      "es": "XENO STORE 1.0 ya está aquí. Añade la fuente XENOKING a Payload Manager para que la tienda arranque con tu consola.",
+      "fr": "XENO STORE 1.0 est disponible. Ajoutez la source XENOKING dans Payload Manager pour lancer le store au démarrage.",
+      "it": "XENO STORE 1.0 è disponibile. Aggiungi la fonte XENOKING a Payload Manager per avviare lo store con la console.",
+      "ja": "XENO STORE 1.0 公開。Payload Manager に XENOKING ソースを追加すると本体起動時にストアが開始します。",
+      "ko": "XENO STORE 1.0 출시. Payload Manager에 XENOKING 소스를 추가하면 본체와 함께 스토어가 시작됩니다.",
+      "nl": "XENO STORE 1.0 is uit. Voeg de XENOKING-bron toe in Payload Manager zodat de store met je console start.",
+      "pl": "XENO STORE 1.0 jest dostępny. Dodaj źródło XENOKING w Payload Manager, aby sklep startował z konsolą.",
+      "pt-BR": "XENO STORE 1.0 chegou. Adicione a fonte XENOKING no Payload Manager para a loja iniciar com o console.",
+      "ru": "Вышел XENO STORE 1.0. Добавьте источник XENOKING в Payload Manager, чтобы магазин запускался вместе с консолью.",
+      "tr": "XENO STORE 1.0 çıktı. Mağazanın konsolla birlikte başlaması için Payload Manager'a XENOKING kaynağını ekleyin.",
+      "zh-CN": "XENO STORE 1.0 已发布。在 Payload Manager 中添加 XENOKING 源，让商店随主机启动。"
+    },
+    "url": "https://github.com/XENOKING123/XENOKING/tree/main/xeno-store#payload-manager"
+  }
+}
