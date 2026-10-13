@@ -399,6 +399,7 @@
     { id: 'saves', icon: 'shield' }, { id: 'updates', icon: 'refresh' }, { id: 'saveshub', icon: 'folder' }, { id: 'setup', icon: 'check' }, { id: 'settings', icon: 'settings' }
   ];
   var SETTING_GROUPS = ['general', 'downloads', 'debrid', 'sources', 'catalog', 'saves', 'accounts', 'setup', 'pair', 'updates', 'notifications', 'diagnostics', 'about', 'uninstall'];
+  cb.groupLabel = function (gid) { return XS.i18n.has('set.group.' + gid) ? t('set.group.' + gid) : (XS.i18n.has('settings2.group.' + gid) ? t('settings2.group.' + gid) : gid); };
   function screenLabel(id) { var d = XS.router.defs[id]; if (d && d.label) { try { return d.label(); } catch (e) { /* fallthrough */ } } return XS.i18n.has('palette.screen.' + id) ? t('palette.screen.' + id) : id; }
   function paletteItems(q) {
     q = String(q || '').trim().toLowerCase();
@@ -409,7 +410,7 @@
       if (!q || label.toLowerCase().indexOf(q) >= 0 || s.id.indexOf(q) >= 0) items.push({ kind: 'screen', icon: s.icon, label: label, sub: t('palette.kind.screen'), run: function () { XS.router.go(s.id); } });
     });
     SETTING_GROUPS.forEach(function (g) {
-      var label = t('set.group.' + g);
+      var label = cb.groupLabel(g);
       if (!q || label.toLowerCase().indexOf(q) >= 0 || g.indexOf(q) >= 0) items.push({ kind: 'setting', icon: 'settings', label: t('palette.settingsArrow', { name: label }), sub: t('palette.kind.setting'), run: function () { XS.router.go('settings', { group: g }); } });
     });
     var acts = [

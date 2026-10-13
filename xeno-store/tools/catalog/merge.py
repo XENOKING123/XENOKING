@@ -22,10 +22,10 @@ import hashlib
 import re
 import unicodedata
 from dataclasses import dataclass, field
-from typing import Iterable
+from typing import Callable, Iterable
 
 from schema import (
-    FORMATS, GENRES, KINDS, PLATFORMS, Catalog, Game, Release, SourceInfo, is_iso_date,
+    FORMATS, GAME_PLATFORMS, GENRES, HEALTHS, KINDS, PLATFORMS, Catalog, Game, Release, SourceInfo, is_iso_date,
 )
 
 # --------------------------------------------------------------------------- #
@@ -168,6 +168,28 @@ def slugify(text: str) -> str:
     return s[:80].strip("-") or "untitled"
 
 
+_SUBTITLE_SPLIT_RE = re.compile(r"\s*(?::|\s[-–—]\s|\(|\[|\s/\s|\|)\s*")
+_SERIES_TAIL_WORDS = {
+    "part", "chapter", "episode", "vol", "volume", "remastered", "remake", "remaster", "hd", "definitive",
+    "edition", "collection", "trilogy", "anniversary", "directors", "cut", "the", "and", "of", "ii", "iii", "iv",
+}
+
+
+def series_slug(title: str) -> str:
+    """§17.1 ``series``: normalized title with the subtitle and trailing numbers stripped, as a slug.
+
+    'Final Fantasy VII Remake' -> 'final-fantasy-vii-remake' (mid-title numerals stay), 'Cyberpunk 2077' ->
+    'cyberpunk', 'The Last of Us Part II' -> 'last-of-us', 'God of War: Ragnarok' -> 'god-of-war'.
+    """
+    head = _SUBTITLE_SPLIT_RE.split(strip_marks(title), maxsplit=1)[0] or title
+    words = normalize_title(head).split()
+    if not words:
+        words = normalize_title(title).split()
+    while len(words) > 1 and (words[-1].isdigit() or words[-1] in _ROMAN or words[-1] in _SERIES_TAIL_WORDS):
+        words.pop()
+    return slugify(" ".join(words)) if words else ""
+
+
 # --------------------------------------------------------------------------- #
 # Versions, regions, compat, kinds, formats
 # --------------------------------------------------------------------------- #
@@ -277,11 +299,66 @@ def _compat_sort_key(tag: str) -> tuple:
     return (int(m.group(1)), minor, m.group(3))
 
 
+# --------------------------------------------------------------------------- #
+# Backports (§17.13)
+# --------------------------------------------------------------------------- #
+
+_FW_NUM = r"\d{1,2}\.(?:xx|\d{2})"
+_BACKPORT_WORD_RE = re.compile(r"(?<![a-z])(?:backport(?:ed|s)?|bp)(?![a-z])", re.I)
+_BACKPORT_FW_RE = re.compile(
+    r"(?<![a-z])(?:backport(?:ed|s)?|bp)\s*[:\-]?\s*(?:fw\s*|for\s*|to\s*)?(" + _FW_NUM + r")(\+?)", re.I)
+_FW_BACKPORT_RE = re.compile(r"(" + _FW_NUM + r")(\+?)\s*(?:fw\s*)?(?:backport(?:ed)?|bp)(?![a-z])", re.I)
+_FW_TAG_RE = re.compile(r"^(\d{1,2})\.(xx|\d{2})(\+?)$")
+
+
+def parse_backport(text: str) -> tuple[bool, str]:
+    """(is_backport, target firmware) from a label/filename.
+
+    '[BP 9.00]' -> (True, '9.00'), 'BP4.xx' -> (True, '4.xx'), 'Backport 5.05' -> (True, '5.05'),
+    '(Backported)' -> (True, '') — the caller fills the firmware from compat tags when the tag has none.
+    """
+    s = text or ""
+    if not _BACKPORT_WORD_RE.search(s):
+        return False, ""
+    m = _BACKPORT_FW_RE.search(s) or _FW_BACKPORT_RE.search(s)
+    if m:
+        return True, _norm_fw(m.group(1) + m.group(2))
+    return True, ""
+
+
+def _norm_fw(tag: str) -> str:
+    m = _FW_TAG_RE.match((tag or "").strip().lower())
+    if not m:
+        return ""
+    return f"{int(m.group(1))}.{m.group(2)}{m.group(3)}"
+
+
+def lowest_firmware(tags: Iterable[str]) -> str:
+    """The lowest firmware tag of a list ('5.05' from ['9.xx', '5.05', '6.72']), '' when none."""
+    clean = [t for t in (_norm_fw(t) for t in tags) if t]
+    return min(clean, key=_compat_sort_key) if clean else ""
+
+
+def requires_fw(compat_tags: Iterable[str], backport_fw: str = "") -> str:
+    """§17.13 minimum firmware a release needs: the backport target, else the lowest compat tag."""
+    return _norm_fw(backport_fw) or lowest_firmware(compat_tags)
+
+
+_FULL_IMAGE_FORMATS = ("FFPFSC", "exFAT", "FFPKG", "FFPFS")
+
+
 def detect_kind(label: str = "", filename: str = "", fmt: str = "") -> str:
-    """'game' | 'update' | 'dlc' | 'bundle' from a section label and/or filename."""
+    """'game' | 'update' | 'dlc' | 'bundle' | 'backport' from a section label and/or filename.
+
+    A full console image (FFPFSC/exFAT/…) is always kind 'game' even when its name
+    carries a backport tag: the tag then lands in ``backportFw`` and the game still
+    counts as having a backport (§17.13).
+    """
     lab = (label or "").strip().lower()
     fn = (filename or "").lower()
     if lab:
+        if parse_backport(lab)[0]:
+            return "backport"
         if re.match(r"^(?:update|patch)\b", lab) or re.search(r"\b(?:update|patch)\s*v?\d", lab):
             return "update"
         if lab.startswith("dlc") or re.search(r"\bdlcs?\b", lab) and not re.search(r"\b(?:game|base)\b", lab):
@@ -291,8 +368,10 @@ def detect_kind(label: str = "", filename: str = "", fmt: str = "") -> str:
         if re.match(r"^(?:game|base)\b", lab):
             return "game"
     # Full console images are always complete games whatever their name says.
-    if fmt in ("FFPFSC", "exFAT", "FFPKG", "FFPFS"):
+    if fmt in _FULL_IMAGE_FORMATS:
         return "game"
+    if parse_backport(fn)[0]:
+        return "backport"
     if re.search(r"(?:^|[-_\s.])(?:patch|update)(?:[-_\s.]|$)", fn) or re.search(r"-patch-\d", fn):
         return "update"
     if re.search(r"(?:^|[-_\s.(\[])(?:dlc|ac)(?:[-_\s.)\]]|$)", fn):
@@ -459,7 +538,20 @@ class GameDraft:
     pickOrder: int = 0
     priority: int = 10
     pageUrl: str = ""
-    slugHint: str = ""    # a stable id from the source (BlackBox gameId) used to pick the slug
+    slugHint: str = ""    # a stable id from the source (BlackBox gameId, pkg-zone id) used to pick the slug
+    # §17.1 / §17.9 / §17.21 metadata a source may already know.
+    screenshots: list[str] = field(default_factory=list)
+    about: str = ""
+    metacritic: int | None = None
+    features: list[str] = field(default_factory=list)
+    ageRating: int | None = None
+    languages: list[str] = field(default_factory=list)
+    steamId: int = 0
+    conceptId: int = 0
+    psStoreUrl: str = ""
+    category: str = ""        # HOMEBREW only
+    author: str = ""          # HOMEBREW only
+    supportsPs5: bool = False # HOMEBREW only
 
 
 @dataclass
@@ -544,6 +636,10 @@ def _clean_release(r: Release, source: str, report: MergeReport) -> Release | No
     r.mirrors = [m for i, m in enumerate(r.mirrors) if m != r.url and m not in r.mirrors[:i]]
     if r.browserUrl and not r.browserUrl.startswith(("http://", "https://")):
         r.browserUrl = ""
+    if r.health not in HEALTHS or r.health == "dead":
+        r.health = ""
+    r.backportFw = _norm_fw(r.backportFw)
+    r.requiresFw = _norm_fw(r.requiresFw)
     if not r.id:
         r.id = make_release_id(r.sourceId, r.titleId, r.kind, r.version, r.url)
     r.id = re.sub(r"[^a-z0-9._-]+", "-", r.id.lower()).strip("-")[:120] or short_hash(r.url)
@@ -553,7 +649,7 @@ def _clean_release(r: Release, source: str, report: MergeReport) -> Release | No
 def _fill_release(dst: Release, src: Release) -> None:
     """Fill empty fields of ``dst`` from a duplicate (same URL) lower-priority release."""
     for key in ("provider", "titleId", "region", "version", "filename", "browserUrl", "sha256", "md5", "sha1",
-                "verifiedAt", "compat", "password", "notes", "addedAt"):
+                "verifiedAt", "compat", "password", "notes", "addedAt", "backportFw", "requiresFw"):
         if not getattr(dst, key) and getattr(src, key):
             setattr(dst, key, getattr(src, key))
     if dst.sizeBytes <= 0 and src.sizeBytes > 0:
@@ -572,7 +668,7 @@ def _fill_release(dst: Release, src: Release) -> None:
 
 
 _PROVIDER_RANK = {"archive": 0, "xeno": 0, "orbit": 1, "blackbox": 1, "vikingfile": 2}
-_KIND_RANK = {"game": 0, "bundle": 1, "update": 2, "dlc": 3}
+_KIND_RANK = {"game": 0, "app": 0, "bundle": 1, "backport": 2, "update": 3, "dlc": 4}
 _FORMAT_RANK = {f: i for i, f in enumerate(("FFPFSC", "exFAT", "FFPKG", "FFPFS", "PKG", "FPKG", "ZIP", "RAR", "7z", "PAGE"))}
 
 
@@ -622,7 +718,11 @@ def _group_drafts(drafts: list[GameDraft]) -> dict[str, list[GameDraft]]:
     uf = _UnionFind()
     keys: list[str] = []
     for d in drafts:
-        key = f"{d.platform}|{normalize_title(d.title)}"
+        if d.platform == "HOMEBREW":
+            # Apps are keyed by the store's own id (two tools can share a name).
+            key = f"HOMEBREW|{slugify(d.slugHint) if d.slugHint else normalize_title(d.title)}"
+        else:
+            key = f"{d.platform}|{normalize_title(d.title)}"
         keys.append(key)
         uf.find(key)
     # Safety net: the same download URL can only belong to one game.
@@ -664,7 +764,7 @@ def _pick_title(drafts: list[GameDraft]) -> str:
     best = ""
     best_key: tuple | None = None
     for d in drafts:
-        t = clean_title(d.title)
+        t = strip_marks(d.title) if d.platform == "HOMEBREW" else clean_title(d.title)
         if not t:
             continue
         shouting = t.isupper() and len(t) > 4
@@ -677,27 +777,134 @@ def _pick_title(drafts: list[GameDraft]) -> str:
     return best
 
 
-def _popularity(drafts: list[GameDraft], releases: list[Release], max_pick: int, max_home: int, now_year: int) -> float:
-    """0..1 heuristic: BlackBox pick/home order (curated), recency, release count, verified direct link, artwork."""
+def _popularity(drafts: list[GameDraft], game: Game, max_pick: int, max_home: int, now_year: int) -> float:
+    """0..1 heuristic: BlackBox pick/home order (curated), recency, release count, verified direct link,
+    artwork, plus the §17 quality signals: Metacritic score and trainers in XENO TOOL (cheats)."""
+    releases = game.releases
     pick = min((d.pickOrder for d in drafts if d.pickOrder > 0), default=0)
     home = min((d.homeOrder for d in drafts if d.homeOrder > 0), default=0)
     score = 0.0
     if pick and max_pick:
-        score += 0.35 * (1.0 - (pick - 1) / max(max_pick, 1))
+        score += 0.30 * (1.0 - (pick - 1) / max(max_pick, 1))
     if home and max_home:
-        score += 0.25 * (1.0 - (home - 1) / max(max_home, 1))
-    year = 0
-    rd = _best(drafts, "releaseDate")
-    if rd[:4].isdigit():
-        year = int(rd[:4])
+        score += 0.20 * (1.0 - (home - 1) / max(max_home, 1))
+    year = game.year or (int(game.releaseDate[:4]) if game.releaseDate[:4].isdigit() else 0)
     if year:
-        score += 0.15 * max(0.0, 1.0 - (now_year - year) / 8.0)
-    score += 0.10 * min(1.0, len(releases) / 6.0)
-    if any(r.verifiedAt and r.sourceId in ("archive", "xeno") for r in releases):
-        score += 0.10
-    if any(d.cover for d in drafts):
-        score += 0.05
+        score += 0.12 * max(0.0, 1.0 - (now_year - year) / 8.0)
+    score += 0.08 * min(1.0, len(releases) / 6.0)
+    if any((r.verifiedAt or r.health == "ok") and r.sourceId in ("archive", "xeno") for r in releases):
+        score += 0.08
+    if game.cover:
+        score += 0.04
+    if game.metacritic is not None:
+        score += 0.12 * max(0.0, (game.metacritic - 50) / 50.0)   # 75 -> +0.06, 90 -> +0.096
+    if game.cheats > 0:
+        score += 0.06 * min(1.0, game.cheats / 20.0)
     return round(min(1.0, max(0.0, score)), 3)
+
+
+def _first_list(drafts: list[GameDraft], attr: str) -> list[str]:
+    for d in drafts:
+        v = getattr(d, attr) or []
+        if v:
+            return [str(x) for x in v if x]
+    return []
+
+
+def _first_int(drafts: list[GameDraft], attr: str) -> int | None:
+    for d in drafts:
+        v = getattr(d, attr)
+        if isinstance(v, int) and not isinstance(v, bool):
+            return v
+    return None
+
+
+def fallback_screenshots(game: Game) -> list[str]:
+    """§17.1 offline rule: screenshots fall back to [hero, banner] (deduped, non-empty, never the cover)."""
+    out: list[str] = []
+    for u in (game.hero, game.heroFallback):
+        if u and u != game.cover and u not in out and u.startswith(("http://", "https://")):
+            out.append(u)
+    return out
+
+
+def compute_counts(game: Game) -> None:
+    """updates / dlc / backports / year / series derived from the releases and title (§17.1, §17.13)."""
+    game.updates = sum(1 for r in game.releases if r.kind == "update")
+    game.dlc = sum(1 for r in game.releases if r.kind == "dlc")
+    game.backports = sum(1 for r in game.releases if r.kind == "backport" or r.backportFw)
+    if not game.year and game.releaseDate[:4].isdigit():
+        game.year = int(game.releaseDate[:4])
+    if not game.series and game.platform != "HOMEBREW":
+        game.series = series_slug(game.title)
+
+
+def apply_audit(game: Game, audit: dict[str, dict], direct_sources: set[str], report: "MergeReport") -> None:
+    """§17.12: drop dead releases, set release.health, re-derive game.verified.
+
+    ``audit`` maps URL -> {verdict, checkedAt, ...}. A release the audit never saw keeps
+    ``health == ""`` and its source-reported verification.
+    """
+    kept: list[Release] = []
+    audited_ok_direct = False
+    for r in game.releases:
+        res = audit.get(r.url)
+        if not res:
+            kept.append(r)
+            continue
+        verdict = str(res.get("verdict") or "")
+        if verdict == "dead":
+            report.drop_release(r.sourceId, "audit_dead", f"{game.id} {r.url}")
+            continue
+        if verdict in ("ok", "flaky", "page"):
+            r.health = verdict
+        direct = r.format != "PAGE" and r.sourceId in direct_sources
+        if verdict == "ok" and direct:
+            audited_ok_direct = True
+            checked = str(res.get("checkedAt") or "")[:10]
+            if checked and is_iso_date(checked):
+                r.verifiedAt = checked
+        elif verdict in ("page", "flaky") and direct and r.verifiedAt:
+            # The file did not answer like a file this time; do not advertise it as verified.
+            r.verifiedAt = ""
+    game.releases = kept
+    unaudited_verified = any((r.verifiedAt or r.consoleVerified) and not r.health for r in kept)
+    game.verified = audited_ok_direct or unaudited_verified
+
+
+def _apply_backport_fields(r: Release) -> None:
+    """§17.13: backportFw / requiresFw from the file name, label notes and compat tags; kind sanity."""
+    compat_tags = r.compat.split()
+    text = f"{r.filename} {r.notes}"
+    is_bp, bp_fw = parse_backport(text)
+    if not r.backportFw and (is_bp or r.kind == "backport"):
+        r.backportFw = bp_fw or lowest_firmware(compat_tags)
+    if r.kind == "backport" and not r.backportFw:
+        # A backport whose target firmware nobody states is just an update/game to the user.
+        r.kind = "update" if re.search(r"update|patch", r.filename, re.I) else "game"
+    if r.backportFw and r.backportFw not in compat_tags:
+        compat_tags.append(r.backportFw)
+        r.compat = " ".join(sorted(set(compat_tags), key=_compat_sort_key))
+    if not r.requiresFw:
+        r.requiresFw = requires_fw(compat_tags, r.backportFw)
+
+
+def _dedupe_urls(urls: Iterable[str]) -> list[str]:
+    out: list[str] = []
+    for u in urls:
+        u = (u or "").strip()
+        if u.startswith(("http://", "https://")) and u not in out:
+            out.append(u)
+    return out
+
+
+def _dedupe_strs(items: Iterable[str]) -> list[str]:
+    out: list[str] = []
+    for it in items:
+        it = _WS_RE.sub(" ", str(it or "")).strip()
+        if it and it not in out:
+            out.append(it)
+    return out
 
 
 def merge_drafts(
@@ -707,10 +914,17 @@ def merge_drafts(
     revision: int,
     generated_at: str,
     previous: Catalog | None = None,
+    enrichers: Iterable[Callable[[Game], None]] = (),
+    audit: dict[str, dict] | None = None,
 ) -> tuple[Catalog, MergeReport]:
-    """Build a Catalog from source drafts. See the module docstring for the steps."""
+    """Build a Catalog from source drafts. See the module docstring for the steps.
+
+    ``enrichers`` run on every merged game before ranking (seeds, Steam/PS Store caches: §17.9, §17.1);
+    ``audit`` is the §17.12 results map (url -> verdict record) that drops dead links and sets health.
+    """
     report = MergeReport()
     known_sources = {s.id for s in source_infos}
+    direct_sources = {s.id for s in source_infos if s.kind == "direct"}
     build_date = generated_at[:10]
 
     # Previous catalog lookups keep addedAt sticky across rebuilds.
@@ -729,7 +943,7 @@ def merge_drafts(
     for d in drafts:
         ps = report.per_source.setdefault(d.source, {"games": 0, "releases": 0, "dropped": 0})
         d.title = strip_marks(d.title)
-        if not clean_title(d.title):
+        if not (d.title if d.platform == "HOMEBREW" else clean_title(d.title)):
             for r in d.releases:
                 report.drop_release(d.source, "missing_title", r.url)
             report.drop_game(d.source, "missing_title", d.pageUrl or d.title)
@@ -750,6 +964,10 @@ def merge_drafts(
                 kept.append(cr)
         d.releases = kept
         d.titleIds = [t for t in (parse_title_ids(" ".join(d.titleIds)) if d.titleIds else [])]
+        if d.platform == "HOMEBREW":
+            d.titleIds = []
+            for r in d.releases:
+                r.kind, r.titleId = "app", ""
         for r in d.releases:
             if r.titleId and r.titleId not in d.titleIds:
                 d.titleIds.append(r.titleId)
@@ -774,7 +992,11 @@ def merge_drafts(
         # The slug comes from the normalized title so the PS4 and PS5 entries of
         # one game share it ("assassins-creed-mirage-ps4" / "-ps5"); a source's
         # own id (slugHint) is only used when the title normalizes to nothing.
+        # Homebrew apps use the store id so two tools with one name stay apart.
         slug = slugify(normalize_title(title))
+        if platform == "HOMEBREW":
+            hint = next((d.slugHint for d in members if d.slugHint), "")
+            slug = slugify(hint) if hint else slug
         if slug == "untitled":
             hint = next((d.slugHint for d in members if d.slugHint), "")
             slug = re.sub(r"-(ps4|ps5)$", "", slugify(hint)) if hint else slugify(title)
@@ -803,6 +1025,7 @@ def merge_drafts(
                 r.compat = " ".join(parse_compat(r.filename))
             if not r.provider:
                 r.provider = next((s.name for s in source_infos if s.id == r.sourceId), r.sourceId)
+            _apply_backport_fields(r)
         releases.sort(key=release_sort_key)
         seen_rids: set[str] = set()
         for r in releases:
@@ -836,18 +1059,48 @@ def merge_drafts(
         layout = _best(members, "artworkLayout")
         if layout not in ("wide", "ambient", "portrait"):
             layout = "wide"
+        is_app = platform == "HOMEBREW"
         game = Game(
-            id=game_id, slug=slug, title=title, platform=platform, titleIds=title_ids, region=region,
-            genres=genres, tagline=_best(members, "tagline"), description=_best(members, "description"),
-            publisher=_best(members, "publisher"), developer=_best(members, "developer"),
+            id=game_id, slug=slug, title=title, platform=platform, titleIds=[] if is_app else title_ids,
+            region="" if is_app else region, genres=[] if is_app else genres,
+            tagline=_best(members, "tagline"), description=_best(members, "description"),
+            publisher=_best(members, "publisher") or (_best(members, "author") if is_app else ""),
+            developer=_best(members, "developer"),
             releaseDate=_best(members, "releaseDate")[:10], addedAt=added[:10],
             cover=cover, coverFallback=cover_fb, hero=hero, heroFallback=hero_fb, artworkLayout=layout,
             tint=tint_for(slug), sizeMin=min(sizes) if sizes else 0, sizeMax=max(sizes) if sizes else 0,
-            featured=home, popularity=_popularity(members, releases, max_pick, max_home, now_year),
-            verified=any(r.verifiedAt or r.consoleVerified for r in releases), compat=compat, releases=releases,
+            featured=home, popularity=0.0,
+            verified=any(r.verifiedAt or r.consoleVerified for r in releases), compat=[] if is_app else compat,
+            screenshots=_first_list(members, "screenshots")[:10], about=_best(members, "about"),
+            metacritic=_first_int(members, "metacritic"), features=_first_list(members, "features"),
+            ageRating=_first_int(members, "ageRating"), languages=_first_list(members, "languages"),
+            steamId=_first_int(members, "steamId") or 0, conceptId=_first_int(members, "conceptId") or 0,
+            psStoreUrl=_best(members, "psStoreUrl"),
+            category=_best(members, "category") if is_app else "", author=_best(members, "author") if is_app else "",
+            supportsPs5=any(d.supportsPs5 for d in members) if is_app else False,
+            releases=releases,
         )
         if not is_iso_date(game.releaseDate):
             game.releaseDate = ""
+        if audit:
+            apply_audit(game, audit, direct_sources, report)
+            if not game.releases:
+                report.drop_game(members[0].source, "audit_dead", game.id)
+                continue
+            sizes = [r.sizeBytes for r in game.releases if r.sizeBytes > 0]
+            game.sizeMin, game.sizeMax = (min(sizes), max(sizes)) if sizes else (0, 0)
+            game.compat = [] if is_app else sorted({c for r in game.releases for c in r.compat.split() if c}, key=_compat_sort_key)
+        for fn in enrichers:
+            fn(game)
+        if game.metacritic is not None and not 0 <= game.metacritic <= 100:
+            game.metacritic = None
+        if game.ageRating is not None and not 0 <= game.ageRating <= 21:
+            game.ageRating = None
+        game.screenshots = _dedupe_urls(game.screenshots)[:10] or fallback_screenshots(game)
+        game.features = _dedupe_strs(game.features)
+        game.languages = _dedupe_strs(game.languages)
+        compute_counts(game)
+        game.popularity = _popularity(members, game, max_pick, max_home, now_year)
         games.append(game)
         for d in members:
             report.per_source[d.source]["games"] += 1
@@ -867,10 +1120,11 @@ def merge_drafts(
             seen_ids[g.id] = 1
 
     # Featured: BlackBox home order when present; otherwise the most popular PS5
-    # games with hero art fill the Discover hero rail so it is never empty.
+    # games with hero art fill the Discover hero rail so it is never empty
+    # (popularity already folds in Metacritic and cheats, §17.1).
     if not any(g.featured for g in games):
         candidates = [g for g in games if g.hero and g.platform == "PS5"]
-        candidates.sort(key=lambda g: (-g.popularity, g.title.lower()))
+        candidates.sort(key=lambda g: (-g.popularity, -(g.metacritic or 0), g.title.lower()))
         for i, g in enumerate(candidates[:12], start=1):
             g.featured = i
 

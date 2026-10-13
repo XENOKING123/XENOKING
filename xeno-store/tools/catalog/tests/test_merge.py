@@ -312,7 +312,7 @@ class ValidationTests(unittest.TestCase):
     def test_bad_platform(self):
         doc = self._doc()
         doc["games"][0]["platform"] = "PS3"
-        self.assertTrue(any("platform must be PS4 or PS5" in e for e in validate_catalog(doc)))
+        self.assertTrue(any("platform must be PS4, PS5 or HOMEBREW" in e for e in validate_catalog(doc)))
 
     def test_negative_sizes(self):
         doc = self._doc()

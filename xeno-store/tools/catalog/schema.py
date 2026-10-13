@@ -15,13 +15,20 @@ from typing import Any
 SCHEMA_VERSION = 1
 CATALOG_NAME = "XENO STORE Catalog"
 
-PLATFORMS = ("PS4", "PS5")
+# HOMEBREW entries are pkg-zone apps/emulators/tools (SPEC §17.21): same record
+# shape as a game plus category/author/supportsPs5, releases of kind "app".
+PLATFORMS = ("PS4", "PS5", "HOMEBREW")
+GAME_PLATFORMS = ("PS4", "PS5")
 
 # §10 list plus FFPFS, which §3 names as a valid image extension the engine
 # routes to <root>/homebrew/. Keeping it here means a real-world file is never
 # mislabelled as a different format just to pass validation.
 FORMATS = ("FFPFSC", "exFAT", "PKG", "FPKG", "FFPKG", "FFPFS", "ZIP", "RAR", "7z", "PAGE")
-KINDS = ("game", "update", "dlc", "bundle")
+# "backport" (§17.13) = a build patched to run on lower firmware; "app" (§17.21) = homebrew package.
+KINDS = ("game", "update", "dlc", "bundle", "backport", "app")
+HEALTHS = ("", "ok", "flaky", "dead", "page")   # "" = not audited yet (§17.12)
+HOMEBREW_CATEGORIES = ("Emulator", "Tool", "Game", "Media", "Utility", "Launcher", "Payload", "Other")
+MAX_SCREENSHOTS = 10
 
 # The clean genre vocabulary every source's labels are mapped onto (merge.py).
 GENRES = (
@@ -35,7 +42,8 @@ ARTWORK_LAYOUTS = ("wide", "ambient", "portrait")
 _ISO_DATE_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2}))?$"
 )
-_GAME_ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*-(ps4|ps5)$")
+_GAME_ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*-(ps4|ps5|homebrew)$")
+_FW_RE = re.compile(r"^\d{1,2}\.(?:\d{2}|xx)\+?$")   # "9.00", "5.05", "11.xx+"
 _RELEASE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,119}$")
 _TITLE_ID_RE = re.compile(r"^[A-Z]{4}\d{5}$")
 _HEX_RE = re.compile(r"^[0-9a-f]*$")
@@ -107,6 +115,9 @@ class Release:
     password: str = ""
     notes: str = ""
     addedAt: str = ""
+    health: str = ""          # §17.12 audit verdict: "" (not audited) | ok | flaky | page (dead ones are dropped)
+    backportFw: str = ""      # §17.13 target firmware of a backport ("5.05", "9.00", "4.xx")
+    requiresFw: str = ""      # §17.13 minimum firmware parsed from labels ("11.xx+", "13.60")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -124,7 +135,18 @@ class Release:
             verifiedAt=str(d.get("verifiedAt") or ""), consoleVerified=bool(d.get("consoleVerified", False)),
             compat=str(d.get("compat") or ""), password=str(d.get("password") or ""),
             notes=str(d.get("notes") or ""), addedAt=str(d.get("addedAt") or ""),
+            health=str(d.get("health") or ""), backportFw=str(d.get("backportFw") or ""),
+            requiresFw=str(d.get("requiresFw") or ""),
         )
+
+
+def _opt_int(v: Any) -> int | None:
+    if v is None or isinstance(v, bool):
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
 
 
 @dataclass
@@ -154,6 +176,27 @@ class Game:
     popularity: float = 0.0
     verified: bool = False
     compat: list[str] = field(default_factory=list)
+    # §17.1 additions (all optional for readers; always present in the file).
+    screenshots: list[str] = field(default_factory=list)
+    about: str = ""
+    metacritic: int | None = None
+    features: list[str] = field(default_factory=list)
+    ageRating: int | None = None
+    languages: list[str] = field(default_factory=list)
+    year: int = 0
+    updates: int = 0
+    dlc: int = 0
+    backports: int = 0        # §17.13
+    series: str = ""
+    steamId: int = 0
+    # §17.9 seeds
+    cheats: int = 0
+    conceptId: int = 0
+    psStoreUrl: str = ""
+    # §17.21 homebrew apps (empty / false for games)
+    category: str = ""
+    author: str = ""
+    supportsPs5: bool = False
     releases: list[Release] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -176,6 +219,15 @@ class Game:
             sizeMin=int(d.get("sizeMin") or 0), sizeMax=int(d.get("sizeMax") or 0),
             featured=int(d.get("featured") or 0), popularity=float(d.get("popularity") or 0.0),
             verified=bool(d.get("verified", False)), compat=[str(c) for c in (d.get("compat") or [])],
+            screenshots=[str(u) for u in (d.get("screenshots") or [])], about=str(d.get("about") or ""),
+            metacritic=_opt_int(d.get("metacritic")), features=[str(f) for f in (d.get("features") or [])],
+            ageRating=_opt_int(d.get("ageRating")), languages=[str(l) for l in (d.get("languages") or [])],
+            year=int(d.get("year") or 0), updates=int(d.get("updates") or 0), dlc=int(d.get("dlc") or 0),
+            backports=int(d.get("backports") or 0), series=str(d.get("series") or ""),
+            steamId=int(d.get("steamId") or 0), cheats=int(d.get("cheats") or 0),
+            conceptId=int(d.get("conceptId") or 0), psStoreUrl=str(d.get("psStoreUrl") or ""),
+            category=str(d.get("category") or ""), author=str(d.get("author") or ""),
+            supportsPs5=bool(d.get("supportsPs5", False)),
             releases=[Release.from_dict(r) for r in (d.get("releases") or [])],
         )
 
@@ -298,7 +350,7 @@ def validate_catalog(doc: dict[str, Any], max_errors: int = 200) -> list[str]:
                 err(f"{where}: id must look like <slug>-<ps4|ps5>")
         platform = g.get("platform")
         if platform not in PLATFORMS:
-            err(f"{where}: platform must be PS4 or PS5, got {platform!r}")
+            err(f"{where}: platform must be PS4, PS5 or HOMEBREW, got {platform!r}")
         elif isinstance(gid, str) and gid and not gid.endswith("-" + platform.lower()):
             err(f"{where}: id suffix does not match platform {platform}")
         title = g.get("title")
@@ -344,6 +396,7 @@ def validate_catalog(doc: dict[str, Any], max_errors: int = 200) -> list[str]:
             err(f"{where}: tint must be #rrggbb")
         if not isinstance(g.get("compat", []), list):
             err(f"{where}: compat must be a list")
+        _validate_phase2_game(g, where, err)
 
         releases = g.get("releases")
         if not isinstance(releases, list) or not releases:
@@ -379,6 +432,20 @@ def validate_catalog(doc: dict[str, Any], max_errors: int = 200) -> list[str]:
                 err(f"{rw}: format must be one of {FORMATS}, got {r.get('format')!r}")
             if r.get("kind") not in KINDS:
                 err(f"{rw}: kind must be one of {KINDS}, got {r.get('kind')!r}")
+            elif platform == "HOMEBREW" and r.get("kind") != "app":
+                err(f"{rw}: HOMEBREW releases must have kind app")
+            elif platform != "HOMEBREW" and r.get("kind") == "app":
+                err(f"{rw}: kind app is only valid on HOMEBREW entries")
+            if r.get("health", "") not in HEALTHS:
+                err(f"{rw}: health must be one of {HEALTHS}, got {r.get('health')!r}")
+            if r.get("health", "") == "dead":
+                err(f"{rw}: dead releases must be dropped, not shipped")
+            for key in ("backportFw", "requiresFw"):
+                v = r.get(key, "")
+                if not isinstance(v, str) or (v and not _FW_RE.match(v)):
+                    err(f"{rw}: {key} must be a firmware tag like 9.00 / 11.xx+ or empty, got {v!r}")
+            if r.get("kind") == "backport" and not r.get("backportFw"):
+                err(f"{rw}: backport releases need backportFw")
             size = r.get("sizeBytes", 0)
             if not isinstance(size, int) or isinstance(size, bool) or size < 0:
                 err(f"{rw}: sizeBytes must be a non-negative integer, got {size!r}")
@@ -405,3 +472,53 @@ def validate_catalog(doc: dict[str, Any], max_errors: int = 200) -> list[str]:
             if not isinstance(r.get("consoleVerified", False), bool):
                 err(f"{rw}: consoleVerified must be a boolean")
     return errors
+
+
+def _validate_phase2_game(g: dict[str, Any], where: str, err) -> None:
+    """§17.1 / §17.9 / §17.13 / §17.21 fields. Every key may be absent (old readers) but never wrong-typed."""
+    shots = g.get("screenshots", [])
+    if not isinstance(shots, list):
+        err(f"{where}: screenshots must be a list")
+    else:
+        if len(shots) > MAX_SCREENSHOTS:
+            err(f"{where}: at most {MAX_SCREENSHOTS} screenshots")
+        for u in shots:
+            if not _is_http_url(u):
+                err(f"{where}: screenshot is not an http(s) URL: {u!r}")
+        if len(set(shots)) != len(shots):
+            err(f"{where}: duplicate screenshots")
+    for key in ("about", "series", "psStoreUrl", "category", "author", "developer"):
+        if not isinstance(g.get(key, ""), str):
+            err(f"{where}: {key} must be a string")
+    if g.get("psStoreUrl") and not _is_http_url(g["psStoreUrl"]):
+        err(f"{where}: psStoreUrl must be an http(s) URL or empty")
+    mc = g.get("metacritic", None)
+    if mc is not None and (not isinstance(mc, int) or isinstance(mc, bool) or not 0 <= mc <= 100):
+        err(f"{where}: metacritic must be null or an integer 0..100, got {mc!r}")
+    ar = g.get("ageRating", None)
+    if ar is not None and (not isinstance(ar, int) or isinstance(ar, bool) or not 0 <= ar <= 21):
+        err(f"{where}: ageRating must be null or an integer 0..21, got {ar!r}")
+    for key in ("features", "languages"):
+        v = g.get(key, [])
+        if not isinstance(v, list) or any(not isinstance(x, str) or not x for x in v):
+            err(f"{where}: {key} must be a list of non-empty strings")
+    year = g.get("year", 0)
+    if not isinstance(year, int) or isinstance(year, bool) or (year and not 1990 <= year <= 2100):
+        err(f"{where}: year must be 0 or a plausible year, got {year!r}")
+    for key in ("updates", "dlc", "backports", "cheats", "conceptId", "steamId"):
+        v = g.get(key, 0)
+        if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+            err(f"{where}: {key} must be a non-negative integer, got {v!r}")
+    if g.get("series") and not re.match(r"^[a-z0-9]+(?:-[a-z0-9]+)*$", str(g["series"])):
+        err(f"{where}: series must be a slug")
+    if not isinstance(g.get("supportsPs5", False), bool):
+        err(f"{where}: supportsPs5 must be a boolean")
+    if g.get("platform") == "HOMEBREW":
+        if not g.get("author"):
+            err(f"{where}: HOMEBREW entries need an author")
+        if g.get("category") and g["category"] not in HOMEBREW_CATEGORIES:
+            err(f"{where}: category must be one of {HOMEBREW_CATEGORIES}")
+        if g.get("titleIds"):
+            err(f"{where}: HOMEBREW entries carry no Sony title ids")
+    elif g.get("category") or g.get("author") or g.get("supportsPs5"):
+        err(f"{where}: category/author/supportsPs5 are only valid on HOMEBREW entries")

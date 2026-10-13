@@ -21,13 +21,13 @@
     var wrap = h('div.settings');
     navEl = h('nav.set-nav', { data: { navRegion: '' } });
     GROUPS.forEach(function (gid) {
-      var b = h('button.sn' + (gid === group ? '.on' : '') + (gid === 'uninstall' ? '.danger' : ''), { nav: 'set-nav-' + gid, data: { group: gid } }, [ui.svg(ICONS[gid]), h('span', { text: t('set.group.' + gid) })]);
+      var b = h('button.sn' + (gid === group ? '.on' : '') + (gid === 'uninstall' ? '.danger' : ''), { nav: 'set-nav-' + gid, data: { group: gid } }, [ui.svg(ICONS[gid]), h('span', { text: cb.groupLabel(gid) })]);
       b.addEventListener('click', function () { group = gid; U.$$('.sn', navEl).forEach(function (x) { x.classList.toggle('on', x === b); }); var target = bodyEl.querySelector('[data-group="' + gid + '"]'); if (target) { root.scrollTo({ top: target.offsetTop - 10, behavior: U.reducedMotion() ? 'auto' : 'smooth' }); var first = target.querySelector('[data-nav]'); if (first) setTimeout(function () { XS.nav.focus(first, false); }, 60); } });
       navEl.appendChild(b);
     });
     wrap.appendChild(navEl);
     bodyEl = h('div.set-body');
-    GROUPS.forEach(function (gid) { var sec = h('section.set-group', { data: { group: gid, navRegion: '' } }); sec.appendChild(h('h2', [ui.svg(ICONS[gid]), h('span', { text: t('set.group.' + gid) })])); BUILD[gid](sec); bodyEl.appendChild(sec); });
+    GROUPS.forEach(function (gid) { var sec = h('section.set-group', { data: { group: gid, navRegion: '' } }); sec.appendChild(h('h2', [ui.svg(ICONS[gid]), h('span', { text: cb.groupLabel(gid) })])); BUILD[gid](sec); bodyEl.appendChild(sec); });
     wrap.appendChild(bodyEl);
     inner.appendChild(wrap);
   }
@@ -36,7 +36,7 @@
     var sec = bodyEl.querySelector('[data-group="' + gid + '"]'); if (!sec) return;
     var fid = sec.contains(document.activeElement) ? document.activeElement.getAttribute('data-nav-id') : null;
     U.clear(sec);
-    sec.appendChild(h('h2', [ui.svg(ICONS[gid]), h('span', { text: t('set.group.' + gid) })]));
+    sec.appendChild(h('h2', [ui.svg(ICONS[gid]), h('span', { text: cb.groupLabel(gid) })]));
     BUILD[gid](sec);
     if (fid) { var again = sec.querySelector('[data-nav-id="' + fid + '"]'); if (again) XS.nav.focus(again, false); }
   }
