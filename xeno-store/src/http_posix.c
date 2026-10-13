@@ -117,6 +117,21 @@ static int conn_cancelled(xhttp_conn *c) {
   return c->aborted || (c->cancel && *c->cancel);
 }
 
+/* Maps a socket errno to the coarse classes dl.c uses for rest-mode
+ * detection (a burst of NETDOWN means the console just woke up). */
+static int errno_class(int e) {
+  switch (e) {
+    case ENETDOWN: case ENETUNREACH: case EHOSTUNREACH: case EADDRNOTAVAIL:
+#ifdef EHOSTDOWN
+    case EHOSTDOWN:
+#endif
+      return XHTTP_ERR_NETDOWN;
+    case ETIMEDOUT: return XHTTP_ERR_TIMEOUT;
+    case ECONNREFUSED: return XHTTP_ERR_REFUSED;
+    default: return XHTTP_ERR_OTHER;
+  }
+}
+
 /* Waits for fd readiness; returns 1 ready, 0 timeout, -1 cancelled. */
 static int wait_fd(xhttp_conn *c, int fd, short events, int timeout_ms) {
   int64_t deadline = util_now_ms() + timeout_ms;
@@ -143,10 +158,13 @@ static int raw_recv(xhttp_conn *c, void *buf, size_t cap) {
         int w = wait_fd(c, c->fd, e == SSL_ERROR_WANT_READ ? POLLIN : POLLOUT, c->recv_timeout_ms);
         if (w == 1) continue;
         xhttp_set_error(w == 0 ? "receive timeout" : "cancelled");
+        xhttp_set_error_class(w == 0 ? XHTTP_ERR_TIMEOUT : XHTTP_ERR_CANCELLED);
         return -1;
       }
       if (e == SSL_ERROR_SYSCALL && n == 0) return 0;   /* peer closed without close_notify */
+      if (e == SSL_ERROR_SYSCALL && errno) { int se = errno; xhttp_set_error("TLS read error: %s", strerror(se)); xhttp_set_error_class(errno_class(se)); return -1; }
       xhttp_set_error("TLS read error");
+      xhttp_set_error_class(XHTTP_ERR_TLS);
       return -1;
     }
 #endif
@@ -157,9 +175,12 @@ static int raw_recv(xhttp_conn *c, void *buf, size_t cap) {
       int w = wait_fd(c, c->fd, POLLIN, c->recv_timeout_ms);
       if (w == 1) continue;
       xhttp_set_error(w == 0 ? "receive timeout" : "cancelled");
+      xhttp_set_error_class(w == 0 ? XHTTP_ERR_TIMEOUT : XHTTP_ERR_CANCELLED);
       return -1;
     }
-    xhttp_set_error("recv: %s", strerror(errno));
+    int re = errno;
+    xhttp_set_error("recv: %s", strerror(re));
+    xhttp_set_error_class(errno_class(re));
     return -1;
   }
 }
@@ -187,10 +208,12 @@ static int raw_send_all(xhttp_conn *c, const char *p, size_t n) {
     if (w >= 0) { off += (size_t)w; continue; }
     if (errno == EINTR) continue;
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
-      if (wait_fd(c, c->fd, POLLOUT, c->recv_timeout_ms) != 1) { xhttp_set_error("send timeout"); return -1; }
+      if (wait_fd(c, c->fd, POLLOUT, c->recv_timeout_ms) != 1) { xhttp_set_error("send timeout"); xhttp_set_error_class(XHTTP_ERR_TIMEOUT); return -1; }
       continue;
     }
-    xhttp_set_error("send: %s", strerror(errno));
+    int se = errno;
+    xhttp_set_error("send: %s", strerror(se));
+    xhttp_set_error_class(errno_class(se));
     return -1;
   }
   return 0;
@@ -213,7 +236,13 @@ static int tcp_connect(xhttp_conn *c, const char *host, int port, int timeout_ms
   xstrlcpy(hostbuf, host, sizeof hostbuf);
   if (hostbuf[0] == '[') { size_t l = strlen(hostbuf); if (l > 2) { hostbuf[l - 1] = 0; memmove(hostbuf, hostbuf + 1, l - 1); } }
   int rc = getaddrinfo(hostbuf, portstr, &hints, &res);
-  if (rc != 0 || !res) { xhttp_set_error("DNS lookup failed for %s", host); return -1; }
+  if (rc != 0 || !res) {
+    xhttp_set_error("DNS lookup failed for %s", host);
+    /* EAI_AGAIN/EAI_FAIL right after a wake-up means the resolver has no
+     * network yet; EAI_NONAME is a genuinely unknown host. */
+    xhttp_set_error_class(rc == EAI_NONAME ? XHTTP_ERR_DNS : XHTTP_ERR_NETDOWN);
+    return -1;
+  }
   int fd = -1;
   for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
     fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
@@ -229,8 +258,11 @@ static int tcp_connect(xhttp_conn *c, const char *host, int port, int timeout_ms
       socklen_t el = sizeof err;
       if (w == 1 && getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &el) == 0 && err == 0) break;
       xhttp_set_error(w == 0 ? "connect timeout" : w < 0 ? "cancelled" : "connect: %s", strerror(err));
+      xhttp_set_error_class(w == 0 ? XHTTP_ERR_TIMEOUT : w < 0 ? XHTTP_ERR_CANCELLED : errno_class(err));
     } else {
-      xhttp_set_error("connect: %s", strerror(errno));
+      int ce = errno;
+      xhttp_set_error("connect: %s", strerror(ce));
+      xhttp_set_error_class(errno_class(ce));
     }
     close(fd);
     fd = -1;
@@ -380,6 +412,7 @@ static int tls_handshake(xhttp_conn *c, const char *host, int insecure) {
     long vr = SSL_get_verify_result(c->ssl);
     if (vr != X509_V_OK) xhttp_set_error("TLS certificate verification failed: %s", X509_verify_cert_error_string(vr));
     else xhttp_set_error("TLS handshake failed: %s", eb[0] ? eb : "unknown");
+    xhttp_set_error_class(XHTTP_ERR_TLS);
     return -1;
   }
 #else
@@ -538,7 +571,7 @@ static int read_chunked(xhttp_conn *c, void *buf, size_t cap) {
 int xhttp_read(xhttp_conn *c, void *buf, size_t cap) {
   if (!c || cap == 0) return -1;
   if (c->eof) return 0;
-  if (conn_cancelled(c)) { xhttp_set_error("cancelled"); return -1; }
+  if (conn_cancelled(c)) { xhttp_set_error("cancelled"); xhttp_set_error_class(XHTTP_ERR_CANCELLED); return -1; }
   if (c->chunked) {
     int n = read_chunked(c, buf, cap);
     if (n == 0) c->eof = 1;

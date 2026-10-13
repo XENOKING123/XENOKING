@@ -168,6 +168,53 @@ class XenoServer:
             return ""
 
 
+class RangeServerProcess:
+    """range_server.py as a child process, so a test can kill it mid-transfer
+    (every open connection dies, new connects are refused) and bring it back
+    on the same port with the same files (--keep) — the rest-mode drill."""
+
+    def __init__(self, files_dir, port=None):
+        self.files_dir = files_dir
+        self.port = port or free_port()
+        self.proc = None
+        self.base = f"http://127.0.0.1:{self.port}"
+
+    def start(self, timeout=20.0):
+        script = os.path.join(HERE, "range_server.py")
+        self.proc = subprocess.Popen([sys.executable, "-I", script, "--dir", self.files_dir, "--port", str(self.port), "--keep"],
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                with urllib.request.urlopen(self.base + "/ctl/stats", timeout=2) as r:
+                    r.read()
+                return self
+            except Exception:
+                if self.proc.poll() is not None:
+                    raise RuntimeError("range_server exited early")
+                time.sleep(0.1)
+        raise RuntimeError("range_server did not start")
+
+    def kill(self):
+        if self.proc and self.proc.poll() is None:
+            self.proc.kill()
+            self.proc.wait()
+        self.proc = None
+
+    def sha256(self, name):
+        with urllib.request.urlopen(f"{self.base}/ctl/sha256/{name}", timeout=10) as r:
+            return json.loads(r.read())["sha256"]
+
+
+def wait_until(cond, timeout=30, every=0.1, what="condition"):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if cond():
+            return True
+        time.sleep(every)
+    raise AssertionError(f"timeout waiting for {what}")
+
+
 def write_catalog(data_dir, games, revision=2000000000):
     """Drops a cached catalog with a huge revision so the binary prefers it."""
     doc = {
@@ -198,10 +245,13 @@ def make_game(gid, title, title_id, releases, platform="PS5"):
     }
 
 
-def make_release(rid, url, filename, size, fmt="FFPFSC", sha256="", mirrors=None, title_id="PPSA01234", source="archive"):
-    return {
-        "id": rid, "titleId": title_id, "region": "EUR", "version": "01.000.000", "format": fmt, "kind": "game",
+def make_release(rid, url, filename, size, fmt="FFPFSC", sha256="", mirrors=None, title_id="PPSA01234", source="archive",
+                 kind="game", version="01.000.000", verified_at="2026-01-01", **extra):
+    r = {
+        "id": rid, "titleId": title_id, "region": "EUR", "version": version, "format": fmt, "kind": kind,
         "provider": "Archive.org" if source == "archive" else "Other", "sourceId": source, "filename": filename,
         "url": url, "browserUrl": "", "mirrors": mirrors or [], "sizeBytes": size, "sha256": sha256,
-        "verifiedAt": "2026-01-01", "consoleVerified": False,
+        "verifiedAt": verified_at, "consoleVerified": False,
     }
+    r.update(extra)
+    return r

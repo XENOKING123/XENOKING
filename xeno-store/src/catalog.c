@@ -269,7 +269,15 @@ static char *fetch_text(const char *url, int timeout_ms, size_t max, size_t *len
   return xhttp_fetch(&r, resp, max, len);
 }
 
+static int catalog_refresh_inner(int force, int *updated, char *err, size_t errcap);
+
 int catalog_refresh(int force, int *updated, char *err, size_t errcap) {
+  int rc = catalog_refresh_inner(force, updated, err, errcap);
+  if (catalog_on_refresh) catalog_on_refresh(*updated);
+  return rc;
+}
+
+static int catalog_refresh_inner(int force, int *updated, char *err, size_t errcap) {
   *updated = 0;
   err[0] = 0;
   settings_t s;
@@ -499,6 +507,25 @@ void catalog_game_summary_json(jw *w, jv g) {
   }
   jw_kv_int(w, "releases", (int)jv_len(jv_get(g, "releases")));
   jw_obj_end(w);
+}
+
+int catalog_visit_game(const char *gameId, catalog_visit_fn fn, void *user) {
+  pthread_mutex_lock(&catalog_mu);
+  jv g = find_game_node_locked(gameId);
+  int rc = jv_ok(g) ? 0 : -1;
+  if (rc == 0) fn(g, user);
+  pthread_mutex_unlock(&catalog_mu);
+  return rc;
+}
+
+int catalog_visit_games(catalog_visit_fn fn, void *user) {
+  int n = 0;
+  pthread_mutex_lock(&catalog_mu);
+  if (cur) {
+    for (int i = 0; i < cur->n_idx; i++) { fn(node(cur->doc, cur->idx[i].node), user); n++; }
+  }
+  pthread_mutex_unlock(&catalog_mu);
+  return n;
 }
 
 typedef struct hit { int idx; int score; } hit;

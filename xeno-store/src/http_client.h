@@ -27,7 +27,7 @@ typedef struct xhttp_resp {
 } xhttp_resp;
 
 typedef struct xhttp_req {
-  const char *method;                 /* "GET", "HEAD", "POST" */
+  const char *method;                 /* "GET", "HEAD", "POST", "PUT", "DELETE" */
   const char *url;
   const char *user_agent;             /* NULL → default XENO-STORE UA */
   int64_t range_start, range_end;     /* -1 = no Range header; range_end -1 = open ended */
@@ -49,15 +49,25 @@ void xhttp_close(xhttp_conn *c);
 /* Thread-safe: makes a blocked xhttp_read() in another thread return <0 soon. */
 void xhttp_abort(xhttp_conn *c);
 const char *xhttp_last_error(void);          /* thread-local text */
+/* Coarse class of the last error on this thread (for the rest-mode detector
+ * in dl.c: a burst of NETDOWN errors means the console just woke up). */
+enum {
+  XHTTP_ERR_NONE = 0, XHTTP_ERR_OTHER, XHTTP_ERR_NETDOWN, XHTTP_ERR_TIMEOUT,
+  XHTTP_ERR_REFUSED, XHTTP_ERR_DNS, XHTTP_ERR_TLS, XHTTP_ERR_CANCELLED
+};
+int xhttp_last_error_class(void);
+void xhttp_set_error_class(int cls);
 int xhttp_available(void);                   /* 1 when the backend initialized */
-const char *xhttp_backend_name(void);        /* "posix" | "posix+tls" | "sceHttp2" | "sceHttp" | "none" */
+const char *xhttp_backend_name(void);        /* "posix" | "posix+tls" | "sceHttp" | "sceHttp2" | "none" */
 
 /* Convenience: GET/POST a small resource fully into memory (max_bytes cap).
  * Returns malloc'd NUL-terminated body (or NULL) and fills *resp. */
 char *xhttp_fetch(const xhttp_req *req, xhttp_resp *resp, size_t max_bytes, size_t *out_len);
 
-/* Shared helpers implemented once in http_common (inside http_posix.c /
- * http_sce.c both include http_headers.c-style logic via these functions). */
+/* Shared helpers implemented once in http_common.c and used by both
+ * backends (http_posix.c / http_sce.c). xhttp_set_error() resets the error
+ * class to XHTTP_ERR_OTHER (XHTTP_ERR_NONE for ""); backends refine it with
+ * xhttp_set_error_class() right after. */
 void xhttp_resp_reset(xhttp_resp *r);
 /* Parses one "Name: value" header line into the response struct. */
 void xhttp_resp_header(xhttp_resp *r, const char *name, size_t nlen, const char *value, size_t vlen);

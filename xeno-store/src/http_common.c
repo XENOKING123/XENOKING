@@ -19,13 +19,15 @@ static pthread_key_t err_key;
 static pthread_once_t err_once = PTHREAD_ONCE_INIT;
 #define ERR_CAP 256
 
+typedef struct err_slot_t { char msg[ERR_CAP]; int cls; } err_slot_t;
+
 static void err_key_init(void) { pthread_key_create(&err_key, free); }
 
-static char *err_slot(void) {
+static err_slot_t *err_slot(void) {
   pthread_once(&err_once, err_key_init);
-  char *p = pthread_getspecific(err_key);
+  err_slot_t *p = pthread_getspecific(err_key);
   if (!p) {
-    p = calloc(1, ERR_CAP);
+    p = calloc(1, sizeof *p);
     if (!p) return NULL;
     pthread_setspecific(err_key, p);
   }
@@ -33,17 +35,28 @@ static char *err_slot(void) {
 }
 
 void xhttp_set_error(const char *fmt, ...) {
-  char *p = err_slot();
+  err_slot_t *p = err_slot();
   if (!p) return;
   va_list ap;
   va_start(ap, fmt);
-  xvsnprintf(p, ERR_CAP, fmt, ap);
+  xvsnprintf(p->msg, ERR_CAP, fmt, ap);
   va_end(ap);
+  p->cls = p->msg[0] ? XHTTP_ERR_OTHER : XHTTP_ERR_NONE;
+}
+
+void xhttp_set_error_class(int cls) {
+  err_slot_t *p = err_slot();
+  if (p) p->cls = cls;
+}
+
+int xhttp_last_error_class(void) {
+  err_slot_t *p = err_slot();
+  return p ? p->cls : XHTTP_ERR_OTHER;
 }
 
 const char *xhttp_last_error(void) {
-  char *p = err_slot();
-  return p ? p : "out of memory";
+  err_slot_t *p = err_slot();
+  return p ? p->msg : "out of memory";
 }
 
 /* ---- response headers --------------------------------------------------- */

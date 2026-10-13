@@ -23,7 +23,9 @@
 
 typedef enum dl_state {
   DL_QUEUED = 0, DL_CONNECTING, DL_DOWNLOADING, DL_VERIFYING, DL_DONE,
-  DL_PAUSED, DL_FAILED, DL_CANCELLED, DL_INSTALLING, DL_INSTALLED
+  DL_PAUSED, DL_FAILED, DL_CANCELLED, DL_INSTALLING, DL_INSTALLED,
+  DL_EXTRACTING, DL_EXTRACTED,          /* ZIP archives after download (SPEC §17.19) */
+  DL_STATE_COUNT
 } dl_state;
 
 /* Why a running worker was asked to stop. */
@@ -45,6 +47,32 @@ typedef struct dl_install {
   time_t startedAt;
   int rc;
 } dl_install;
+
+/* Turbo start (SPEC §17.5): the first 1 MiB of up to 3 mirrors is raced. */
+#define DL_TURBO_MAX 3
+typedef struct dl_turbo_probe {
+  char url[1024];
+  int ms;              /* time to the first MiB (or to the error) */
+  double mbps;         /* megabits per second over the probe */
+  int status;          /* HTTP status, 0 = transport error */
+  int64_t bytes;
+} dl_turbo_probe;
+typedef struct dl_turbo {
+  dl_turbo_probe tested[DL_TURBO_MAX];
+  int ntested;
+  char picked[1024];
+  int done;            /* the race ran (or was skipped) for this job */
+} dl_turbo;
+
+/* ZIP extraction result (SPEC §17.19). */
+typedef struct dl_extract {
+  char state[12];      /* idle | extracting | extracted | failed | skipped */
+  char dir[1024];      /* destination folder or the extracted image path */
+  char message[160];
+  int files;
+  int64_t bytes;
+  int archiveDeleted;
+} dl_extract;
 
 typedef struct dl_job {
   /* identity + catalog data */
@@ -69,7 +97,28 @@ typedef struct dl_job {
   dl_install install;
   char etag[128], lastModified[64];
   int synthetic;                       /* library install job: no transfer */
+  /* ---- Phase 2 (SPEC §17) --------------------------------------------- */
+  char type[12];                       /* download | copy */
+  char group[16];                      /* install set id "g_xxxxxx" or "" */
+  int groupOrder;                      /* position inside the set */
+  char kind[12];                       /* game | update | dlc | backport | app */
+  char via[16];                        /* requested: direct | auto | <service id> */
+  char viaService[16];                 /* service that unrestricted the link ("" = direct) */
+  char viaLabel[32];                   /* "Real-Debrid" … for the UI */
+  dl_turbo turbo;
+  char scheduledFor[8];                /* "22:00" while the schedule window holds the job */
+  int startNow;                        /* "Start now anyway" override */
+  char srcPath[1024];                  /* copy jobs: source file */
+  int move;                            /* copy jobs: unlink the source afterwards */
+  dl_extract extract;
+  double peakSpeed;                    /* best 1 s sample of this job (stats) */
+  int restResumes;                     /* sleep/wake cycles survived (no attempts consumed) */
   /* runtime (never persisted) */
+  volatile int rest_hit;               /* a wake-up event interrupted the transfer */
+  int last_err_class;                  /* XHTTP_ERR_* of the last network error */
+  int via_active;                      /* activeUrl is an unrestricted (ephemeral) link */
+  int64_t transfer_ms;                 /* active transfer time for the stats */
+  int64_t transfer_started_ms;
   volatile int cancel;                 /* DL_STOP_* (user intent) */
   volatile int stop_io;                /* segments must abort now (cancel or fatal error) */
   volatile int running;                /* a worker thread owns the job */
@@ -107,13 +156,34 @@ typedef struct dl_add_req {
   int verify;               /* -1 default, 0/1 */
   int autoInstall;          /* -1 default, 0/1 */
   int overwrite;
+  /* Phase 2 (optional; NULL/0 = defaults). `body` is the whole request
+   * object when the caller has it — dl_add() reads via/kind/group from it
+   * (and falls back to the document behind `mirrors`). */
+  jv body;
+  const char *via;          /* direct | auto | realdebrid | alldebrid | torbox | premiumize */
+  const char *kind;         /* game | update | dlc | backport | app */
+  const char *group;        /* install set id, "" = none */
+  int groupOrder;
 } dl_add_req;
 
 typedef struct dl_summary {
   int active, queued, paused, failed, done;
   int64_t speed, remaining, eta;
   int keepAwake;
+  /* Phase 2 */
+  int scheduledWaiting;     /* queued jobs held by the schedule window */
+  int restResuming;         /* jobs waiting for the network after a wake-up */
+  int extracting, copying;
 } dl_summary;
+
+/* Install-set status (SPEC §17.13), computed from the jobs of one group. */
+typedef struct dl_group_status {
+  char id[16], gameId[128], title[256];
+  int total, downloaded, installed, failed, pending;
+  char status[16];          /* downloading | installing | installed | paused | cancelled */
+  char pausedAt[300];       /* "update: Game Title" when paused */
+  char pausedJobId[16];
+} dl_group_status;
 
 int dl_init(const char *data_dir, int port);
 void dl_shutdown(void);
@@ -128,6 +198,16 @@ int dl_action(const char *id, const char *action, jv body, char *errcode, size_t
 int dl_clear(jv states);
 /* Library install: synthetic job in state installing for a scanned .pkg. */
 int dl_add_install_job(const char *path, char *job_id, size_t idcap, char *errmsg, size_t mcap);
+/* Copy/move between drives (SPEC §17.16): a job of type "copy" in the same
+ * queue. `src` must be a path from the last library scan or a job-owned
+ * final file. Returns 0 and the id, or -1 with errcode/errmsg. */
+int dl_add_copy_job(const char *src, const char *toRoot, int move, int overwrite, char *job_id, size_t idcap,
+                    char *errcode, size_t ccap, char *errmsg, size_t mcap);
+/* Install sets: status of every group (returns the count written). */
+int dl_group_statuses(dl_group_status *out, int max);
+/* Host-only test hook: makes the engine treat the next network failures as a
+ * sleep/wake cycle (SPEC §17.15). No-op on the console. */
+void dl_simulate_wake(void);
 
 void dl_queue_json(jw *w, int history);             /* writes "jobs" + "summary" */
 int dl_job_json(jw *w, const char *id, int history);/* writes the job object (key set by caller) */

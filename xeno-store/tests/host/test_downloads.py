@@ -85,7 +85,9 @@ class DownloadTests(unittest.TestCase):
 
     def setUp(self):
         ctl(self.rs, "reset")
-        self.srv.api("PUT", "/api/settings", {"downloads": {"maxBytesPerSec": 0, "concurrentJobs": 1, "connections": 8}})
+        # Turbo start (tested in test_ext_downloads.py) would reorder the mirrors
+        # before the failover path this suite checks, so it stays off here.
+        self.srv.api("PUT", "/api/settings", {"downloads": {"maxBytesPerSec": 0, "concurrentJobs": 1, "connections": 8, "turboStart": False}})
 
     def assert_clean_final(self, job, expected_sha):
         self.assertTrue(os.path.exists(job["path"]), job["path"])

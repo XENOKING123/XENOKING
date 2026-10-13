@@ -73,6 +73,14 @@ int catalog_match_titleid(const char *titleId, cat_game *out);
 int catalog_match_title(const char *title, const char *platform, cat_game *out);
 /* Writes a gameSummary object for a game node (used by search + library). */
 void catalog_game_summary_json(jw *w, jv game);
+/* Runs fn(game, user) under the catalog lock for one game (-1 when unknown)
+ * or for every game (returns the count). The jv is only valid inside fn. */
+typedef void (*catalog_visit_fn)(jv game, void *user);
+int catalog_visit_game(const char *gameId, catalog_visit_fn fn, void *user);
+int catalog_visit_games(catalog_visit_fn fn, void *user);
+/* Called after every refresh attempt (updated or not) so feed caches can
+ * follow the catalog cadence. Implemented by cx_feeds.c (weak: optional). */
+void catalog_on_refresh(int updated) __attribute__((weak));
 
 /* POST /api/links/check: urls is a JSON array; writes a "results" array. */
 int catalog_links_check(jv urls, jw *w);

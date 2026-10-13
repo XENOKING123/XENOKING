@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
-# run.sh — builds the host binary and runs the API + download test suites in
-# isolated temp directories (each module spawns its own xeno-store instances
-# on random ports with a temp data dir and temp roots). Prints a summary and
-# exits non-zero when anything failed.
+# run.sh — builds the host binary and runs the host test suites in isolated
+# temp directories (each module spawns its own xeno-store instances on random
+# ports with a temp data dir and temp roots):
+#   test_api.py            endpoints, settings, storage, library, security
+#   test_downloads.py      the download engine (segments, resume, failover …)
+#   test_ext_downloads.py  Phase 2 engine: turbo, best version, stats, schedule,
+#                          install sets, debrid, rest mode, copy/move, zip extraction
+#   test_ext_console.py    Phase 2 console features (skipped with a message when absent)
+# Prints a summary and exits non-zero when anything failed.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT="$(cd "$HERE/../.." && pwd)"
@@ -18,13 +23,23 @@ TMPBASE="$(mktemp -d "${TMPDIR:-/tmp}/xeno-tests.XXXXXX")"
 export TMPDIR="$TMPBASE"
 unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy
 
+# XENO_TESTS="test_api.py test_downloads.py" narrows the run.
+SUITES="${XENO_TESTS:-test_api.py test_downloads.py test_ext_downloads.py test_ext_console.py}"
+
 status=0
 summary=()
-for t in test_api.py test_downloads.py; do
+for t in $SUITES; do
+  if [ ! -f "$HERE/$t" ]; then
+    echo "=================== $t ==================="
+    echo "skipped: $HERE/$t is not present"
+    summary+=("SKIP  $t  (file not present)")
+    continue
+  fi
   echo "=================== $t ==================="
   start=$(date +%s)
-  if python3 -I "$HERE/$t" -v 2>&1 | tee "$TMPBASE/$t.log" | grep -E "^(test_|Ran |OK|FAILED|ERROR|FAIL:|ERROR:)"; then :; fi
-  rc=${PIPESTATUS[0]}
+  python3 -I "$HERE/$t" -v > "$TMPBASE/$t.log" 2>&1
+  rc=$?
+  grep -E "^(test_|Ran |OK|FAILED|ERROR|FAIL:|ERROR:)" "$TMPBASE/$t.log"
   secs=$(( $(date +%s) - start ))
   ran=$(grep -E "^Ran [0-9]+ tests?" "$TMPBASE/$t.log" | tail -1)
   if [ "$rc" -eq 0 ]; then

@@ -18,6 +18,14 @@
 #include "dl.h"
 #include "catalog.h"
 #include "config.h"
+#include "dlx_copy.h"
+#include "dlx_debrid.h"
+#include "dlx_extract.h"
+#include "dlx_internal.h"
+#include "dlx_rest.h"
+#include "dlx_sched.h"
+#include "dlx_stats.h"
+#include "dlx_turbo.h"
 #include "http_client.h"
 #include "install.h"
 #include "log.h"
@@ -47,6 +55,9 @@
 #define SIDECAR_EVERY_MS 5000
 #define QUEUE_SAVE_EVERY_MS 5000
 #define SEG_RESPAWN_DELAY_MS 2000
+#define REST_WAIT_MAX_MS (15 * 60 * 1000)
+#define REST_POLL_MS 2000
+#define MAX_GROUPS 64
 
 /* Outcomes of the probe/transfer phases. */
 enum { OUT_DONE = 0, OUT_RETRY, OUT_FAILOVER, OUT_FATAL, OUT_STOPPED };
@@ -80,12 +91,15 @@ const char *dl_state_name(dl_state s) {
     case DL_CANCELLED: return "cancelled";
     case DL_INSTALLING: return "installing";
     case DL_INSTALLED: return "installed";
+    case DL_EXTRACTING: return "extracting";
+    case DL_EXTRACTED: return "extracted";
+    case DL_STATE_COUNT: break;
   }
   return "queued";
 }
 
 static int state_from_name(const char *s) {
-  for (int i = DL_QUEUED; i <= DL_INSTALLED; i++) if (strcmp(dl_state_name((dl_state)i), s) == 0) return i;
+  for (int i = DL_QUEUED; i < DL_STATE_COUNT; i++) if (strcmp(dl_state_name((dl_state)i), s) == 0) return i;
   return DL_QUEUED;
 }
 
@@ -93,8 +107,11 @@ static int is_pkg_format(const char *f) { return util_strieq(f, "pkg") || util_s
 static int is_image_format(const char *f) {
   return util_strieq(f, "exfat") || util_strieq(f, "ffpfsc") || util_strieq(f, "ffpkg") || util_strieq(f, "ffpfs");
 }
-static int state_is_active(dl_state s) { return s == DL_CONNECTING || s == DL_DOWNLOADING || s == DL_VERIFYING; }
+static int state_is_active(dl_state s) { return s == DL_CONNECTING || s == DL_DOWNLOADING || s == DL_VERIFYING || s == DL_EXTRACTING; }
 static int state_is_unfinished(dl_state s) { return s == DL_QUEUED || s == DL_PAUSED || state_is_active(s); }
+/* Finished with the file in place (download done, installed, or extracted). */
+static int state_is_complete(dl_state s) { return s == DL_DONE || s == DL_INSTALLED || s == DL_EXTRACTED; }
+static int is_copy_job(const dl_job *j) { return strcmp(j->type, "copy") == 0; }
 
 static void jlog_locked(dl_job *j, const char *fmt, ...) XS_PRINTF(2, 3);
 static void jlog_locked(dl_job *j, const char *fmt, ...) {
@@ -139,6 +156,20 @@ static void set_error_locked(dl_job *j, const char *code, const char *msg) {
 static void clear_error_locked(dl_job *j) {
   j->errorCode[0] = j->error[0] = j->message[0] = j->phase[0] = 0;
 }
+
+/* ---- surface for dlx_copy.c / dlx_extract.c (dlx_internal.h) ------------ */
+void dl_lock(void) { pthread_mutex_lock(&queue_mu); }
+void dl_unlock(void) { pthread_mutex_unlock(&queue_mu); }
+void dl_jlog(dl_job *j, const char *fmt, ...) {
+  char msg[DL_JOB_LOG_LEN];
+  va_list ap;
+  va_start(ap, fmt);
+  xvsnprintf(msg, sizeof msg, fmt, ap);
+  va_end(ap);
+  jlog(j, "%s", msg);
+}
+void dl_set_error_locked(dl_job *j, const char *code, const char *msg) { set_error_locked(j, code, msg); }
+void dl_mark_dirty_locked(void) { queue_dirty = 1; }
 
 static void remove_partial_files(dl_job *j) {
   util_unlink_quiet(j->xpart);
@@ -239,6 +270,44 @@ static void job_write_json(jw *w, const dl_job *j, int history) {
   jw_kv_str(w, "etag", j->etag);
   jw_kv_str(w, "lastModified", j->lastModified);
   jw_kv_bool(w, "synthetic", j->synthetic);
+  /* Phase 2 */
+  jw_kv_str(w, "type", j->type[0] ? j->type : "download");
+  jw_kv_str(w, "group", j->group);
+  jw_kv_int(w, "groupOrder", j->groupOrder);
+  jw_kv_str(w, "kind", j->kind[0] ? j->kind : "game");
+  jw_kv_str(w, "via", j->viaLabel);             /* "Real-Debrid" when a service unrestricted the link, "" = direct */
+  jw_kv_str(w, "viaService", j->viaService);
+  jw_kv_str(w, "viaRequested", j->via[0] ? j->via : "direct");
+  jw_key(w, "turbo"); jw_obj_begin(w);
+  jw_kv_bool(w, "done", j->turbo.done);
+  jw_kv_str(w, "picked", j->turbo.picked);
+  jw_key(w, "tested"); jw_arr_begin(w);
+  for (int i = 0; i < j->turbo.ntested && i < DL_TURBO_MAX; i++) {
+    jw_obj_begin(w);
+    jw_kv_str(w, "url", j->turbo.tested[i].url);
+    jw_kv_int(w, "ms", j->turbo.tested[i].ms);
+    jw_kv_double(w, "mbps", j->turbo.tested[i].mbps);
+    jw_kv_int(w, "status", j->turbo.tested[i].status);
+    jw_kv_i64(w, "bytes", j->turbo.tested[i].bytes);
+    jw_obj_end(w);
+  }
+  jw_arr_end(w);
+  jw_obj_end(w);
+  jw_kv_str(w, "scheduledFor", j->scheduledFor);
+  jw_kv_bool(w, "startNow", j->startNow);
+  jw_kv_str(w, "srcPath", j->srcPath);
+  jw_kv_bool(w, "move", j->move);
+  jw_key(w, "extract"); jw_obj_begin(w);
+  jw_kv_str(w, "state", j->extract.state[0] ? j->extract.state : "idle");
+  jw_kv_str(w, "dir", j->extract.dir);
+  jw_kv_str(w, "message", j->extract.message);
+  jw_kv_int(w, "files", j->extract.files);
+  jw_kv_i64(w, "bytes", j->extract.bytes);
+  jw_kv_bool(w, "archiveDeleted", j->extract.archiveDeleted);
+  jw_obj_end(w);
+  jw_kv_i64(w, "peakSpeed", (int64_t)j->peakSpeed);
+  jw_kv_int(w, "restResumes", j->restResumes);
+  jw_kv_bool(w, "restResuming", j->state == DL_CONNECTING && j->rest_hit);
   if (history) {
     jw_key(w, "speedHistory"); jw_arr_begin(w);
     for (int i = 0; i < j->hist_n; i++) jw_i64(w, j->hist[(j->hist_head + i) % DL_HISTORY]);
@@ -296,7 +365,43 @@ static dl_job *job_from_json(jv o) {
   xstrlcpy(j->install.titleId, jv_get_str(in, "titleId", ""), sizeof j->install.titleId);
   xstrlcpy(j->install.via, jv_get_str(in, "via", ""), sizeof j->install.via);
   j->install.startedAt = (time_t)jv_get_i64(in, "startedAt", 0);
+  /* Phase 2 */
+  xstrlcpy(j->type, jv_get_str(o, "type", "download"), sizeof j->type);
+  if (strcmp(j->type, "copy") != 0) xstrlcpy(j->type, "download", sizeof j->type);
+  xstrlcpy(j->group, jv_get_str(o, "group", ""), sizeof j->group);
+  j->groupOrder = (int)jv_get_i64(o, "groupOrder", 0);
+  xstrlcpy(j->kind, jv_get_str(o, "kind", "game"), sizeof j->kind);
+  xstrlcpy(j->via, jv_get_str(o, "viaRequested", ""), sizeof j->via);
+  if (strcmp(j->via, "direct") == 0) j->via[0] = 0;
+  xstrlcpy(j->viaService, jv_get_str(o, "viaService", ""), sizeof j->viaService);
+  xstrlcpy(j->viaLabel, jv_get_str(o, "via", ""), sizeof j->viaLabel);
+  jv tb = jv_get(o, "turbo");
+  j->turbo.done = jv_get_bool(tb, "done", 0);
+  xstrlcpy(j->turbo.picked, jv_get_str(tb, "picked", ""), sizeof j->turbo.picked);
+  JV_FOREACH(t, jv_get(tb, "tested")) {
+    if (j->turbo.ntested >= DL_TURBO_MAX) break;
+    dl_turbo_probe *pr = &j->turbo.tested[j->turbo.ntested++];
+    xstrlcpy(pr->url, jv_get_str(t, "url", ""), sizeof pr->url);
+    pr->ms = (int)jv_get_i64(t, "ms", 0);
+    pr->mbps = jv_get_dbl(t, "mbps", 0);
+    pr->status = (int)jv_get_i64(t, "status", 0);
+    pr->bytes = jv_get_i64(t, "bytes", 0);
+  }
+  xstrlcpy(j->scheduledFor, jv_get_str(o, "scheduledFor", ""), sizeof j->scheduledFor);
+  j->startNow = jv_get_bool(o, "startNow", 0);
+  xstrlcpy(j->srcPath, jv_get_str(o, "srcPath", ""), sizeof j->srcPath);
+  j->move = jv_get_bool(o, "move", 0);
+  jv ex = jv_get(o, "extract");
+  xstrlcpy(j->extract.state, jv_get_str(ex, "state", "idle"), sizeof j->extract.state);
+  xstrlcpy(j->extract.dir, jv_get_str(ex, "dir", ""), sizeof j->extract.dir);
+  xstrlcpy(j->extract.message, jv_get_str(ex, "message", ""), sizeof j->extract.message);
+  j->extract.files = (int)jv_get_i64(ex, "files", 0);
+  j->extract.bytes = jv_get_i64(ex, "bytes", 0);
+  j->extract.archiveDeleted = jv_get_bool(ex, "archiveDeleted", 0);
+  j->peakSpeed = jv_get_dbl(o, "peakSpeed", 0);
+  j->restResumes = (int)jv_get_i64(o, "restResumes", 0);
   if (!j->id[0] || !j->path[0]) { free(j); return NULL; }
+  if (is_copy_job(j) && !j->srcPath[0]) { free(j); return NULL; }
   derive_paths_locked(j);
   return j;
 }
@@ -361,6 +466,11 @@ static int done_ranges_locked(const dl_job *j, int64_t (*out)[2], int max) {
   return m + 1;
 }
 
+/* The link that identifies the partial in the sidecar: for debrid jobs the
+ * original link (the unrestricted one is ephemeral and re-resolved on every
+ * attempt), otherwise the URL being fetched. */
+static const char *source_identity_locked(const dl_job *j) { return j->viaService[0] ? j->url : j->activeUrl; }
+
 static char *sidecar_text_locked(dl_job *j, size_t *len, time_t createdAt) {
   int64_t (*done)[2] = calloc(MAX_CHUNKS, sizeof *done);
   if (!done) return NULL;
@@ -369,7 +479,7 @@ static char *sidecar_text_locked(dl_job *j, size_t *len, time_t createdAt) {
   jw_init(&w);
   jw_obj_begin(&w);
   jw_kv_int(&w, "v", 1);
-  jw_kv_str(&w, "url", j->activeUrl);
+  jw_kv_str(&w, "url", source_identity_locked(j));
   jw_kv_i64(&w, "total", j->total);
   jw_kv_str(&w, "etag", j->etag);
   jw_kv_str(&w, "lastModified", j->lastModified);
@@ -522,7 +632,10 @@ static dl_chunk *take_chunk(dl_job *j) {
 /* ---- segment errors ----------------------------------------------------- */
 
 static void seg_fail(dl_job *j, int transient, int status, const char *code, const char *msg) {
+  int cls = XHTTP_ERR_NONE;
+  if (strcmp(code, "network") == 0) { cls = xhttp_last_error_class(); dlx_rest_note_error(cls); }
   pthread_mutex_lock(&queue_mu);
+  if (cls != XHTTP_ERR_NONE) j->last_err_class = cls;
   if (!j->stop_io) {   /* first error wins; later ones are consequences */
     xstrlcpy(j->seg_code, code, sizeof j->seg_code);
     xstrlcpy(j->seg_error, msg, sizeof j->seg_error);
@@ -832,7 +945,11 @@ static int resume_decide(dl_job *j, const xhttp_resp *probe, char *url) {
     pthread_mutex_unlock(&queue_mu);
     return rc ? OUT_FATAL : OUT_DONE;
   }
-  int replaced = j->url_replaced || strcmp(sc.url, url) != 0;
+  pthread_mutex_lock(&queue_mu);
+  char ident[2048];
+  xstrlcpy(ident, source_identity_locked(j), sizeof ident);
+  pthread_mutex_unlock(&queue_mu);
+  int replaced = j->url_replaced || strcmp(sc.url, ident) != 0;
   const char *changed = "The file on the server changed. Restart from zero or pick another source.";
   if (total > 0 && sc.total > 0 && sc.total != total) {
     if (!replaced) { seg_fail(j, 0, probe->status, "source_changed", changed); return OUT_FATAL; }
@@ -1000,6 +1117,7 @@ static void sample_speed_locked(dl_job *j) {
   double inst = (double)(j->written - j->last_sample_written) * 1000.0 / (double)dt;
   j->speed = j->speed > 0 ? 0.3 * inst + 0.7 * j->speed : inst;
   if (j->speed < 1) j->speed = 0;
+  if (j->speed > j->peakSpeed) j->peakSpeed = j->speed;
   j->last_sample_ms = now;
   j->last_sample_written = j->written;
   int idx = (j->hist_head + j->hist_n) % DL_HISTORY;
@@ -1059,6 +1177,7 @@ static int transfer(dl_job *j) {
   j->last_sample_ms = 0;
   j->last_fsync = j->written;
   j->last_space_check = j->written;
+  j->transfer_started_ms = util_now_ms();
   pthread_mutex_unlock(&queue_mu);
   int out = OUT_DONE;
   for (;;) {
@@ -1091,6 +1210,7 @@ static int transfer(dl_job *j) {
   int fd = j->fd;
   j->speed = 0;
   j->eta = 0;
+  if (j->transfer_started_ms) { j->transfer_ms += util_now_ms() - j->transfer_started_ms; j->transfer_started_ms = 0; }
   pthread_mutex_unlock(&queue_mu);
   if (fd >= 0) fsync(fd);
   sidecar_persist(j);
@@ -1175,10 +1295,35 @@ static int finish_job(dl_job *j) {
   j->nchunks = 0;
   xsnprintf(j->message, sizeof j->message, "Downloaded (%s)", fb);
   jlog_locked(j, "done: %s", fb);
+  int in_group = j->group[0] != 0;
   int want_install = is_pkg_format(j->format) && (j->autoInstall || s.autoInstallPkg);
   int want_scan = is_image_format(j->format) && s.shadowMountScan;
+  int want_extract = dlx_extract_applies(j) && s.extractZip;
+  if (want_install && in_group && s.autoInstallSets) {
+    /* Install sets install in order once the whole group is on disk (§17.13). */
+    xstrlcpy(j->install.state, "pending", sizeof j->install.state);
+    xstrlcpy(j->install.message, "Waiting for the rest of the set", sizeof j->install.message);
+    xsnprintf(j->message, sizeof j->message, "Downloaded (%s) — installs with the set", fb);
+    want_install = 0;
+  }
+  if (want_scan && in_group) want_scan = 0;   /* the group scans once, after its last file */
+  int64_t total = j->total;
+  double secs = (double)j->transfer_ms / 1000.0, peak = j->peakSpeed;
+  char provider[64];
+  xstrlcpy(provider, j->viaLabel[0] ? j->viaLabel : j->provider, sizeof provider);
   pthread_mutex_unlock(&queue_mu);
+  dlx_stats_record(provider, total, secs, peak);
   if (s.toasts && s.onComplete) sys_toast("✓ %s downloaded (%s)", j->title, fb);
+  if (want_extract) {
+    int xr = dlx_extract_run(j, &s);
+    if (xr == 1) return OUT_STOPPED;
+    pthread_mutex_lock(&queue_mu);
+    int extracted_image = xr == 0 && j->extract.dir[0] && util_file_exists(j->extract.dir);
+    int extracted_folder = xr == 0 && !extracted_image;
+    pthread_mutex_unlock(&queue_mu);
+    if (xr == 0 && s.toasts && s.onComplete) sys_toast("✓ %s extracted", j->title);
+    if (xr == 0 && s.shadowMountScan && !in_group && (extracted_image || extracted_folder)) want_scan = 1;
+  }
   if (want_install) {
     pthread_mutex_lock(&queue_mu);
     mark_installing_locked(j);
@@ -1207,6 +1352,7 @@ static int switch_mirror_locked(dl_job *j) {
   util_url_host(j->activeUrl, host, sizeof host);
   xsnprintf(j->message, sizeof j->message, "Switched to mirror %s", host);
   jlog_locked(j, "failover %s → mirror %d (%s)", j->seg_code, next + 1, host);
+  if (j->viaService[0]) { jlog_locked(j, "leaving %s — continuing directly", j->viaLabel); j->viaService[0] = j->viaLabel[0] = 0; j->via_active = 0; }
   j->seg_fatal = 0;
   j->stop_io = 0;
   j->seg_code[0] = j->seg_error[0] = 0;
@@ -1222,6 +1368,173 @@ static void worker_fail_locked(dl_job *j) {
   j->nextRetryAt = 0;
 }
 
+/* ---- debrid resolution (SPEC §17.14) -------------------------------------
+ * Returns 0 to continue (directly or through a service), -1 when the job was
+ * failed (explicitly chosen service that could not unrestrict the link). */
+static int resolve_via(dl_job *j) {
+  char via[16], url[2048], service[16], err[256];
+  pthread_mutex_lock(&queue_mu);
+  xstrlcpy(via, j->via, sizeof via);
+  xstrlcpy(url, j->url, sizeof url);
+  j->viaService[0] = j->viaLabel[0] = 0;
+  j->via_active = 0;
+  pthread_mutex_unlock(&queue_mu);
+  if (!via[0] || util_strieq(via, "direct")) return 0;
+  if (dlx_debrid_pick(via, url, service, sizeof service, err, sizeof err) != 0) {
+    pthread_mutex_lock(&queue_mu);
+    j->state = DL_FAILED;
+    j->finishedAt = util_now();
+    set_error_locked(j, "debrid_not_connected", err);
+    jlog_locked(j, "%s", err);
+    pthread_mutex_unlock(&queue_mu);
+    return -1;
+  }
+  if (!service[0]) {
+    char host[256];
+    util_url_host(url, host, sizeof host);
+    jlog(j, "no connected service supports %s — downloading directly", host);
+    return 0;
+  }
+  const char *label = dlx_debrid_name(service);
+  pthread_mutex_lock(&queue_mu);
+  xsnprintf(j->phase, sizeof j->phase, "unrestricting via %s", label ? label : service);
+  pthread_mutex_unlock(&queue_mu);
+  dlx_debrid_result res;
+  int rc = dlx_debrid_resolve(service, url, &j->stop_io, &res);
+  pthread_mutex_lock(&queue_mu);
+  j->phase[0] = 0;
+  if (rc == 0) {
+    xstrlcpy(j->activeUrl, res.url, sizeof j->activeUrl);
+    xstrlcpy(j->viaService, res.service, sizeof j->viaService);
+    xstrlcpy(j->viaLabel, res.label, sizeof j->viaLabel);
+    j->via_active = 1;
+    j->mirror_idx = -1;
+    if (res.size > 0 && j->total <= 0) j->total = res.size;
+    char host[256];
+    util_url_host(res.url, host, sizeof host);
+    jlog_locked(j, "via %s → %s", res.label, host);
+    pthread_mutex_unlock(&queue_mu);
+    return 0;
+  }
+  int explicit = !util_strieq(via, "auto");
+  if (explicit || strcmp(res.errorCode, "cancelled") == 0) {
+    if (j->cancel) { pthread_mutex_unlock(&queue_mu); return -1; }
+    j->state = DL_FAILED;
+    j->finishedAt = util_now();
+    char code[48];
+    xsnprintf(code, sizeof code, "debrid_%s", res.errorCode[0] ? res.errorCode : "error");
+    set_error_locked(j, code, res.error);
+    jlog_locked(j, "%s", res.error);
+    pthread_mutex_unlock(&queue_mu);
+    return -1;
+  }
+  xstrlcpy(j->activeUrl, j->url, sizeof j->activeUrl);
+  xsnprintf(j->message, sizeof j->message, "%s — downloading directly", res.error);
+  jlog_locked(j, "%s — falling back to the direct link", res.error);
+  pthread_mutex_unlock(&queue_mu);
+  return 0;
+}
+
+/* ---- turbo start (SPEC §17.5) --------------------------------------------- */
+static void turbo_start(dl_job *j, const settings_t *s) {
+  pthread_mutex_lock(&queue_mu);
+  int skip = !s->turboStart || j->turbo.done || j->via_active || j->url_replaced || j->nmirrors == 0 || util_file_exists(j->xpart);
+  char urls[DL_TURBO_MAX][2048];
+  int n = 0;
+  if (!skip) {
+    xstrlcpy(urls[n++], j->url, sizeof urls[0]);
+    for (int i = 0; i < j->nmirrors && n < DL_TURBO_MAX; i++) {
+      int dup = 0;
+      for (int k = 0; k < n; k++) if (strcmp(urls[k], j->mirrors[i]) == 0) dup = 1;
+      if (!dup) xstrlcpy(urls[n++], j->mirrors[i], sizeof urls[0]);
+    }
+    if (n < 2) skip = 1;
+  }
+  if (skip) { j->turbo.done = 1; pthread_mutex_unlock(&queue_mu); return; }
+  xstrlcpy(j->phase, "turbo start", sizeof j->phase);
+  int insecure = j->insecure_tls;
+  pthread_mutex_unlock(&queue_mu);
+  const char *list[DL_TURBO_MAX] = { urls[0], urls[1], n > 2 ? urls[2] : NULL };
+  dl_turbo result;
+  int best = dlx_turbo_race(list, n, insecure, &j->stop_io, &result);
+  pthread_mutex_lock(&queue_mu);
+  j->turbo = result;
+  j->turbo.done = 1;
+  j->phase[0] = 0;
+  for (int i = 0; i < result.ntested; i++)
+    jlog_locked(j, "turbo: %s → %s%d, %lld KiB in %d ms (%.1f Mbit/s)", result.tested[i].url, result.tested[i].status > 0 ? "HTTP " : "status ",
+                result.tested[i].status, (long long)(result.tested[i].bytes >> 10), result.tested[i].ms, result.tested[i].mbps);
+  if (best >= 0 && !j->cancel) {
+    const char *picked = result.tested[best].url;
+    if (strcmp(picked, j->url) != 0) {
+      /* the winner becomes the active source; the primary joins the failover list */
+      char list2[DL_MAX_MIRRORS][1024];
+      int m = 0;
+      xstrlcpy(list2[m++], picked, sizeof list2[0]);
+      xstrlcpy(list2[m++], j->url, sizeof list2[0]);
+      for (int i = 0; i < j->nmirrors && m < DL_MAX_MIRRORS; i++) {
+        int dup = 0;
+        for (int k = 0; k < m; k++) if (strcmp(list2[k], j->mirrors[i]) == 0) dup = 1;
+        if (!dup) xstrlcpy(list2[m++], j->mirrors[i], sizeof list2[0]);
+      }
+      for (int i = 0; i < m; i++) xstrlcpy(j->mirrors[i], list2[i], sizeof j->mirrors[0]);
+      j->nmirrors = m;
+      j->mirror_idx = 0;
+      xstrlcpy(j->activeUrl, picked, sizeof j->activeUrl);
+    } else {
+      j->mirror_idx = -1;
+      xstrlcpy(j->activeUrl, j->url, sizeof j->activeUrl);
+    }
+    char host[256];
+    util_url_host(picked, host, sizeof host);
+    xsnprintf(j->message, sizeof j->message, "Turbo start: fastest mirror is %s", host);
+    jlog_locked(j, "turbo: picked %s (%.1f Mbit/s)", host, result.tested[best].mbps);
+  } else if (!j->cancel) {
+    jlog_locked(j, "turbo: no mirror answered in time — keeping the primary link");
+  }
+  pthread_mutex_unlock(&queue_mu);
+}
+
+/* ---- rest mode (SPEC §17.15) ---------------------------------------------- */
+static int rest_applies(dl_job *j) {
+  pthread_mutex_lock(&queue_mu);
+  int hit = j->rest_hit;
+  int cls = j->last_err_class;
+  pthread_mutex_unlock(&queue_mu);
+  if (hit || dlx_rest_recent()) return 1;
+  if (cls == XHTTP_ERR_NETDOWN) return 1;
+#ifndef XENO_HOST
+  if (!dlx_net_has_address()) return 1;
+#endif
+  return 0;
+}
+
+/* Waits for the network after a wake-up. 1 when the origin (or the catalog
+ * host) answers again, 0 on cancel / after REST_WAIT_MAX_MS. */
+static int net_wait(dl_job *j) {
+  int64_t t0 = util_now_ms();
+  char url[2048];
+  for (int i = 0;; i++) {
+    if (j->cancel) return 0;
+    int64_t waited = util_now_ms() - t0;
+    if (waited > REST_WAIT_MAX_MS) return 0;
+    pthread_mutex_lock(&queue_mu);
+    xstrlcpy(url, j->activeUrl, sizeof url);
+    int insecure = j->insecure_tls;
+    xsnprintf(j->phase, sizeof j->phase, "waiting for the network (%llds)", (long long)(waited / 1000));
+    pthread_mutex_unlock(&queue_mu);
+    int addr = dlx_net_has_address();
+#ifdef XENO_HOST
+    addr = 1;   /* sandboxes may have no routable interface; the origin probe decides */
+#endif
+    if (addr) {
+      if (dlx_net_origin_reachable(url, insecure, &j->stop_io, 4000)) return 1;
+      if (i % 5 == 4 && dlx_net_catalog_reachable(4000)) return 1;
+    }
+    util_sleep_ms(REST_POLL_MS);
+  }
+}
+
 static void run_job(dl_job *j) {
   settings_t s;
   settings_get(&s);
@@ -1232,13 +1545,31 @@ static void run_job(dl_job *j) {
   j->stop_io = 0;
   j->seg_fatal = 0;
   j->drive_missing = 0;
+  j->rest_hit = 0;
+  j->last_err_class = 0;
   j->insecure_tls = s.allowInsecureTls;
   j->nextRetryAt = 0;
   j->phase[0] = 0;
   j->message[0] = 0;
+  j->scheduledFor[0] = 0;
   j->attempts++;
   jlog_locked(j, "attempt %d via %s", j->attempts, j->mirror_idx < 0 ? "primary" : "mirror");
   pthread_mutex_unlock(&queue_mu);
+
+  if (is_copy_job(j)) {
+    int rc = dlx_copy_run(j);
+    pthread_mutex_lock(&queue_mu);
+    if (rc == 1 && !j->cancel) { j->state = DL_PAUSED; xstrlcpy(j->message, "Paused", sizeof j->message); }
+    queue_dirty = 1;
+    int failed = j->state == DL_FAILED;
+    char title[256], msg[256];
+    xstrlcpy(title, j->title, sizeof title);
+    xstrlcpy(msg, j->message, sizeof msg);
+    pthread_mutex_unlock(&queue_mu);
+    if (rc == 0 && s.toasts && s.onComplete) sys_toast("✓ %s", msg);
+    if (failed && s.toasts && s.onFail) sys_toast("✗ %s: %s", title, msg);
+    return;
+  }
 
   if (!storage_root_present(j->root)) {
     pthread_mutex_lock(&queue_mu);
@@ -1250,12 +1581,63 @@ static void run_job(dl_job *j) {
   storage_ensure_parent_dir(j->path);
   if (space_check(j)) { pthread_mutex_lock(&queue_mu); if (j->drive_missing) { j->state = DL_PAUSED; set_error_locked(j, "drive_missing", "The destination drive is not connected"); } else worker_fail_locked(j); pthread_mutex_unlock(&queue_mu); return; }
 
+  if (resolve_via(j) != 0) {
+    pthread_mutex_lock(&queue_mu);
+    queue_dirty = 1;
+    int failed = j->state == DL_FAILED;
+    char title[256], msg[256];
+    xstrlcpy(title, j->title, sizeof title);
+    xstrlcpy(msg, j->message, sizeof msg);
+    pthread_mutex_unlock(&queue_mu);
+    if (failed && s.toasts && s.onFail) sys_toast("✗ %s failed: %s", title, msg);
+    return;
+  }
+  turbo_start(j, &s);
+
   int out;
+  int rest_cycles = 0;
   for (;;) {
     out = probe_and_plan(j);
     if (out == OUT_DONE && open_partial(j) != 0) out = OUT_FATAL;
     if (out == OUT_DONE) out = transfer(j);
     if (out == OUT_DONE) out = finish_job(j);
+    if (out == OUT_RETRY && s.restModeAutoResume && !j->cancel && rest_cycles < 20 && rest_applies(j)) {
+      /* A sleep/wake cycle (or a network outage that looks like one): wait
+       * for the network and resume every segment from its checkpoint
+       * without consuming retry budget (§17.15). */
+      rest_cycles++;
+      pthread_mutex_lock(&queue_mu);
+      if (j->fd >= 0) { close(j->fd); j->fd = -1; }
+      j->state = DL_CONNECTING;
+      j->rest_hit = 1;
+      j->restResumes++;
+      j->speed = 0;
+      j->eta = 0;
+      xstrlcpy(j->message, "Console woke up — waiting for the network", sizeof j->message);
+      jlog_locked(j, "rest mode: waiting for the network (attempt %d is not consumed)", j->attempts);
+      queue_dirty = 1;
+      pthread_mutex_unlock(&queue_mu);
+      int back = net_wait(j);
+      pthread_mutex_lock(&queue_mu);
+      j->rest_hit = 0;
+      j->phase[0] = 0;
+      if (back && !j->cancel) {
+        j->stop_io = 0;
+        j->seg_retry_now = 0;
+        j->seg_fatal = 0;
+        j->seg_err_streak = 0;
+        j->seg_code[0] = j->seg_error[0] = 0;
+        j->last_err_class = 0;
+        j->retry_after = 0;
+        xstrlcpy(j->message, "Network is back — resuming", sizeof j->message);
+        jlog_locked(j, "rest mode: network is back — resuming from the checkpoints");
+        pthread_mutex_unlock(&queue_mu);
+        continue;
+      }
+      pthread_mutex_unlock(&queue_mu);
+      if (j->cancel) out = OUT_STOPPED;
+      /* otherwise: give up waiting and fall into the normal retry path */
+    }
     if (out == OUT_FAILOVER) {
       pthread_mutex_lock(&queue_mu);
       int sw = j->cancel ? -1 : switch_mirror_locked(j);
@@ -1448,6 +1830,20 @@ static void *verify_thread(void *arg) {
   return NULL;
 }
 
+static void *extract_thread(void *arg) {
+  dl_job *j = arg;
+  settings_t s;
+  settings_get(&s);
+  int rc = dlx_extract_run(j, &s);
+  pthread_mutex_lock(&queue_mu);
+  if (rc == 1) { if (!j->cancel) { j->state = DL_DONE; xstrlcpy(j->message, "Extraction stopped", sizeof j->message); } xstrlcpy(j->extract.state, "failed", sizeof j->extract.state); j->phase[0] = 0; }
+  j->running = 0;
+  queue_dirty = 1;
+  pthread_mutex_unlock(&queue_mu);
+  if (rc == 0 && s.shadowMountScan && !j->group[0]) { char st[160]; install_shadowmount_scan(st, sizeof st); jlog(j, "ShadowMount scan: %s", st); }
+  return NULL;
+}
+
 /* ---- scheduler ------------------------------------------------------------ */
 
 static int start_worker_locked(dl_job *j) {
@@ -1469,7 +1865,7 @@ static int reap_removed_locked(char (*toks)[24], int tokcap) {
   for (int i = 0; i < n_jobs;) {
     dl_job *j = jobs[i];
     if (j->remove_pending && !j->running) {
-      if (j->delete_files_pending) { remove_partial_files(j); if (j->state == DL_DONE || j->state == DL_INSTALLED) util_unlink_quiet(j->path); }
+      if (j->delete_files_pending) { remove_partial_files(j); if (state_is_complete(j->state)) util_unlink_quiet(j->path); }
       if (ntok < tokcap && j->install.token[0]) xstrlcpy(toks[ntok++], j->install.token, 24);
       memmove(&jobs[i], &jobs[i + 1], (size_t)(n_jobs - i - 1) * sizeof jobs[0]);
       n_jobs--;
@@ -1482,6 +1878,127 @@ static int reap_removed_locked(char (*toks)[24], int tokcap) {
   return ntok;
 }
 
+/* ---- install sets (SPEC §17.13) ------------------------------------------- */
+
+static struct { char id[16]; int scanned; } group_mem[MAX_GROUPS];
+static int n_group_mem;
+
+static int group_scanned_locked(const char *gid, int set) {
+  for (int i = 0; i < n_group_mem; i++) if (strcmp(group_mem[i].id, gid) == 0) { if (set) group_mem[i].scanned = 1; return group_mem[i].scanned; }
+  if (set && n_group_mem < MAX_GROUPS) { xstrlcpy(group_mem[n_group_mem].id, gid, 16); group_mem[n_group_mem].scanned = 1; n_group_mem++; }
+  return 0;
+}
+
+static int kind_order(const char *installOrder, const char *kind) {
+  char tmp[64];
+  xstrlcpy(tmp, installOrder[0] ? installOrder : "game,backport,update,dlc", sizeof tmp);
+  int pos = 0;
+  char *save = NULL;
+  for (char *tok = strtok_r(tmp, ",", &save); tok; tok = strtok_r(NULL, ",", &save), pos++) if (util_strieq(tok, kind)) return pos;
+  return 99;
+}
+
+/* Status of one group (caller holds queue_mu). */
+static void group_status_locked(const char *gid, dl_group_status *st) {
+  memset(st, 0, sizeof *st);
+  xstrlcpy(st->id, gid, sizeof st->id);
+  int installing = 0, cancelled = 0, paused_order = 1 << 30;
+  for (int i = 0; i < n_jobs; i++) {
+    dl_job *j = jobs[i];
+    if (strcmp(j->group, gid) != 0) continue;
+    if (!st->gameId[0]) { xstrlcpy(st->gameId, j->gameId, sizeof st->gameId); xstrlcpy(st->title, j->title, sizeof st->title); }
+    st->total++;
+    dl_state s = j->state;
+    int install_failed = (s == DL_DONE || s == DL_INSTALLING) && strcmp(j->install.state, "failed") == 0;
+    if (s == DL_CANCELLED) { cancelled++; continue; }
+    if (s == DL_FAILED || install_failed) {
+      st->failed++;
+      if (j->groupOrder < paused_order) {
+        paused_order = j->groupOrder;
+        xsnprintf(st->pausedAt, sizeof st->pausedAt, "%s: %s", j->kind[0] ? j->kind : "game", j->filename[0] ? j->filename : j->title);
+        xstrlcpy(st->pausedJobId, j->id, sizeof st->pausedJobId);
+      }
+    }
+    if (state_is_complete(s) || s == DL_INSTALLING || s == DL_EXTRACTING) st->downloaded++;
+    if (s == DL_INSTALLED) st->installed++;
+    if (s == DL_DONE && strcmp(j->install.state, "pending") == 0) st->pending++;
+    if (s == DL_INSTALLING && strcmp(j->install.state, "installing") == 0) installing = 1;
+  }
+  if (st->failed) xstrlcpy(st->status, "paused", sizeof st->status);
+  else if (st->total - cancelled == 0) xstrlcpy(st->status, "cancelled", sizeof st->status);
+  else if (st->downloaded < st->total - cancelled) xstrlcpy(st->status, "downloading", sizeof st->status);
+  else if (installing || st->pending) xstrlcpy(st->status, "installing", sizeof st->status);
+  else xstrlcpy(st->status, "installed", sizeof st->status);
+}
+
+int dl_group_statuses(dl_group_status *out, int max) {
+  int n = 0;
+  pthread_mutex_lock(&queue_mu);
+  for (int i = 0; i < n_jobs && n < max; i++) {
+    const char *gid = jobs[i]->group;
+    if (!gid[0]) continue;
+    int seen = 0;
+    for (int k = 0; k < n; k++) if (strcmp(out[k].id, gid) == 0) { seen = 1; break; }
+    if (seen) continue;
+    group_status_locked(gid, &out[n++]);
+  }
+  pthread_mutex_unlock(&queue_mu);
+  return n;
+}
+
+static void *scan_thread(void *arg) {
+  (void)arg;
+  char st[160];
+  install_shadowmount_scan(st, sizeof st);
+  LOGI("install set: ShadowMount scan after the last file: %s", st);
+  return NULL;
+}
+
+/* Starts the next pending install of every complete group (one at a time
+ * per group) and the single ShadowMount scan. Caller holds queue_mu; the
+ * jobs to start are returned so the caller can act without the lock. */
+static int group_tick_locked(const settings_t *s, dl_job **to_install, int max_install, int *want_scan) {
+  int n_inst = 0;
+  *want_scan = 0;
+  char seen[MAX_GROUPS][16];
+  int nseen = 0;
+  for (int i = 0; i < n_jobs; i++) {
+    const char *gid = jobs[i]->group;
+    if (!gid[0]) continue;
+    int dup = 0;
+    for (int k = 0; k < nseen; k++) if (strcmp(seen[k], gid) == 0) { dup = 1; break; }
+    if (dup || nseen >= MAX_GROUPS) continue;
+    xstrlcpy(seen[nseen++], gid, 16);
+    dl_group_status st;
+    group_status_locked(gid, &st);
+    if (strcmp(st.status, "installing") == 0 && st.pending && s->autoInstallSets) {
+      /* all files are on disk and nothing is installing: next by order */
+      dl_job *next = NULL;
+      for (int k = 0; k < n_jobs; k++) {
+        dl_job *j = jobs[k];
+        if (strcmp(j->group, gid) != 0 || j->state != DL_DONE || strcmp(j->install.state, "pending") != 0 || j->running) continue;
+        if (!is_pkg_format(j->format) || !util_file_exists(j->path)) { xstrlcpy(j->install.state, "idle", sizeof j->install.state); continue; }
+        int ko = kind_order(s->installOrder, j->kind), kn = next ? kind_order(s->installOrder, next->kind) : 0;
+        if (!next || ko < kn || (ko == kn && j->groupOrder < next->groupOrder)) next = j;
+      }
+      int already = 0;
+      for (int k = 0; k < n_jobs; k++) if (strcmp(jobs[k]->group, gid) == 0 && jobs[k]->state == DL_INSTALLING) already = 1;
+      if (next && !already && n_inst < max_install) to_install[n_inst++] = next;
+    }
+    if (strcmp(st.status, "installed") == 0 && s->shadowMountScan && !group_scanned_locked(gid, 0)) {
+      int has_image = 0;
+      for (int k = 0; k < n_jobs; k++) {
+        dl_job *j = jobs[k];
+        if (strcmp(j->group, gid) != 0) continue;
+        if (is_image_format(j->format) || (j->state == DL_EXTRACTED && j->extract.dir[0])) has_image = 1;
+      }
+      group_scanned_locked(gid, 1);
+      if (has_image) *want_scan = 1;
+    }
+  }
+  return n_inst;
+}
+
 void dl_housekeeping_tick(void) {
   settings_t s;
   settings_get(&s);
@@ -1492,20 +2009,62 @@ void dl_housekeeping_tick(void) {
   int64_t now_ms = util_now_ms();
   char toks[16][24];
   int ntok = 0;
+  char next_start[8] = "";
+  int window_open = dlx_sched_open(&s, now, next_start, sizeof next_start);
+  int woke = dlx_rest_tick();
+  dl_job *to_install[8];
+  int want_scan = 0;
   pthread_mutex_lock(&queue_mu);
   ntok = reap_removed_locked(toks, 16);
+  if (woke && s.restModeAutoResume) {
+    /* Wake-up: running transfers reconnect (no retry consumed), queued
+     * jobs that were counting down a retry go right away. */
+    for (int i = 0; i < n_jobs; i++) {
+      dl_job *j = jobs[i];
+      if (j->running && (j->state == DL_DOWNLOADING || j->state == DL_CONNECTING) && !is_copy_job(j)) {
+        j->rest_hit = 1;
+        j->seg_retry_now = 1;
+        j->stop_io = 1;
+        for (int k = 0; k < DL_MAX_SEGMENTS; k++) if (j->seg_conns[k]) xhttp_abort(j->seg_conns[k]);
+        if (j->state == DL_DOWNLOADING) { j->state = DL_CONNECTING; xstrlcpy(j->message, "Console woke up — reconnecting", sizeof j->message); }
+        jlog_locked(j, "rest mode: wake-up detected — reconnecting");
+      } else if (j->state == DL_QUEUED && j->nextRetryAt > now) {
+        j->nextRetryAt = 0;
+        if (j->attempts > 0) j->attempts--;
+        xstrlcpy(j->message, "Console woke up — retrying now", sizeof j->message);
+      }
+    }
+  }
   int running = 0, downloading = 0;
   for (int i = 0; i < n_jobs; i++) {
     if (jobs[i]->running && state_is_active(jobs[i]->state)) running++;
     if (jobs[i]->state == DL_DOWNLOADING) downloading++;
   }
   int max_jobs = s.concurrentJobs < 1 ? 1 : s.concurrentJobs > 4 ? 4 : s.concurrentJobs;
+  /* Schedule window (§17.5): queued jobs wait outside it unless "Start now". */
+  for (int i = 0; i < n_jobs; i++) {
+    dl_job *j = jobs[i];
+    if (j->state != DL_QUEUED || j->synthetic) { if (j->scheduledFor[0] && j->state != DL_QUEUED) j->scheduledFor[0] = 0; continue; }
+    int held = !window_open && !j->startNow;
+    if (held) {
+      if (strcmp(j->scheduledFor, next_start) != 0) {
+        xstrlcpy(j->scheduledFor, next_start, sizeof j->scheduledFor);
+        xsnprintf(j->message, sizeof j->message, "Scheduled for %s", next_start);
+        queue_dirty = 1;
+      }
+    } else if (j->scheduledFor[0]) {
+      j->scheduledFor[0] = 0;
+      if (util_starts_with(j->message, "Scheduled for")) xstrlcpy(j->message, "Queued", sizeof j->message);
+      queue_dirty = 1;
+    }
+  }
   /* Higher priority first, then queue order. */
   for (int prio_pass = 0; prio_pass < 2 && running < max_jobs; prio_pass++) {
     int best = -1;
     for (int i = 0; i < n_jobs && running < max_jobs; i++) {
       dl_job *j = jobs[i];
       if (j->state != DL_QUEUED || j->running || j->synthetic || j->nextRetryAt > now) continue;
+      if (j->scheduledFor[0]) continue;
       if (best < 0 || j->priority > jobs[best]->priority) best = i;
     }
     if (best < 0) break;
@@ -1513,12 +2072,43 @@ void dl_housekeeping_tick(void) {
     else break;
   }
   if (now_ms - last_install_poll_ms >= 2000) { last_install_poll_ms = now_ms; ntok += poll_installs(&s, toks + ntok, 16 - ntok); }
+  int n_inst = group_tick_locked(&s, to_install, 8, &want_scan);
   int dirty = queue_dirty;
   int any_running = running > 0;
   pthread_mutex_unlock(&queue_mu);
   release_tokens(toks, ntok);
+  for (int i = 0; i < n_inst; i++) { jlog(to_install[i], "install set: installing %s step", to_install[i]->kind); begin_install(to_install[i]); }
+  if (want_scan) {
+    pthread_t th;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    if (pthread_create(&th, &attr, scan_thread, NULL) != 0) LOGW("install set: cannot start the ShadowMount scan thread");
+    pthread_attr_destroy(&attr);
+  }
   if (downloading && s.keepAwake && now - last_keepawake >= 30) { last_keepawake = now; sys_keep_awake_tick(); }
   if ((dirty || any_running) && now_ms - last_save_ms >= QUEUE_SAVE_EVERY_MS) dl_save_queue();
+}
+
+void dl_simulate_wake(void) {
+#ifdef XENO_HOST
+  dlx_rest_force_event("simulated wake-up (host test hook)");
+  settings_t s;
+  settings_get(&s);
+  pthread_mutex_lock(&queue_mu);
+  for (int i = 0; i < n_jobs; i++) {
+    dl_job *j = jobs[i];
+    if (j->running && (j->state == DL_DOWNLOADING || j->state == DL_CONNECTING) && !is_copy_job(j) && s.restModeAutoResume) {
+      j->rest_hit = 1;
+      j->seg_retry_now = 1;
+      j->stop_io = 1;
+      for (int k = 0; k < DL_MAX_SEGMENTS; k++) if (j->seg_conns[k]) xhttp_abort(j->seg_conns[k]);
+      if (j->state == DL_DOWNLOADING) { j->state = DL_CONNECTING; xstrlcpy(j->message, "Console woke up — reconnecting", sizeof j->message); }
+      jlog_locked(j, "rest mode: wake-up detected — reconnecting");
+    }
+  }
+  pthread_mutex_unlock(&queue_mu);
+#endif
 }
 
 int dl_any_downloading(void) {
@@ -1561,6 +2151,17 @@ static void load_queue(void) {
       }
     }
     if (j->state == DL_INSTALLING && strcmp(j->install.state, "installing") != 0) j->state = DL_DONE;
+    if (j->state == DL_PAUSED && strcmp(j->extract.state, "extracting") == 0) {
+      /* stopped mid-extraction: the archive is intact, the user can press Extract */
+      j->state = DL_DONE;
+      xstrlcpy(j->extract.state, "failed", sizeof j->extract.state);
+      xstrlcpy(j->extract.message, "Extraction stopped when XENO STORE closed", sizeof j->extract.message);
+      xstrlcpy(j->message, "Extraction stopped when XENO STORE closed — press Extract to retry", sizeof j->message);
+      j->phase[0] = 0;
+      if (j->total <= 0) j->total = util_file_size(j->path);
+      j->written = j->total > 0 ? j->total : 0;
+    }
+    if (is_copy_job(j) && j->state == DL_PAUSED) { int64_t have = util_file_size(j->xpart); j->written = have > 0 ? have : 0; }
     jobs[n_jobs++] = j;
   }
   json_free(d);
@@ -1570,6 +2171,8 @@ static void load_queue(void) {
 int dl_init(const char *dir, int port) {
   xstrlcpy(data_dir, dir, sizeof data_dir);
   g_port = port;
+  dlx_stats_init(dir);
+  dlx_debrid_init(dir);
   pthread_mutex_lock(&queue_mu);
   load_queue();
   pthread_mutex_unlock(&queue_mu);
@@ -1586,6 +2189,7 @@ void dl_shutdown(void) {
   }
   pthread_mutex_unlock(&queue_mu);
   if (n) LOGI("dl: stopping %d running job(s)", n);
+  dlx_stats_flush(1);
   for (int i = 0; i < 100; i++) {   /* ≤ 5 s */
     pthread_mutex_lock(&queue_mu);
     int busy = 0;
@@ -1608,16 +2212,19 @@ void dl_summary_get(dl_summary *out) {
   for (int i = 0; i < n_jobs; i++) {
     dl_job *j = jobs[i];
     switch (j->state) {
-      case DL_QUEUED: out->queued++; break;
+      case DL_QUEUED: out->queued++; if (j->scheduledFor[0]) out->scheduledWaiting++; break;
       case DL_PAUSED: out->paused++; break;
       case DL_FAILED: out->failed++; break;
-      case DL_DONE: case DL_INSTALLED: out->done++; break;
+      case DL_DONE: case DL_INSTALLED: case DL_EXTRACTED: out->done++; break;
       case DL_CANCELLED: break;
+      case DL_EXTRACTING: out->active++; out->extracting++; break;
       default: out->active++;
     }
-    if (state_is_unfinished(j->state) && j->total > j->written) out->remaining += j->total - j->written;
+    if (j->state == DL_CONNECTING && j->rest_hit) out->restResuming++;
+    if (is_copy_job(j) && state_is_active(j->state)) out->copying++;
+    if (state_is_unfinished(j->state) && j->total > j->written && j->state != DL_EXTRACTING) out->remaining += j->total - j->written;
     if (j->state == DL_DOWNLOADING) speed += j->speed;
-    if (j->state == DL_DOWNLOADING && s.keepAwake) out->keepAwake = 1;
+    if (j->state == DL_DOWNLOADING && s.keepAwake && !is_copy_job(j)) out->keepAwake = 1;
   }
   pthread_mutex_unlock(&queue_mu);
   out->speed = (int64_t)speed;
@@ -1632,10 +2239,49 @@ void dl_queue_json(jw *w, int history) {
   for (int i = 0; i < n_jobs; i++) job_write_json(w, jobs[i], history);
   jw_arr_end(w);
   pthread_mutex_unlock(&queue_mu);
+  settings_t st;
+  settings_get(&st);
   jw_key(w, "summary"); jw_obj_begin(w);
   jw_kv_int(w, "active", s.active); jw_kv_int(w, "queued", s.queued); jw_kv_int(w, "paused", s.paused);
   jw_kv_int(w, "failed", s.failed); jw_kv_int(w, "done", s.done); jw_kv_i64(w, "speed", s.speed);
   jw_kv_i64(w, "remaining", s.remaining); jw_kv_i64(w, "eta", s.eta); jw_kv_bool(w, "keepAwake", s.keepAwake);
+  jw_kv_int(w, "extracting", s.extracting);
+  jw_kv_int(w, "copying", s.copying);
+  /* Phase 2: rest mode pill, schedule window, install sets, lifetime stats */
+  int downloading = s.speed > 0 || s.keepAwake;
+  jw_key(w, "restMode"); jw_obj_begin(w);
+  jw_kv_str(w, "pill", dlx_rest_pill(&st, downloading));
+  jw_kv_bool(w, "keepAwake", s.keepAwake);
+  jw_kv_bool(w, "autoResume", st.restModeAutoResume);
+  jw_kv_int(w, "resuming", s.restResuming);
+  jw_kv_i64(w, "lastWakeAt", dlx_rest_last_event_ms() ? (int64_t)util_now() - (util_now_ms() - dlx_rest_last_event_ms()) / 1000 : 0);
+  jw_obj_end(w);
+  char next_start[8] = "";
+  int open = dlx_sched_open(&st, util_now(), next_start, sizeof next_start);
+  jw_key(w, "schedule"); jw_obj_begin(w);
+  jw_kv_bool(w, "configured", dlx_sched_configured(&st));
+  jw_kv_bool(w, "open", open);
+  jw_kv_str(w, "start", st.scheduleStart);
+  jw_kv_str(w, "end", st.scheduleEnd);
+  jw_kv_str(w, "nextStart", next_start);
+  jw_kv_int(w, "waiting", s.scheduledWaiting);
+  jw_obj_end(w);
+  dl_group_status *gs = calloc(MAX_GROUPS, sizeof *gs);
+  int ng = gs ? dl_group_statuses(gs, MAX_GROUPS) : 0;
+  jw_key(w, "groups"); jw_arr_begin(w);
+  for (int i = 0; i < ng; i++) {
+    jw_obj_begin(w);
+    jw_kv_str(w, "id", gs[i].id); jw_kv_str(w, "gameId", gs[i].gameId); jw_kv_str(w, "title", gs[i].title);
+    jw_kv_int(w, "total", gs[i].total); jw_kv_int(w, "downloaded", gs[i].downloaded); jw_kv_int(w, "installed", gs[i].installed);
+    jw_kv_int(w, "failed", gs[i].failed); jw_kv_int(w, "pending", gs[i].pending);
+    jw_kv_str(w, "status", gs[i].status); jw_kv_str(w, "pausedAt", gs[i].pausedAt); jw_kv_str(w, "pausedJobId", gs[i].pausedJobId);
+    jw_obj_end(w);
+  }
+  jw_arr_end(w);
+  free(gs);
+  jw_key(w, "lifetime"); jw_obj_begin(w);
+  dlx_stats_json(w);
+  jw_obj_end(w);
   jw_obj_end(w);
 }
 
@@ -1807,6 +2453,34 @@ int dl_add(const dl_add_req *r, char *job_id, size_t idcap, char *code, size_t c
   j->resumable = 1;
   j->addedAt = util_now();
   xstrlcpy(j->install.state, "idle", sizeof j->install.state);
+  xstrlcpy(j->type, "download", sizeof j->type);
+  /* Phase 2 fields: explicit request fields first, then the request body
+   * (api.c hands us the document through `mirrors`), then the settings. */
+  jv body = jv_ok(r->body) ? r->body : (r->mirrors.d ? json_root(r->mirrors.d) : r->mirrors);
+  const char *via = r->via && r->via[0] ? r->via : jv_get_str(body, "via", "");
+  const char *kind = r->kind && r->kind[0] ? r->kind : jv_get_str(body, "kind", "");
+  const char *group = r->group && r->group[0] ? r->group : jv_get_str(body, "group", "");
+  if (!via[0]) via = s.debrid.preferred;
+  if (util_strieq(via, "direct")) via = "";
+  if (via[0] && !util_strieq(via, "auto") && !dlx_debrid_known(via)) {
+    xstrlcpy(code, "bad_request", ccap);
+    xsnprintf(msg, mcap, "via must be direct, auto, realdebrid, alldebrid, torbox or premiumize");
+    free(j);
+    return -1;
+  }
+  xstrlcpy(j->via, via, sizeof j->via);
+  if (!kind[0]) { cat_game cg; cat_release cr; kind = (j->releaseId[0] && catalog_find_release(j->gameId, j->releaseId, &cg, &cr) == 0 && cr.kind[0]) ? cr.kind : "game"; }
+  xstrlcpy(j->kind, kind, sizeof j->kind);
+  util_lower(j->kind);
+  if (strcmp(j->kind, "game") && strcmp(j->kind, "update") && strcmp(j->kind, "dlc") && strcmp(j->kind, "backport") && strcmp(j->kind, "app") && strcmp(j->kind, "bundle"))
+    xstrlcpy(j->kind, "game", sizeof j->kind);
+  if (group[0]) {
+    int ok = strlen(group) < sizeof j->group;
+    for (const unsigned char *p = (const unsigned char *)group; ok && *p; p++) if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9') || *p == '_' || *p == '-')) ok = 0;
+    if (!ok) { xstrlcpy(code, "bad_request", ccap); xsnprintf(msg, mcap, "group must be a short id"); free(j); return -1; }
+    xstrlcpy(j->group, group, sizeof j->group);
+    j->groupOrder = r->groupOrder > 0 ? r->groupOrder : (int)jv_get_i64(body, "groupOrder", 0);
+  }
 
   pthread_mutex_lock(&queue_mu);
   for (int i = 0; i < n_jobs; i++) {
@@ -1900,6 +2574,125 @@ int dl_add_install_job(const char *path, char *job_id, size_t idcap, char *msg, 
   xstrlcpy(job_id, j->id, idcap);
   pthread_mutex_unlock(&queue_mu);
   begin_install(j);
+  return 0;
+}
+
+/* ---- copy / move between drives (SPEC §17.16) ----------------------------- */
+
+int dl_add_copy_job(const char *src, const char *toRoot, int move, int overwrite, char *job_id, size_t idcap,
+                    char *code, size_t ccap, char *msg, size_t mcap) {
+  if (!src || !*src || src[0] != '/' || strstr(src, "/../") || strstr(src, "/./")) { xstrlcpy(code, "bad_request", ccap); xsnprintf(msg, mcap, "path must be an absolute file path"); return -1; }
+  for (const unsigned char *p = (const unsigned char *)src; *p; p++) if (*p < 0x20) { xstrlcpy(code, "bad_request", ccap); xsnprintf(msg, mcap, "path contains control characters"); return -1; }
+  /* Only files the library scan listed or a finished job produced. */
+  int allowed = storage_library_path_allowed(src);
+  char owner_id[16] = "";
+  pthread_mutex_lock(&queue_mu);
+  for (int i = 0; i < n_jobs && !allowed; i++)
+    if (state_is_complete(jobs[i]->state) && strcmp(jobs[i]->path, src) == 0) { allowed = 1; xstrlcpy(owner_id, jobs[i]->id, sizeof owner_id); }
+  pthread_mutex_unlock(&queue_mu);
+  if (!allowed) { xstrlcpy(code, "forbidden", ccap); xsnprintf(msg, mcap, "Path is not in the last library scan"); return -1; }
+  if (util_iends_with(src, ".xpart") || util_iends_with(src, ".xpart.json")) { xstrlcpy(code, "bad_request", ccap); xsnprintf(msg, mcap, "Unfinished downloads cannot be copied — resume them instead"); return -1; }
+  struct stat st;
+  if (stat(src, &st) != 0 || !S_ISREG(st.st_mode)) { xstrlcpy(code, "not_found", ccap); xsnprintf(msg, mcap, "The source file does not exist"); return -1; }
+  storage_root root;
+  if (!toRoot || !*toRoot || storage_find_root(toRoot, &root) != 0 || !storage_root_present(root.path)) { xstrlcpy(code, "root_unavailable", ccap); xsnprintf(msg, mcap, "The destination drive is not available"); return -1; }
+  if (!root.writable) { xstrlcpy(code, "root_unavailable", ccap); xsnprintf(msg, mcap, "%s is not writable", root.label); return -1; }
+  /* same drive: the source root (longest known-root prefix) or st_dev */
+  storage_root roots[STORAGE_MAX_ROOTS];
+  int nr = storage_get_roots(roots, STORAGE_MAX_ROOTS);
+  const storage_root *src_root = NULL;
+  for (int i = 0; i < nr; i++) {
+    size_t l = strlen(roots[i].path);
+    if (strncmp(src, roots[i].path, l) == 0 && src[l] == '/' && (!src_root || l > strlen(src_root->path))) src_root = &roots[i];
+  }
+  if ((src_root && strcmp(src_root->path, root.path) == 0) || dlx_copy_same_drive(src, root.path)) {
+    xstrlcpy(code, "same_drive", ccap);
+    xsnprintf(msg, mcap, "The file is already on %s", root.label);
+    return -1;
+  }
+  const char *base = util_basename(src);
+  char ext[16], fmt[16] = "";
+  util_ext(base, ext, sizeof ext);
+  xstrlcpy(fmt, ext, sizeof fmt);
+  util_upper(fmt);
+  char fname[256], dest[1024];
+  if (storage_sanitize_filename(base, fname, sizeof fname) != 0 || storage_join(root.path, storage_category_for_format(ext), fname, dest, sizeof dest) != 0) {
+    xstrlcpy(code, "bad_request", ccap); xsnprintf(msg, mcap, "Cannot build a safe destination path"); return -1;
+  }
+  if (util_file_exists(dest) && !overwrite) { xstrlcpy(code, "exists", ccap); xsnprintf(msg, mcap, "%s already exists on %s", fname, root.label); return -1; }
+  int64_t size = (int64_t)st.st_size;
+  int64_t queued_on_root = dl_remaining_on_root(root.path);
+  if (root.free - queued_on_root < size + DL_RESERVE_BYTES) {
+    char a[32], b[32];
+    util_fmt_bytes(size, a, sizeof a);
+    util_fmt_bytes(root.free - queued_on_root, b, sizeof b);
+    xstrlcpy(code, "no_space", ccap);
+    xsnprintf(msg, mcap, "Not enough free space on %s: need %s + 256 MB reserve, have %s after the queue", root.label, a, b);
+    return -1;
+  }
+  dl_job *j = calloc(1, sizeof *j);
+  if (!j) { xstrlcpy(code, "oom", ccap); xsnprintf(msg, mcap, "Out of memory"); return -1; }
+  j->fd = -1;
+  j->mirror_idx = -1;
+  xstrlcpy(j->type, "copy", sizeof j->type);
+  xstrlcpy(j->kind, "game", sizeof j->kind);
+  xstrlcpy(j->srcPath, src, sizeof j->srcPath);
+  j->move = move ? 1 : 0;
+  xstrlcpy(j->path, dest, sizeof j->path);
+  xstrlcpy(j->filename, fname, sizeof j->filename);
+  xstrlcpy(j->format, fmt, sizeof j->format);
+  xstrlcpy(j->root, root.path, sizeof j->root);
+  xstrlcpy(j->rootLabel, root.label, sizeof j->rootLabel);
+  xstrlcpy(j->provider, src_root ? src_root->label : "drive", sizeof j->provider);
+  xstrlcpy(j->sourceId, "local", sizeof j->sourceId);
+  xstrlcpy(j->url, src, sizeof j->url);
+  xstrlcpy(j->activeUrl, src, sizeof j->activeUrl);
+  util_find_titleid(base, j->titleId, sizeof j->titleId);
+  if (!j->titleId[0]) util_find_titleid(src, j->titleId, sizeof j->titleId);
+  cat_game g;
+  if (j->titleId[0] && catalog_match_titleid(j->titleId, &g) == 0) {
+    xstrlcpy(j->gameId, g.id, sizeof j->gameId); xstrlcpy(j->title, g.title, sizeof j->title);
+    xstrlcpy(j->cover, g.cover, sizeof j->cover); xstrlcpy(j->platform, g.platform, sizeof j->platform);
+  } else {
+    xstrlcpy(j->title, fname, sizeof j->title);
+    xstrlcpy(j->platform, util_starts_with(j->titleId, "CUSA") ? "PS4" : j->titleId[0] ? "PS5" : "", sizeof j->platform);
+  }
+  j->total = size;
+  j->connections = 1;
+  j->resumable = 1;
+  j->addedAt = util_now();
+  xstrlcpy(j->verify, "size", sizeof j->verify);
+  xstrlcpy(j->install.state, "idle", sizeof j->install.state);
+  derive_paths_locked(j);
+  pthread_mutex_lock(&queue_mu);
+  for (int i = 0; i < n_jobs; i++) {
+    dl_job *o = jobs[i];
+    if (strcmp(o->path, j->path) != 0 || o->state == DL_FAILED || o->state == DL_CANCELLED) continue;
+    if (overwrite && state_is_complete(o->state) && !o->running) {
+      memmove(&jobs[i], &jobs[i + 1], (size_t)(n_jobs - i - 1) * sizeof jobs[0]);
+      n_jobs--;
+      job_free(o);
+      i--;
+      continue;
+    }
+    pthread_mutex_unlock(&queue_mu);
+    xstrlcpy(code, "exists", ccap);
+    xsnprintf(msg, mcap, "%s is already in the queue (%s)", fname, dl_state_name(o->state));
+    free(j);
+    return -1;
+  }
+  if (n_jobs >= DL_MAX_JOBS) { pthread_mutex_unlock(&queue_mu); xstrlcpy(code, "queue_full", ccap); xsnprintf(msg, mcap, "The queue is full (%d jobs)", DL_MAX_JOBS); free(j); return -1; }
+  if (overwrite) util_unlink_quiet(j->path);
+  do { util_rand_id("j_", j->id, sizeof j->id); } while (find_locked(j->id));
+  j->state = DL_QUEUED;
+  j->turbo.done = 1;
+  jobs[n_jobs++] = j;
+  xsnprintf(j->message, sizeof j->message, "Queued: %s to %s", move ? "move" : "copy", root.label);
+  jlog_locked(j, "queued %s %s → %s%s", move ? "move" : "copy", src, dest, owner_id[0] ? " (job-owned source)" : "");
+  queue_dirty = 1;
+  xstrlcpy(job_id, j->id, idcap);
+  pthread_mutex_unlock(&queue_mu);
+  dl_save_queue();
   return 0;
 }
 
@@ -1999,7 +2792,7 @@ int dl_action(const char *id, const char *action, jv body, char *code, size_t cc
       jlog_locked(j, "restart requested");
     }
   } else if (strcmp(action, "install") == 0) {
-    if ((st == DL_DONE || st == DL_INSTALLED || (st == DL_INSTALLING && strcmp(j->install.state, "failed") == 0)) && !j->running && is_pkg_format(j->format) && util_file_exists(j->path)) {
+    if ((st == DL_DONE || st == DL_INSTALLED || (st == DL_INSTALLING && strcmp(j->install.state, "failed") == 0)) && !j->running && is_pkg_format(j->format) && util_file_exists(j->path) && !is_copy_job(j)) {
       pthread_mutex_unlock(&queue_mu);
       begin_install(j);
       return 0;
@@ -2024,6 +2817,31 @@ int dl_action(const char *id, const char *action, jv body, char *code, size_t cc
   } else if (strcmp(action, "move") == 0) {
     rc = act_move_locked(j, jv_get_str(body, "direction", "up"));
     if (rc != 0) xsnprintf(msg, mcap, "direction must be up|down|top|bottom");
+  } else if (strcmp(action, "startNow") == 0 || strcmp(action, "start") == 0) {
+    /* "Start now anyway": ignores the schedule window for this job (§17.5). */
+    if (st == DL_QUEUED || st == DL_PAUSED) {
+      j->startNow = 1;
+      j->scheduledFor[0] = 0;
+      j->nextRetryAt = 0;
+      if (st == DL_PAUSED) { j->state = DL_QUEUED; j->cancel = 0; clear_error_locked(j); }
+      xstrlcpy(j->message, "Starting now (schedule override)", sizeof j->message);
+      jlog_locked(j, "start now: schedule window overridden");
+    } else rc = -1;
+  } else if (strcmp(action, "extract") == 0) {
+    /* (Re)extract a finished ZIP download on its own worker thread. */
+    if ((st == DL_DONE || st == DL_EXTRACTED) && !j->running && dlx_extract_applies(j) && util_file_exists(j->path) && !is_copy_job(j)) {
+      j->running = 1;
+      j->cancel = 0;
+      j->stop_io = 0;
+      j->state = DL_EXTRACTING;
+      xstrlcpy(j->extract.state, "extracting", sizeof j->extract.state);
+      pthread_t th;
+      pthread_attr_t attr;
+      pthread_attr_init(&attr);
+      pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+      if (pthread_create(&th, &attr, extract_thread, j) != 0) { j->running = 0; j->state = st; rc = -1; }
+      pthread_attr_destroy(&attr);
+    } else { rc = -1; xsnprintf(msg, mcap, "Only a finished ZIP download that is still on the drive can be extracted"); }
   } else if (strcmp(action, "url") == 0) {
     rc = act_url_locked(j, body, code, ccap, msg, mcap);
     if (rc != 0) { pthread_mutex_unlock(&queue_mu); return -1; }
@@ -2036,7 +2854,7 @@ int dl_action(const char *id, const char *action, jv body, char *code, size_t cc
   if (rc != 0) {
     pthread_mutex_unlock(&queue_mu);
     xstrlcpy(code, "bad_state", ccap);
-    if (!msg[0] || strcmp(action, "install") != 0) xsnprintf(msg, mcap, "Cannot %s a job that is %s", action, dl_state_name(st));
+    if (!msg[0] || (strcmp(action, "install") != 0 && strcmp(action, "extract") != 0)) xsnprintf(msg, mcap, "Cannot %s a job that is %s", action, dl_state_name(st));
     return -1;
   }
   queue_dirty = 1;
@@ -2047,17 +2865,17 @@ int dl_action(const char *id, const char *action, jv body, char *code, size_t cc
 }
 
 int dl_clear(jv states) {
-  int want[DL_INSTALLED + 1] = {0};
+  int want[DL_STATE_COUNT] = {0};
   int any = 0;
   JV_FOREACH(s, states) {
     const char *n = jv_str(s, NULL);
     if (!n) continue;
     int st = state_from_name(n);
     want[st] = 1;
-    if (st == DL_DONE) want[DL_INSTALLED] = 1;
+    if (st == DL_DONE) want[DL_INSTALLED] = want[DL_EXTRACTED] = 1;
     any = 1;
   }
-  if (!any) want[DL_DONE] = want[DL_INSTALLED] = want[DL_CANCELLED] = want[DL_FAILED] = 1;
+  if (!any) want[DL_DONE] = want[DL_INSTALLED] = want[DL_EXTRACTED] = want[DL_CANCELLED] = want[DL_FAILED] = 1;
   int removed = 0;
   char toks[16][24];
   int ntok = 0;

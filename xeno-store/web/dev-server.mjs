@@ -10,6 +10,10 @@
  *     verify, PKG auto-install, retry countdown), pause/resume/cancel/restart…
  *   - storage roots with live free space, settings persistence in memory,
  *     favorites/collections/recent, library scan, status, update check, pairing
+ *   - Phase 2 (§17): synthetic enrichment of the catalog (screenshots, Metacritic, features,
+ *     languages, updates/DLC/backport releases, cheats, series), /api/status extras
+ *     (featured rows, messages, savesEngine), `via` debrid jobs, save-install jobs; every
+ *     other Phase 2 endpoint lives in web/dev-server-ext-*.mjs (loaded below)
  *
  * Usage: node web/dev-server.mjs [--port 9095] [--host 127.0.0.1]
  *          [--art local|remote|none]   cover art: generated SVGs (works offline),
@@ -18,6 +22,8 @@
  *          [--update]                  pretend a newer payload is available
  *          [--no-downloads]            simulate a firmware without sceHttp (downloadsAvailable:false)
  *          [--acknowledged]            skip the first-run wizard (sources.acknowledged = true)
+ *          [--saves-tier native|garlic|raw]  re-sign engine tier reported by the mock (default native)
+ *          [--no-phase2]               serve the catalog without the synthetic §17 fields
  *          [--catalog PATH] [--dist PATH]
  */
 import { createServer } from 'node:http';
@@ -140,10 +146,87 @@ const catalogPath = resolve(argValue('--catalog', join(ROOT, 'catalog', 'xeno-ca
 let catalog;
 if (existsSync(catalogPath)) { catalog = JSON.parse(readFileSync(catalogPath, 'utf8')); log('info', `catalog: ${catalogPath} (revision ${catalog.revision}, ${catalog.games.length} games)`); }
 else { catalog = convertSnapshots(); log('info', `catalog: converted from snapshots (${catalog.games.length} games, ${catalog.games.reduce((n, g) => n + g.releases.length, 0)} releases)`); }
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* ---- Phase 2 (§17.1/17.9/17.13): deterministic synthetic enrichment so every UI path has data ---- */
+const PHASE2 = !args.includes('--no-phase2');
+const FEATURES = ['Single-player', 'Online multiplayer', 'Co-op', 'DualSense', 'PS5 60fps', 'Ray tracing', '4K', 'Cross-play', 'Remote Play', 'Trophies'];
+const LANGS = ['English', 'French', 'German', 'Spanish', 'Italian', 'Portuguese', 'Japanese', 'Korean', 'Chinese', 'Russian', 'Polish', 'Dutch', 'Arabic', 'Turkish'];
+const FWS = ['5.05', '9.00', '11.00', '12.00'];
+function phase2Enrich(cat) {
+  for (const g of cat.games) {
+    const x = hash32(g.id);
+    const tid = (g.titleIds || [])[0] || '';
+    g.year = Number((g.releaseDate || '').slice(0, 4)) || 0;
+    g.series = slugify(g.title.split(/[:\-–(]/)[0].replace(/\b\d+\b/g, '').trim()) || g.slug;
+    g.screenshots = (x % 7 === 6) ? [] : Array.from({ length: 4 + (x % 5) }, (_, i) => `/mockart/${encodeURIComponent(g.id)}/shot${i + 1}.svg`);
+    g.about = (x % 5 === 4) ? '' : `${g.description || g.title}\n\n${g.title} is listed with ${g.releases.length} download option${g.releases.length === 1 ? '' : 's'} in the XENO catalog. Sizes range from ${(g.sizeMin / GB).toFixed(1)} to ${(g.sizeMax / GB).toFixed(1)} GB depending on the format. The story, mechanics and modes below come from the storefront metadata; the files come from the public archives listed on the page.\n\nThis paragraph exists so the Read-more expansion has something to expand in the mock catalog.`;
+    g.developer = g.developer || (x % 3 === 0 ? g.publisher : ['Insomniac Games', 'Santa Monica Studio', 'Naughty Dog', 'FromSoftware', 'Capcom', 'Ubisoft Montreal', 'Guerrilla', 'Sucker Punch', 'Bluepoint', 'Remedy'][x % 10]);
+    g.publisher = g.publisher || ['Sony Interactive Entertainment', 'Capcom', 'Ubisoft', 'Bandai Namco', 'Square Enix', 'SEGA', 'Warner Bros. Games', 'EA', '2K', 'Devolver Digital'][(x >> 3) % 10];
+    g.metacritic = (x % 4 === 3) ? null : 45 + (x % 52);
+    g.features = FEATURES.filter((_, i) => (x >> i) & 1).slice(0, 5);
+    if (!g.features.length) g.features = ['Single-player'];
+    g.ageRating = [3, 7, 12, 16, 18][x % 5];
+    g.languages = LANGS.filter((_, i) => (x >> (i + 2)) & 1).slice(0, 10);
+    if (!g.languages.length) g.languages = ['English'];
+    g.cheats = (x % 2 === 0) ? 3 + (x % 40) : 0;
+    g.psStoreUrl = tid ? `https://store.playstation.com/en-us/concept/${10000000 + (x % 900000)}` : '';
+    g.genres = g.genres && g.genres.length ? g.genres : [['Action', 'Adventure', 'Role-playing', 'Shooter', 'Racing', 'Sports', 'Strategy', 'Puzzle', 'Horror', 'Platformer', 'Fighting', 'Simulation'][x % 12]];
+    /* extra releases: updates, DLC and backports for a share of the games (direct archive links so they can be queued) */
+    const base = g.releases.find((r) => r.format !== 'PAGE' && r.sourceId === 'archive') || g.releases.find((r) => r.format !== 'PAGE');
+    if (base && tid) {
+      const mk = (kind, i, extra) => ({ ...base, id: `${base.id}-${kind}${i}`, kind, url: `https://archive.org/download/${tid.toLowerCase()}-${kind}${i}/${tid}-${kind}${i}.${String(base.format).toLowerCase()}`, mirrors: [], sha256: '', md5: '', sha1: '', notes: '', ...extra });
+      if (x % 5 < 3) { const n = 1 + (x % 3); for (let i = 1; i <= n; i++) g.releases.push(mk('update', i, { version: `01.0${i + 1}0.000`, filename: `${tid} ${g.title} Update v01.0${i + 1}0.000.${String(base.format).toLowerCase()}`, sizeBytes: Math.round((0.4 + (x % 9) / 10) * GB) + i * 120e6 })); }
+      if (x % 4 === 1) { const n = 1 + (x % 2); for (let i = 1; i <= n; i++) g.releases.push(mk('dlc', i, { version: '', filename: `${tid} ${g.title} DLC ${i}.${String(base.format).toLowerCase()}`, sizeBytes: Math.round((1.5 + (x % 7)) * GB) })); }
+      if (g.platform === 'PS5' && x % 6 === 2) {
+        base.requiresFw = ['10.00', '11.00', '12.00', '13.00'][x % 4];
+        const fws = [FWS[x % 3], FWS[(x + 1) % 3]];
+        fws.forEach((fw, i) => g.releases.push(mk('backport', i + 1, { version: `01.00${i + 1}.000`, backportFw: fw, requiresFw: fw, compat: fw, filename: `${tid} ${g.title} [BP ${fw}] v01.00${i + 1}.000.${String(base.format).toLowerCase()}`, sizeBytes: Math.round((base.sizeBytes || 20 * GB) * 0.95), notes: `Backport for firmware ${fw}` })));
+      }
+      if (x % 11 === 0) base.health = 'flaky';
+    }
+    g.updates = g.releases.filter((r) => r.kind === 'update').length;
+    g.dlc = g.releases.filter((r) => r.kind === 'dlc').length;
+    g.backports = g.releases.filter((r) => r.kind === 'backport').length;
+    g.compat = g.compat && g.compat.length ? g.compat : (x % 3 === 0 ? ['13.60'] : x % 3 === 1 ? ['12.xx', '13.60'] : []);
+  }
+}
+if (PHASE2) { phase2Enrich(catalog); log('info', 'phase 2 enrichment applied to the mock catalog'); }
+
+/* ============================================================ routes (method + regex → handler) ============================================================ */
+const routes = [];
+const route = (method, pattern, handler) => routes.push({ method, pattern, handler });
+class ApiError extends Error { constructor(status, code, message) { super(message); this.status = status; this.code = code; } }
+
+/* Extension mocks: every web/dev-server-ext-*.mjs may export `register({ route, state })` to add routes for new
+ * features without editing this file (each Phase 2 web builder owns one such file). Extension routes are matched
+ * first. `state` exposes the mock's data through getters, so an extension may add catalog entries (e.g. HOMEBREW
+ * apps) before the indexes below are built and may push functions into state.statusExtra for /api/status. */
+import { pathToFileURL } from 'node:url';
+const EXT_DIR = dirname(fileURLToPath(import.meta.url));
+const state = {
+  args, argValue, log, ApiError, sleep, now, hash32, slugify, GB, MiB, VERSION, HOST, PORT, PHASE2,
+  catalog, statusExtra: [], imageMap: [],
+  get gamesById() { return gamesById; }, get releaseIndex() { return releaseIndex; }, get jobs() { return jobs; }, get settings() { return settings; },
+  get roots() { return roots; }, get installedTitles() { return installedTitles; }, get favorites() { return favorites; },
+  makeJob: (...a) => makeJob(...a), publicJob: (...a) => publicJob(...a), startInstall: (...a) => startInstall(...a), rootOf: (p) => rootOf(p), defaultRoot: () => defaultRoot(),
+  jlog: (...a) => jlog(...a), mockArt: (...a) => mockArt(...a), unfinishedOn: (p) => unfinishedOn(p)
+};
+globalThis.XS_MOCK_STATE = state;
+const extFiles = readdirSync(EXT_DIR).filter((f) => /^dev-server-ext-.*\.mjs$/.test(f)).sort();
+for (const f of extFiles) {
+  try {
+    const mod = await import(pathToFileURL(join(EXT_DIR, f)).href);
+    if (typeof mod.register === 'function') { mod.register({ route, state }); console.log(`dev-server: loaded ${f}`); }
+  } catch (e) { console.error(`dev-server: ${f} failed to load: ${e.message}`); }
+}
+
 if (ART !== 'remote') {
   for (const g of catalog.games) {
+    if (g.platform !== 'PS5' && g.platform !== 'PS4') continue;   /* extension entries (HOMEBREW) keep their own covers */
     const base = ART === 'local' ? `/mockart/${encodeURIComponent(g.id)}` : `https://art.invalid/${encodeURIComponent(g.id)}`;
     g.cover = base + '/cover.svg'; g.hero = base + '/hero.svg'; g.coverFallback = ''; g.heroFallback = '';
+    if (ART !== 'local' && g.screenshots) g.screenshots = g.screenshots.map((u, i) => `https://art.invalid/${encodeURIComponent(g.id)}/shot${i + 1}.svg`);
   }
 }
 const gamesById = new Map(catalog.games.map((g) => [g.id, g]));
@@ -204,7 +287,7 @@ function makeJob(g, r, opts) {
   const format = String(opts.format || r.format || 'FFPFSC');
   const total = opts.total !== undefined ? opts.total : (r.sizeBytes || 0);
   const job = {
-    id: 'j_' + randomBytes(3).toString('hex'), gameId: g.id, title: g.title, titleId: (g.titleIds || [])[0] || r.titleId || '', platform: g.platform, cover: g.cover || '',
+    id: 'j_' + randomBytes(3).toString('hex'), gameId: g.id, title: g.title, titleId: (g.titleIds || [])[0] || r.titleId || '', platform: g.platform, cover: opts.cover || g.cover || '',
     releaseId: r.id || '', format: format.toUpperCase() === 'EXFAT' ? 'exFAT' : format, provider: r.provider || '', sourceId: r.sourceId || '', url: opts.url || r.url, mirrors: (r.mirrors || []).slice(),
     filename, root: root.path, rootLabel: root.label, path: pathFor(root.path, format, filename),
     state: 'queued', phase: '', message: '', error: '', errorCode: '', total, written: 0, speed: 0, eta: 0,
@@ -212,8 +295,10 @@ function makeJob(g, r, opts) {
     sha256: '', sha256Expected: r.sha256 || '', verified: false, verify: opts.verify || (r.sha256 && settings.downloads.verifyHashes ? 'sha256' : 'size'),
     addedAt: now(), startedAt: 0, finishedAt: 0, attempts: 0, nextRetryAt: 0, priority: jobs.filter((j) => j.state === 'queued').length,
     autoInstall: opts.autoInstall !== undefined ? !!opts.autoInstall : settings.downloads.autoInstallPkg, install: { state: 'idle', message: '', contentId: '' },
-    resumable: true, etag: '', lastModified: '', speedHistory: []
+    resumable: true, etag: '', lastModified: '', speedHistory: [],
+    type: opts.type || 'download', group: opts.group || '', groupOrder: opts.groupOrder || 0, kind: opts.kind || r.kind || 'game', via: ''
   };
+  if (opts.via && opts.via !== 'direct') { const svc = (globalThis.XS_MOCK_DEBRID || []).find((x) => x.connected && (opts.via === 'auto' || x.id === opts.via)); if (svc) { job.via = svc.name; job.message = `via ${svc.name}`; job.url = `https://cdn.${svc.id}.example/dl/${randomBytes(4).toString('hex')}/${encodeURIComponent(filename)}`; job.mirrors.unshift(opts.url || r.url); } }
   job.segments = planSegments(job.total, job.connections);
   jlog(job, `queued → ${job.path} (${job.connections} connections, verify=${job.verify})`);
   return job;
@@ -303,6 +388,8 @@ function tick() {
       j.state = 'installed'; j.install = { state: 'installed', message: 'Installed', contentId: j.install.contentId }; j.phase = ''; jlog(j, 'installed');
       if (j.titleId && !installedTitles.some((x) => x.titleId === j.titleId)) installedTitles.unshift({ titleId: j.titleId, gameId: j.gameId, title: j.title, cover: j.cover, path: `/user/app/${j.titleId}` });
     }
+    if (j.state === 'done' && j.type === 'save-install' && !j._saveImportAt) { j._saveImportAt = t + 1500; j.phase = 'Importing save'; j.install = { state: 'installing', message: 'Importing with the native mount engine', contentId: '' }; }
+    if (j.state === 'done' && j.type === 'save-install' && j._saveImportAt && t >= j._saveImportAt && j.install.state !== 'installed') { j.state = 'installed'; j.phase = ''; j.install = { state: 'installed', message: 'Save imported — launch the game', contentId: '' }; jlog(j, 'save imported'); }
     if (j.state === 'done' && j._verifyOnly && t >= j._verifyOnly) { j._verifyOnly = 0; j.verified = true; j.sha256 = j.sha256Expected; j.phase = ''; jlog(j, 'manual verify: sha256 OK'); }
   }
 }
@@ -334,32 +421,17 @@ function summary() {
   s.keepAwake = settings.downloads.keepAwake && jobs.some((j) => j.state === 'downloading');
   return s;
 }
-class ApiError extends Error { constructor(status, code, message) { super(message); this.status = status; this.code = code; } }
 const findJob = (id) => { const j = jobs.find((x) => x.id === id); if (!j) throw new ApiError(404, 'not_found', 'No such download'); return j; };
 
-/* ============================================================ routes (method + regex → handler) ============================================================ */
-const routes = [];
-const route = (method, pattern, handler) => routes.push({ method, pattern, handler });
-
-/* Extension mocks: every web/dev-server-ext-*.mjs may export `register({ route, state })` to add routes
- * for new features without editing this file (Phase 2 builders each own one such file). */
-import { pathToFileURL } from 'node:url';
-const EXT_DIR = dirname(fileURLToPath(import.meta.url));
-const extFiles = readdirSync(EXT_DIR).filter((f) => /^dev-server-ext-.*\.mjs$/.test(f)).sort();
-for (const f of extFiles) {
-  try {
-    const mod = await import(pathToFileURL(join(EXT_DIR, f)).href);
-    if (typeof mod.register === 'function') { mod.register({ route, state: globalThis.XS_MOCK_STATE || {} }); console.log(`dev-server: loaded ${f}`); }
-  } catch (e) { console.error(`dev-server: ${f} failed to load: ${e.message}`); }
-}
-
+/* ============================================================ base routes ============================================================ */
 route('GET', /^\/api\/status$/, () => ({
   ok: true, app: 'XENO STORE', version: VERSION, build: 'dev-mock', platform: 'host', fw: '13.60', ip: HOST === '0.0.0.0' ? '192.168.1.20' : HOST, port: PORT, uptime: now() - startedAt,
   downloadsAvailable: DOWNLOADS_AVAILABLE,
   catalog: { revision: catalog.revision, games: catalog.games.length, releases: catalog.games.reduce((n, g) => n + g.releases.length, 0), source: existsSync(catalogPath) ? 'embedded' : 'cached', updatedAt: catalog.generatedAt },
   queue: summary(), storage: roots,
   update: { available: UPDATE_AVAILABLE, latest: UPDATE_AVAILABLE ? bump(VERSION) : VERSION, current: VERSION, notes: UPDATE_AVAILABLE ? 'Faster segmented downloads, new themes, bug fixes.' : '' },
-  notices: args.includes('--notice') ? [{ id: 'welcome-1', text: 'Welcome to the XENO STORE preview — tell us what you think on GitHub.' }] : []
+  notices: args.includes('--notice') ? [{ id: 'welcome-1', text: 'Welcome to the XENO STORE preview — tell us what you think on GitHub.' }] : [],
+  ...Object.assign({}, ...state.statusExtra.map((fn) => fn()))
 }));
 const bump = (v) => v.replace(/(\d+)$/, (m) => String(Number(m) + 1));
 route('GET', /^\/api\/log$/, (q) => ({ ok: true, lines: logLines.slice(-Math.max(1, Math.min(400, Number(q.lines) || 200))) }));
@@ -400,7 +472,7 @@ route('POST', /^\/api\/queue$/, (q, body) => {
   if (!g) throw new ApiError(400, 'bad_release', 'Unknown game');
   if (!r && !body.url) throw new ApiError(400, 'bad_release', 'A release id or a direct url is required');
   if (body.url && !/^https?:\/\/[^\s@]+$/i.test(body.url)) throw new ApiError(400, 'bad_url', 'Only http(s) links without credentials are accepted');
-  const opts = { root: root.path, connections: body.connections, verify: body.verify, autoInstall: body.autoInstall, url: body.url, filename: body.filename, format: body.format || (r && r.format) };
+  const opts = { root: root.path, connections: body.connections, verify: body.verify, autoInstall: body.autoInstall, url: body.url, filename: body.filename, format: body.format || (r && r.format), via: body.via, kind: body.kind, cover: typeof body.cover === 'string' && /^\/api\/image\?|^\/mockart\//.test(body.cover) ? body.cover : '' };
   if (body.url && (!r || r.format === 'PAGE')) { r = { id: r ? r.id : '', url: body.url, filename: body.filename || body.url.split('/').pop(), format: body.format || 'FFPFSC', sizeBytes: 0, sha256: '', provider: safeHost(body.url), sourceId: r ? r.sourceId : 'other', mirrors: [] }; opts.total = r.sizeBytes; }
   if (r.format === 'PAGE') throw new ApiError(400, 'bad_release', 'That entry is a web page, not a file — use Enter file link');
   const job = makeJob(g, r, opts);
@@ -466,12 +538,13 @@ route('POST', /^\/api\/import$/, (q, body) => { if (body.settings) deepMerge(set
 route('GET', /^\/api\/pair$/, () => ({ ok: true, url: `http://${HOST === '0.0.0.0' ? '192.168.1.20' : HOST}:${PORT}/`, ip: HOST === '0.0.0.0' ? '192.168.1.20' : HOST, port: PORT }));
 
 /* ============================================================ static ============================================================ */
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const logoPath = join(here, 'src', 'logo.jpg');
 const iconPath = [join(ROOT, 'homebrew', 'sce_sys', 'icon0.png')].find((p) => existsSync(p)) || null;
-function mockArt(id, kind) {
+function mockArt(id, kind, n) {
   const g = gamesById.get(id);
   const title = g ? g.title : id;
+  if (kind === 'shot') return mockShot(title, n || 1, g ? g.platform : 'PS5');
+  if (kind === 'icon') return mockIcon(title, n || 'APP');
   const hue = hash32(title) % 360, hue2 = (hue + 40) % 360;
   const words = title.replace(/[^\w\s:'-]/g, '').split(/\s+/).filter(Boolean);
   const lines = []; let cur = '';
@@ -486,6 +559,26 @@ function mockArt(id, kind) {
     : lines.slice(0, 4).map((l, i) => `<text x="${W / 2}" y="${H / 2 + (i - (lines.length - 1) / 2) * fs * 1.15}" text-anchor="middle" font-family="Inter, Segoe UI, Arial, sans-serif" font-weight="800" font-size="${fs}" fill="#fff" fill-opacity=".92">${esc(l)}</text>`).join('');
   const plat = g ? `<rect x="${kind === 'hero' ? 80 : 30}" y="30" width="${g.platform === 'PS4' ? 92 : 92}" height="40" rx="8" fill="${g.platform === 'PS4' ? '#8a94b3' : '#2f7cf6'}"/><text x="${(kind === 'hero' ? 80 : 30) + 46}" y="58" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-weight="900" font-size="24" fill="#fff">${g.platform}</text>` : '';
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${hue},60%,42%)"/><stop offset="1" stop-color="hsl(${hue2},55%,16%)"/></linearGradient><radialGradient id="r" cx="${kind === 'hero' ? '75%' : '50%'}" cy="30%" r="60%"><stop offset="0" stop-color="#fff" stop-opacity=".22"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient></defs><rect width="${W}" height="${H}" fill="url(#g)"/><rect width="${W}" height="${H}" fill="url(#r)"/><circle cx="${W * 0.8}" cy="${H * 0.25}" r="${H * 0.28}" fill="hsl(${hue2},70%,60%)" fill-opacity=".18"/>${plat}${text}<text x="${W - 30}" y="${H - 24}" text-anchor="end" font-family="Inter, Arial, sans-serif" font-weight="700" font-size="20" fill="#fff" fill-opacity=".45">MOCK ART · XENO STORE</text></svg>`;
+}
+
+/* 16:9 screenshot stand-in: a scene with a horizon, a moon and the shot number. */
+function mockShot(title, n, platform) {
+  const hue = (hash32(title) + n * 37) % 360, hue2 = (hue + 60) % 360;
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const stars = Array.from({ length: 24 }, (_, i) => `<circle cx="${(hash32(title + i + n) % 1600)}" cy="${(hash32(title + n + i * 7) % 420)}" r="${1 + (i % 3)}" fill="#fff" fill-opacity=".${5 + (i % 5)}"/>`).join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900"><defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="hsl(${hue},55%,18%)"/><stop offset="1" stop-color="hsl(${hue2},60%,40%)"/></linearGradient><linearGradient id="gnd" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="hsl(${hue2},35%,22%)"/><stop offset="1" stop-color="hsl(${hue},40%,8%)"/></linearGradient></defs><rect width="1600" height="900" fill="url(#sky)"/>${stars}<circle cx="${300 + n * 180}" cy="260" r="${70 + n * 8}" fill="hsl(${hue2},80%,80%)" fill-opacity=".85"/><path d="M0 560 Q 400 ${420 + n * 30} 800 540 T 1600 500 V900 H0 Z" fill="url(#gnd)"/><rect x="60" y="60" width="150" height="54" rx="12" fill="rgba(0,0,0,.45)"/><text x="135" y="98" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-weight="900" font-size="30" fill="#fff">${platform} · ${n}</text><text x="1540" y="840" text-anchor="end" font-family="Inter, Arial, sans-serif" font-weight="800" font-size="34" fill="#fff" fill-opacity=".7">${esc(title)}</text><text x="1540" y="874" text-anchor="end" font-family="Inter, Arial, sans-serif" font-weight="700" font-size="18" fill="#fff" fill-opacity=".45">MOCK SCREENSHOT · XENO STORE</text></svg>`;
+}
+/* Square icon stand-in for homebrew apps and save icons. */
+function mockIcon(title, label) {
+  const hue = hash32(title) % 360, hue2 = (hue + 90) % 360;
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const initials = title.replace(/[^\w\s]/g, ' ').trim().split(/\s+/).slice(0, 2).map((w) => w.charAt(0)).join('').toUpperCase() || '?';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${hue},65%,45%)"/><stop offset="1" stop-color="hsl(${hue2},60%,20%)"/></linearGradient></defs><rect width="512" height="512" rx="96" fill="url(#g)"/><circle cx="400" cy="110" r="120" fill="#fff" fill-opacity=".12"/><text x="256" y="300" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-weight="900" font-size="170" fill="#fff" fill-opacity=".95">${esc(initials)}</text><rect x="156" y="372" width="200" height="48" rx="24" fill="rgba(0,0,0,.4)"/><text x="256" y="405" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-weight="800" font-size="26" fill="#fff" letter-spacing="2">${esc(label)}</text></svg>`;
+}
+/* /api/image?url= proxy: extensions register [regex, (match) => svg] pairs in state.imageMap. */
+function proxiedImage(url) {
+  for (const [re, fn] of state.imageMap) { const m = re.exec(url); if (m) return fn(m); }
+  return null;
 }
 
 function send(res, status, body, headers) {
@@ -528,6 +621,15 @@ const server = createServer(async (req, res) => {
     let m;
     if ((m = /^\/i18n\/([a-zA-Z-]+)\.json$/.exec(path))) { const p = join(here, 'src', 'i18n', m[1] + '.json'); if (existsSync(p)) return send(res, 200, readFileSync(p), { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'max-age=3600' }); throw new ApiError(404, 'not_found', 'No such locale'); }
     if ((m = /^\/mockart\/([^/]+)\/(cover|hero)\.svg$/.exec(path))) return send(res, 200, mockArt(decodeURIComponent(m[1]), m[2]), { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'max-age=86400' });
+    if ((m = /^\/mockart\/([^/]+)\/shot(\d+)\.svg$/.exec(path))) return send(res, 200, mockArt(decodeURIComponent(m[1]), 'shot', Number(m[2])), { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'max-age=86400' });
+    if ((m = /^\/mockart\/(hb|save)\/([^/]+)\/[a-z0-9]+\.svg$/.exec(path))) return send(res, 200, mockIcon(decodeURIComponent(m[2]), m[1] === 'hb' ? 'APP' : 'SAVE'), { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'max-age=86400' });
+    if (path === '/api/image') {
+      const target = String(q.url || '');
+      if (!/^https?:\/\//i.test(target)) throw new ApiError(400, 'bad_url', 'url must be http(s)');
+      const svg = proxiedImage(target);
+      if (!svg) throw new ApiError(403, 'host_not_allowed', 'That image host is not on the allowlist');
+      return send(res, 200, svg, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'max-age=3600' });
+    }
     if (path.indexOf('/api/') === 0) {
       for (const r of routes) {
         if (r.method !== req.method) continue;

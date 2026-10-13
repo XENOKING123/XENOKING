@@ -1,17 +1,20 @@
-/* XENO STORE — 40-discover.js: hero spotlight, rails, surprise me, All games grid (96/page). */
+/* XENO STORE — 40-discover.js: hero spotlight (featured.hero first), rails incl. owner-curated featured rows,
+   backports, community saves, homebrew essentials; announcement banner; prefetch; surprise me; All games grid. */
 (function () {
   'use strict';
-  var XS = window.XS, U = XS.util, S = XS.state, ui = XS.ui, h = U.h, t = XS.t;
+  var XS = window.XS, U = XS.util, S = XS.state, ui = XS.ui, ca = XS.ca, h = U.h, t = XS.t;
   var PAGE = 96;
-  var heroTimer = null, heroIdx = 0, heroList = [], heroEl = null, page = 0, root = null, gridEl = null, lazyRails = [];
+  var heroTimer = null, heroIdx = 0, heroList = [], heroEl = null, page = 0, root = null, gridEl = null;
   var dirty = false;   /* something changed while Discover was hidden (recent games, job set): re-render on the next show */
 
+  function featured() { var st = S.data.status; return (st && st.featured) || {}; }
   function heroPool() {
     var L = S.data.lists;
-    var pool = (L.featured || []).slice();
-    var seen = {};
-    pool.forEach(function (g) { seen[g.id] = 1; });
-    (L.newest || []).forEach(function (g) { if (!seen[g.id] && pool.length < 10 && (g.hero || g.cover)) { seen[g.id] = 1; pool.push(g); } });
+    var pool = [], seen = {};
+    function add(g) { if (g && ca.isGame(g) && !seen[g.id] && pool.length < 10) { seen[g.id] = 1; pool.push(g); } }
+    (featured().hero || []).forEach(function (id) { add(S.game(id)); });   /* owner-curated first (§17.1) */
+    (L.featured || []).forEach(add);
+    (L.newest || []).forEach(function (g) { if (g.hero || g.cover) add(g); });
     return pool.slice(0, 10);
   }
 
@@ -35,7 +38,8 @@
     art.appendChild(ui.cover(g.hero || g.cover, g.heroFallback || g.coverFallback, g.title));
     heroEl.appendChild(art);
     var body = h('div.body');
-    body.appendChild(h('div.kicker', { text: g.featured > 0 ? t('discover.kickerFeatured') : t('discover.kicker') }));
+    var curated = (featured().hero || []).indexOf(g.id) >= 0;
+    body.appendChild(h('div.kicker', { text: curated ? t('discover2.kickerStaff') : g.featured > 0 ? t('discover.kickerFeatured') : t('discover.kicker') }));
     body.appendChild(h('h1', { text: g.title }));
     if (g.tagline) body.appendChild(h('p.tagline.clamp2', { text: g.tagline }));
     var chips = h('div.chips');
@@ -43,6 +47,8 @@
     ui.uniqueFormats(g).slice(0, 3).forEach(function (f) { chips.appendChild(h('span.chip.fmt', { text: f })); });
     if (g.sizeMax) chips.appendChild(h('span.chip', { text: ui.sizeRange(g) }));
     if (g.verified) chips.appendChild(h('span.chip.gold', { html: U.icon('check') + '<span>' + U.escapeHtml(t('common.verified')) + '</span>' }));
+    var mc = ca.metacritic(g.metacritic); if (mc) chips.appendChild(mc);
+    if (g.cheats > 0) chips.appendChild(h('span.chip.gold', { html: U.icon('zap') + '<span>' + U.escapeHtml(t('game2.cheatsChip', { n: g.cheats })) + '</span>' }));
     body.appendChild(chips);
     var acts = h('div.actions');
     var view = h('button.btn.primary.lg', { nav: 'hero-view', html: U.icon('play') + '<span>' + U.escapeHtml(t('discover.viewGame')) + '</span>', data: { hints: 'select' } });
@@ -57,11 +63,14 @@
     heroList.forEach(function (_, i) { dots.appendChild(h('i' + (i === heroIdx ? '.on' : ''))); });
     heroEl.appendChild(dots);
     if (focusId) { var again = heroEl.querySelector('[data-nav-id="' + focusId + '"]'); if (again) XS.nav.focus(again, false); }
+    /* ambient crossfade: preload the next hero's art so the swap never flashes a placeholder */
+    var nxt = heroList[(heroIdx + 1) % heroList.length];
+    if (nxt && !ca.safeMode()) { try { var im = new Image(); im.src = nxt.hero || nxt.cover; } catch (e) { /* ignore */ } }
   }
   function startRotation() {
     stopRotation();
     heroTimer = setInterval(function () {
-      if (!heroEl || !root.classList.contains('active') || XS.ui.layers.length) return;
+      if (!heroEl || !root.classList.contains('active') || XS.ui.layers.length || ca.screensaver.active()) return;
       if (heroEl.contains(document.activeElement)) return;   /* don't yank a focused hero */
       heroIdx = (heroIdx + 1) % heroList.length;
       paintHero(true);
@@ -76,48 +85,87 @@
   }
   function rank(j) { return ['downloading', 'connecting', 'verifying', 'installing', 'queued', 'paused', 'failed', 'done', 'installed', 'cancelled'].indexOf(j.state); }
   function jobGame(j) {
-    return S.game(j.gameId) || { id: j.gameId, title: j.title, platform: j.platform, cover: j.cover, coverFallback: '', releases: [], sizeMax: j.total, _synthetic: true };
+    var g = S.game(j.gameId);
+    if (g && ca.isGame(g)) return g;
+    var syn = { id: j.gameId, title: j.title, platform: j.platform, cover: j.cover, coverFallback: '', releases: [], sizeMax: j.total, _synthetic: true };
+    if (g && g.platform === 'HOMEBREW') { for (var k in g) if (k !== 'cover') syn[k] = g[k]; syn._homebrew = true; }
+    else if (j.type === 'save-install' || j.type === 'save-download' || j.kind === 'app') syn._homebrew = j.kind === 'app';
+    return syn;
   }
+  function games(list) { return (list || []).filter(ca.isGame); }
 
   function rails(container) {
     var L = S.data.lists, jobs = jobsByGame();
-    lazyRails = [];
-    function add(id, title, games, opts) {
+    function add(id, title, list, opts) {
       opts = opts || {};
       opts.id = id; opts.jobs = jobs; opts.limit = opts.limit || 20;
-      if (!games || !games.length) return;
-      var sec = ui.rail(title, games, opts);
+      if (!list || !list.length) return;
+      var sec = ui.rail(title, list, opts);
       if (sec) container.appendChild(sec);
     }
     var cont = S.data.queue.jobs.filter(function (j) { return ['downloading', 'connecting', 'queued', 'paused', 'verifying', 'installing', 'failed'].indexOf(j.state) >= 0; });
-    if (cont.length) add('continue', t('discover.continue'), cont.map(jobGame), { more: function () { XS.router.go('downloads'); } });
-    add('new', t('discover.newOnXeno'), L.newest, { more: function () { XS.router.go('browse', { sort: 'added' }); } });
-    add('latest', t('discover.latestReleases'), L.latest, { more: function () { XS.router.go('browse', { sort: 'newest' }); } });
-    add('trending', t('discover.trending'), L.trending, { more: function () { XS.router.go('browse', { sort: 'popular' }); } });
-    add('verified', t('discover.verifiedFast'), L.verified, { more: function () { XS.router.go('browse', { verified: 1, source: 'archive' }); } });
-    add('light', t('discover.light'), L.light, { more: function () { XS.router.go('browse', { size: 'le10', sort: 'smallest' }); } });
-    add('massive', t('discover.massive'), L.massive, { more: function () { XS.router.go('browse', { size: 'gt100', sort: 'largest' }); } });
-    add('ps4', t('discover.ps4'), L.ps4, { more: function () { XS.router.go('browse', { platform: 'PS4' }); } });
-    var favs = S.data.favorites.map(S.game).filter(Boolean);
+    /* homebrew installs show as app cards (proxied cover, opens the app page); everything else as game cards */
+    if (cont.length) add('continue', t('discover.continue'), cont.map(jobGame), { more: function () { XS.router.go('downloads'); }, render: function (g) { return g._homebrew && XS.homebrew ? XS.homebrew.cardFromGame(g, 'rail.continue') : ui.card(g, { job: jobs[g.id], navPrefix: 'rail.continue' }); } });
+    add('new', t('discover.newOnXeno'), games(L.newest), { more: function () { XS.router.go('browse', { sort: 'added' }); } });
+    /* owner-curated rows from updates/featured.json (§17.1) */
+    (featured().rows || []).forEach(function (row, i) {
+      var list = (row.ids || []).map(S.game).filter(ca.isGame);
+      var title = ca.localized(row.title, '');
+      if (list.length && title) add('featured-' + i, title, list);
+    });
+    add('latest', t('discover.latestReleases'), games(L.latest), { more: function () { XS.router.go('browse', { sort: 'newest' }); } });
+    add('trending', t('discover.trending'), games(L.trending), { more: function () { XS.router.go('browse', { sort: 'popular' }); } });
+    add('verified', t('discover.verifiedFast'), games(L.verified), { more: function () { XS.router.go('browse', { verified: 1, source: 'archive' }); } });
+    var bps = S.data.games.filter(function (g) { return ca.isGame(g) && ca.counts(g).backport > 0; }).sort(function (a, b) { return (b.popularity || 0) - (a.popularity || 0); }).slice(0, 30);
+    if (bps.length) add('backports', t('discover2.backports'), bps, { more: function () { XS.router.go('browse', { backports: 1 }); } });
+    add('light', t('discover.light'), games(L.light), { more: function () { XS.router.go('browse', { size: 'le10', sort: 'smallest' }); } });
+    add('massive', t('discover.massive'), games(L.massive), { more: function () { XS.router.go('browse', { size: 'gt100', sort: 'largest' }); } });
+    add('ps4', t('discover.ps4'), games(L.ps4), { more: function () { XS.router.go('browse', { platform: 'PS4' }); } });
+    var mcs = S.data.games.filter(function (g) { return ca.isGame(g) && typeof g.metacritic === 'number' && g.metacritic >= 85; }).sort(function (a, b) { return b.metacritic - a.metacritic; }).slice(0, 30);
+    if (mcs.length) add('acclaimed', t('discover2.acclaimed'), mcs, { more: function () { XS.router.go('browse', { sort: 'metacritic' }); } });
+    var favs = S.data.favorites.map(S.game).filter(ca.isGame);
     if (favs.length) add('favorites', t('discover.yourFavorites'), favs, { more: function () { XS.router.go('browse', { favorites: 1 }); } });
-    var recent = S.data.recent.map(S.game).filter(Boolean);
+    var recent = S.data.recent.map(S.game).filter(ca.isGame);
     if (recent.length) add('recent', t('discover.recentlyViewed'), recent);
+    /* community saves + homebrew essentials: async rails that fill in when the API answers */
+    container.appendChild(savesRailHost());
+    container.appendChild(homebrewRailHost());
     var genres = S.data.genres.slice(0, 16);
     if (genres.length) {
       var sec = ui.rail(t('discover.popularGenres'), genres, { id: 'genres', total: genres.length, render: function (gn) { return ui.genreTile(gn.name, gn.count); } });
       if (sec) container.appendChild(sec);
     }
   }
+  function savesRailHost() {
+    var host = h('div', { data: { railHost: 'saves' } });
+    if (!XS.saves || !S.data.serverOk) return host;
+    XS.saves.newest(12).then(function (list) {
+      if (!list.length) return;
+      var sec = XS.saves.rail(t('discover2.newSaves'), list, { id: 'saves', more: function () { XS.router.go('saves'); } });
+      if (sec && host.isConnected) { U.clear(host); host.appendChild(sec); }
+    }, function () { /* offline: no rail */ });
+    return host;
+  }
+  function homebrewRailHost() {
+    var host = h('div', { data: { railHost: 'homebrew' } });
+    if (!XS.homebrew || !S.data.serverOk) return host;
+    XS.homebrew.essentials(12).then(function (apps) {
+      if (!apps.length) return;
+      var sec = XS.homebrew.rail(t('discover2.homebrewEssentials'), apps, { id: 'hb', more: function () { XS.router.go('homebrew'); } });
+      if (sec && host.isConnected) { U.clear(host); host.appendChild(sec); }
+    }, function () { /* offline: no rail */ });
+    return host;
+  }
 
   function allGames(container) {
-    var games = S.data.lists.alpha || [];
-    var pages = Math.max(1, Math.ceil(games.length / PAGE));
+    var list = games(S.data.lists.alpha);
+    var pages = Math.max(1, Math.ceil(list.length / PAGE));
     page = Math.min(page, pages - 1);
     var sec = h('section.all-games');
-    sec.appendChild(h('div.section-head', [h('h2.section-title', [t('discover.allGames'), h('span.count', { text: t('common.nGames', { n: games.length }) })]), h('span.spacer'), h('span.mute', { text: t('common.pageOf', { page: page + 1, pages: pages }) })]));
+    sec.appendChild(h('div.section-head', [h('h2.section-title', [t('discover.allGames'), h('span.count', { text: t('common.nGames', { n: list.length }) })]), h('span.spacer'), h('span.mute', { text: t('common.pageOf', { page: page + 1, pages: pages }) })]));
     gridEl = h('div.vgrid', { data: { navRegion: '' } });
     sec.appendChild(gridEl);
-    ui.vgrid(gridEl, games.slice(page * PAGE, page * PAGE + PAGE), root, function (g) { return ui.card(g); });
+    ui.vgrid(gridEl, list.slice(page * PAGE, page * PAGE + PAGE), root, function (g) { return ui.card(g); });
     sec.appendChild(pager(pages));
     container.appendChild(sec);
   }
@@ -143,6 +191,7 @@
     if (!root) return;
     stopRotation();
     dirty = false;
+    featuredChanged();   /* the rendered featured set is now current */
     var scroll = root.scrollTop;
     var fid = root.contains(document.activeElement) ? document.activeElement.getAttribute('data-nav-id') : null;
     U.clear(root);
@@ -155,9 +204,12 @@
     }
     renderHero(inner);
     var top = h('div.discover-top');
+    var req = h('button.btn.ghost', { nav: 'request-game', html: U.icon('plus') + '<span>' + U.escapeHtml(t('game2.requestGame')) + '</span>', title: t('game2.requestSub') });
+    req.addEventListener('click', function () { ca.requestGame(''); });
+    top.appendChild(req);
     top.appendChild(h('span.spacer'));
     var surprise = h('button.btn', { nav: 'surprise', html: U.icon('shuffle') + '<span>' + U.escapeHtml(t('discover.surpriseMe')) + '</span>' });
-    surprise.addEventListener('click', function () { var g = S.data.games[Math.floor(Math.random() * S.data.games.length)]; if (g) XS.router.go('game', { id: g.id }); });
+    surprise.addEventListener('click', function () { var pool = games(S.data.games); var g = pool[Math.floor(Math.random() * pool.length)]; if (g) XS.router.go('game', { id: g.id }); });
     top.appendChild(surprise);
     inner.appendChild(top);
     rails(inner);
@@ -186,10 +238,22 @@
       var sub = c.querySelector('.sub span'); if (sub) sub.textContent = t('dl.state.' + j.state) + (j.total ? ' · ' + U.fmtPct(U.pct(j.written, j.total)) : '');
     });
   }
+  var lastFeaturedKey = '';
+  function featuredChanged() {
+    var key = JSON.stringify(featured().hero || []) + '|' + JSON.stringify((featured().rows || []).map(function (r) { return r.ids; }));
+    if (key === lastFeaturedKey) return false;
+    lastFeaturedKey = key; return true;
+  }
 
   XS.router.register('discover', {
     tab: true, icon: 'compass', label: function () { return t('nav.discover'); },
-    mount: function (el) { root = el; },
+    mount: function (el) {
+      root = el;
+      /* prefetch the next 6 covers of the rail the user walks along (§17.7) */
+      el.addEventListener('focusin', function (e) { var card = e.target && e.target.closest ? e.target.closest('.card') : null; if (card && card.parentNode && card.parentNode.classList.contains('rail-track')) ca.prefetchRail(card.parentNode, card); });
+      ca.banner();
+      ca.screensaver.setup();
+    },
     show: function () { if (!root.firstChild || !S.data.catalog || dirty) render(); else { startRotation(); patchFavorites(); } },
     hide: function () { stopRotation(); },
     refresh: render
@@ -198,4 +262,5 @@
   S.on('favorites', patchFavorites);
   S.on('queue', patchQueue);
   S.on('recent', function () { dirty = true; });   /* "Recently viewed" refreshes when the user comes back, never under their focus */
+  S.on('status', function () { ca.banner(); if (root && S.data.catalog && featuredChanged()) { if (root.classList.contains('active') && !root.contains(document.activeElement)) render(); else dirty = true; } });
 })();

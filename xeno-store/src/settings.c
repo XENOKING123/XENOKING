@@ -32,6 +32,12 @@ static int n_recent;
 #define DEFAULT_CATALOG_URL "https://raw.githubusercontent.com/XENOKING123/XENOKING/main/xeno-store/catalog/xeno-catalog.json"
 #define DEFAULT_REVISION_URL "https://raw.githubusercontent.com/XENOKING123/XENOKING/main/xeno-store/catalog/revision.json"
 #define DEFAULT_UPDATES_FEED "https://raw.githubusercontent.com/XENOKING123/XENOKING/main/xeno-store/updates/payloads.json"
+#define DEFAULT_UPDATES_BASE "https://raw.githubusercontent.com/XENOKING123/XENOKING/main/xeno-store/updates/"
+#define DEFAULT_FEATURED_URL DEFAULT_UPDATES_BASE "featured.json"
+#define DEFAULT_MESSAGES_URL DEFAULT_UPDATES_BASE "messages.json"
+#define DEFAULT_COMPANIONS_URL DEFAULT_UPDATES_BASE "companions.json"
+#define DEFAULT_SAVES_BACKEND_URL DEFAULT_UPDATES_BASE "saves-backend.json"
+#define DEFAULT_INSTALL_ORDER "game,backport,update,dlc"
 
 /* ---- defaults ----------------------------------------------------------- */
 
@@ -63,6 +69,27 @@ static void settings_defaults(settings_t *s) {
   s->toasts = 1; s->onComplete = 1; s->onFail = 1; s->onInstall = 1;
   s->updatesAutoCheck = 1;
   xstrlcpy(s->updatesFeed, DEFAULT_UPDATES_FEED, sizeof s->updatesFeed);
+  /* Phase 2 */
+  s->largeText = 0; s->highContrast = 0; s->safeMode = 0; s->screensaver = 1;
+  s->screensaverMinutes = 3; s->controllerSwapConfirm = 0; s->mdns = 1;
+  xstrlcpy(s->preferFormat, "auto", sizeof s->preferFormat);
+  s->turboStart = 1; s->autoInstallSets = 1;
+  xstrlcpy(s->installOrder, DEFAULT_INSTALL_ORDER, sizeof s->installOrder);
+  s->restModeAutoResume = 1; s->extractZip = 1; s->deleteArchiveAfterExtract = 1;
+  xstrlcpy(s->debrid.preferred, "auto", sizeof s->debrid.preferred);
+  xstrlcpy(s->featuredUrl, DEFAULT_FEATURED_URL, sizeof s->featuredUrl);
+  xstrlcpy(s->messagesUrl, DEFAULT_MESSAGES_URL, sizeof s->messagesUrl);
+  xstrlcpy(s->companionsUrl, DEFAULT_COMPANIONS_URL, sizeof s->companionsUrl);
+  xstrlcpy(s->savesBackendUrl, DEFAULT_SAVES_BACKEND_URL, sizeof s->savesBackendUrl);
+  s->saves.autoBackup = 1;
+  xstrlcpy(s->saves.backend.kind, "github", sizeof s->saves.backend.kind);
+  xstrlcpy(s->saves.backend.bucket, "ps5-saves", sizeof s->saves.backend.bucket);
+  xstrlcpy(s->saves.backend.garlicFunction, "garlic-savedb", sizeof s->saves.backend.garlicFunction);
+  xstrlcpy(s->saves.uploadHost, "pixeldrain", sizeof s->saves.uploadHost);
+}
+
+void settings_saves_root(const settings_t *s, char *out, size_t cap) {
+  xstrlcpy(out, s->saves.backupRoot[0] ? s->saves.backupRoot : s->defaultRoot, cap);
 }
 
 /* ---- JSON (de)serialization --------------------------------------------- */
@@ -74,6 +101,10 @@ static void write_settings(jw *w, const settings_t *s) {
   jw_kv_str(w, "language", s->language); jw_kv_str(w, "theme", s->theme); jw_kv_str(w, "cardSize", s->cardSize);
   jw_kv_bool(w, "reduceMotion", s->reduceMotion); jw_kv_bool(w, "sounds", s->sounds); jw_kv_bool(w, "hints", s->hints);
   jw_kv_bool(w, "showPs4", s->showPs4); jw_kv_bool(w, "adultFilter", s->adultFilter);
+  jw_kv_bool(w, "largeText", s->largeText); jw_kv_bool(w, "highContrast", s->highContrast);
+  jw_kv_bool(w, "safeMode", s->safeMode); jw_kv_bool(w, "screensaver", s->screensaver);
+  jw_kv_int(w, "screensaverMinutes", s->screensaverMinutes);
+  jw_kv_bool(w, "controllerSwapConfirm", s->controllerSwapConfirm); jw_kv_bool(w, "mdns", s->mdns);
   jw_obj_end(w);
   jw_key(w, "downloads"); jw_obj_begin(w);
   jw_kv_str(w, "defaultRoot", s->defaultRoot); jw_kv_int(w, "connections", s->connections);
@@ -82,6 +113,17 @@ static void write_settings(jw *w, const settings_t *s) {
   jw_kv_bool(w, "shadowMountScan", s->shadowMountScan); jw_kv_bool(w, "keepAwake", s->keepAwake);
   jw_kv_int(w, "retryMax", s->retryMax); jw_kv_bool(w, "allowInsecureTls", s->allowInsecureTls);
   jw_kv_str(w, "scheduleStart", s->scheduleStart); jw_kv_str(w, "scheduleEnd", s->scheduleEnd);
+  jw_kv_str(w, "preferFormat", s->preferFormat); jw_kv_bool(w, "turboStart", s->turboStart);
+  jw_kv_bool(w, "autoInstallSets", s->autoInstallSets); jw_kv_str(w, "installOrder", s->installOrder);
+  jw_kv_bool(w, "restModeAutoResume", s->restModeAutoResume); jw_kv_bool(w, "extractZip", s->extractZip);
+  jw_kv_bool(w, "deleteArchiveAfterExtract", s->deleteArchiveAfterExtract);
+  jw_obj_end(w);
+  jw_key(w, "debrid"); jw_obj_begin(w);
+  jw_key(w, "realdebrid"); jw_obj_begin(w); jw_kv_str(w, "apiKey", s->debrid.realdebrid.apiKey); jw_obj_end(w);
+  jw_key(w, "alldebrid"); jw_obj_begin(w); jw_kv_str(w, "apiKey", s->debrid.alldebrid.apiKey); jw_obj_end(w);
+  jw_key(w, "torbox"); jw_obj_begin(w); jw_kv_str(w, "apiKey", s->debrid.torbox.apiKey); jw_obj_end(w);
+  jw_key(w, "premiumize"); jw_obj_begin(w); jw_kv_str(w, "apiKey", s->debrid.premiumize.apiKey); jw_obj_end(w);
+  jw_kv_str(w, "preferred", s->debrid.preferred);
   jw_obj_end(w);
   jw_key(w, "sources"); jw_obj_begin(w);
   jw_key(w, "enabled"); jw_obj_begin(w);
@@ -92,6 +134,8 @@ static void write_settings(jw *w, const settings_t *s) {
   jw_key(w, "catalog"); jw_obj_begin(w);
   jw_kv_bool(w, "autoRefresh", s->catalogAutoRefresh); jw_kv_str(w, "url", s->catalogUrl);
   jw_kv_str(w, "revisionUrl", s->catalogRevisionUrl); jw_kv_i64(w, "lastCheck", (int64_t)s->catalogLastCheck);
+  jw_kv_str(w, "featuredUrl", s->featuredUrl); jw_kv_str(w, "messagesUrl", s->messagesUrl);
+  jw_kv_str(w, "companionsUrl", s->companionsUrl); jw_kv_str(w, "savesBackendUrl", s->savesBackendUrl);
   jw_obj_end(w);
   jw_key(w, "notifications"); jw_obj_begin(w);
   jw_kv_bool(w, "toasts", s->toasts); jw_kv_bool(w, "onComplete", s->onComplete);
@@ -103,6 +147,31 @@ static void write_settings(jw *w, const settings_t *s) {
   jw_obj_end(w);
   jw_key(w, "pairing"); jw_obj_begin(w);
   jw_kv_str(w, "pin", s->pin);
+  jw_obj_end(w);
+  jw_key(w, "saves"); jw_obj_begin(w);
+  jw_kv_str(w, "backupRoot", s->saves.backupRoot); jw_kv_bool(w, "autoBackup", s->saves.autoBackup);
+  jw_key(w, "indexUrls"); jw_arr_begin(w);
+  for (int i = 0; i < s->saves.n_indexUrls; i++) jw_str(w, s->saves.indexUrls[i]);
+  jw_arr_end(w);
+  jw_key(w, "backend"); jw_obj_begin(w);
+  jw_kv_str(w, "kind", s->saves.backend.kind); jw_kv_str(w, "url", s->saves.backend.url);
+  jw_kv_str(w, "anonKey", s->saves.backend.anonKey); jw_kv_str(w, "bucket", s->saves.backend.bucket);
+  jw_kv_str(w, "garlicFunction", s->saves.backend.garlicFunction);
+  jw_obj_end(w);
+  jw_kv_str(w, "uploadHost", s->saves.uploadHost); jw_kv_str(w, "uploadEndpoint", s->saves.uploadEndpoint);
+  jw_kv_str(w, "submitEndpoint", s->saves.submitEndpoint); jw_kv_str(w, "nickname", s->saves.nickname);
+  jw_obj_end(w);
+  jw_key(w, "browse"); jw_obj_begin(w);
+  jw_key(w, "presets"); jw_arr_begin(w);
+  for (int i = 0; i < s->browse.n_presets; i++) {
+    jw_obj_begin(w);
+    jw_kv_str(w, "name", s->browse.presets[i].name);
+    if (s->browse.presets[i].filters[0]) jw_kv_raw(w, "filters", s->browse.presets[i].filters, strlen(s->browse.presets[i].filters));
+    else { jw_key(w, "filters"); jw_obj_begin(w); jw_obj_end(w); }
+    jw_kv_str(w, "sort", s->browse.presets[i].sort);
+    jw_obj_end(w);
+  }
+  jw_arr_end(w);
   jw_obj_end(w);
   jw_obj_end(w);
 }
@@ -133,6 +202,43 @@ static int valid_hhmm(const char *s) {
   return h >= 0 && h <= 23 && m >= 0 && m <= 59;
 }
 
+static const char *const PREFER_FORMATS[] = {"auto", "exFAT", "FFPFSC", "PKG"};
+static const char *const DEBRID_CHOICES[] = {"auto", "direct", "realdebrid", "alldebrid", "torbox", "premiumize"};
+static const char *const BACKEND_KINDS[] = {"supabase", "github", "none"};
+static const char *const UPLOAD_HOSTS[] = {"pixeldrain", "catbox", "custom"};
+
+/* Case-insensitive match against a choice list; rewrites the canonical
+ * spelling. "" picks the first entry (the default). */
+static int normalize_choice(char *val, size_t cap, const char *const *choices, size_t n) {
+  if (!val[0]) { xstrlcpy(val, choices[0], cap); return 0; }
+  for (size_t i = 0; i < n; i++)
+    if (util_strieq(val, choices[i])) { xstrlcpy(val, choices[i], cap); return 0; }
+  return -1;
+}
+
+/* installOrder: comma list of the four kinds; missing kinds are appended in
+ * the default order so every kind always has a position. */
+static int normalize_install_order(char *val, size_t cap) {
+  static const char *const kinds[] = {"game", "backport", "update", "dlc"};
+  int seen[4] = {0, 0, 0, 0};
+  char tmp[64], out[64] = "";
+  xstrlcpy(tmp, val, sizeof tmp);
+  for (char *tok = strtok(tmp, ", "); tok; tok = strtok(NULL, ", ")) {
+    util_trim(tok);
+    util_lower(tok);
+    int k = -1;
+    for (int i = 0; i < 4; i++) if (strcmp(tok, kinds[i]) == 0) k = i;
+    if (k < 0) return -1;
+    if (seen[k]) continue;
+    seen[k] = 1;
+    if (out[0]) xstrlcat(out, ",", sizeof out);
+    xstrlcat(out, kinds[k], sizeof out);
+  }
+  for (int i = 0; i < 4; i++) if (!seen[i]) { if (out[0]) xstrlcat(out, ",", sizeof out); xstrlcat(out, kinds[i], sizeof out); }
+  xstrlcpy(val, out, cap);
+  return 0;
+}
+
 static int validate(settings_t *s, char *err, size_t errcap) {
   static const char *const themes[] = {"xeno-gold", "midnight", "oled", "crimson", "emerald", "royal", "ice"};
   int ok = 0;
@@ -147,6 +253,33 @@ static int validate(settings_t *s, char *err, size_t errcap) {
   if (s->catalogUrl[0] && !util_istarts_with(s->catalogUrl, "http")) { xsnprintf(err, errcap, "catalog url must be http(s)"); return -1; }
   if (s->defaultRoot[0] != '/' && s->defaultRoot[0] != '.') { xsnprintf(err, errcap, "defaultRoot must be a path"); return -1; }
   if (s->maxBytesPerSec < 0) s->maxBytesPerSec = 0;
+  /* Phase 2 */
+  if (s->screensaverMinutes < 1) s->screensaverMinutes = 1;
+  if (s->screensaverMinutes > 30) s->screensaverMinutes = 30;
+  if (normalize_choice(s->preferFormat, sizeof s->preferFormat, PREFER_FORMATS, XS_ARRAY_LEN(PREFER_FORMATS)) != 0) {
+    xsnprintf(err, errcap, "preferFormat must be auto|exFAT|FFPFSC|PKG"); return -1;
+  }
+  if (normalize_install_order(s->installOrder, sizeof s->installOrder) != 0) {
+    xsnprintf(err, errcap, "installOrder must list game, backport, update, dlc"); return -1;
+  }
+  if (normalize_choice(s->debrid.preferred, sizeof s->debrid.preferred, DEBRID_CHOICES, XS_ARRAY_LEN(DEBRID_CHOICES)) != 0) {
+    xsnprintf(err, errcap, "debrid.preferred must be auto|direct|realdebrid|alldebrid|torbox|premiumize"); return -1;
+  }
+  if (normalize_choice(s->saves.backend.kind, sizeof s->saves.backend.kind, BACKEND_KINDS, XS_ARRAY_LEN(BACKEND_KINDS)) != 0) {
+    xsnprintf(err, errcap, "saves.backend.kind must be supabase|github|none"); return -1;
+  }
+  if (normalize_choice(s->saves.uploadHost, sizeof s->saves.uploadHost, UPLOAD_HOSTS, XS_ARRAY_LEN(UPLOAD_HOSTS)) != 0) {
+    xsnprintf(err, errcap, "saves.uploadHost must be pixeldrain|catbox|custom"); return -1;
+  }
+  const char *const urls[] = {s->featuredUrl, s->messagesUrl, s->companionsUrl, s->savesBackendUrl, s->catalogRevisionUrl,
+                              s->saves.backend.url, s->saves.uploadEndpoint, s->saves.submitEndpoint};
+  for (size_t i = 0; i < XS_ARRAY_LEN(urls); i++)
+    if (urls[i][0] && !util_istarts_with(urls[i], "http")) { xsnprintf(err, errcap, "urls must be http(s)"); return -1; }
+  for (int i = 0; i < s->saves.n_indexUrls; i++)
+    if (!util_istarts_with(s->saves.indexUrls[i], "http")) { xsnprintf(err, errcap, "saves.indexUrls must be http(s)"); return -1; }
+  if (s->saves.backupRoot[0] && s->saves.backupRoot[0] != '/' && s->saves.backupRoot[0] != '.') { xsnprintf(err, errcap, "saves.backupRoot must be a path"); return -1; }
+  for (const unsigned char *p = (const unsigned char *)s->saves.nickname; *p; p++)
+    if (*p < 0x20) { xsnprintf(err, errcap, "nickname has control characters"); return -1; }
   return 0;
 }
 
@@ -158,6 +291,10 @@ static int merge_into(settings_t *s, jv o, char *err, size_t errcap) {
     merge_str(g, "cardSize", s->cardSize, sizeof s->cardSize);
     merge_bool(g, "reduceMotion", &s->reduceMotion); merge_bool(g, "sounds", &s->sounds);
     merge_bool(g, "hints", &s->hints); merge_bool(g, "showPs4", &s->showPs4); merge_bool(g, "adultFilter", &s->adultFilter);
+    merge_bool(g, "largeText", &s->largeText); merge_bool(g, "highContrast", &s->highContrast);
+    merge_bool(g, "safeMode", &s->safeMode); merge_bool(g, "screensaver", &s->screensaver);
+    merge_int(g, "screensaverMinutes", &s->screensaverMinutes, 1, 30);
+    merge_bool(g, "controllerSwapConfirm", &s->controllerSwapConfirm); merge_bool(g, "mdns", &s->mdns);
   }
   jv d = jv_get(o, "downloads");
   if (jv_ok(d)) {
@@ -172,6 +309,25 @@ static int merge_into(settings_t *s, jv o, char *err, size_t errcap) {
     merge_bool(d, "allowInsecureTls", &s->allowInsecureTls);
     merge_str(d, "scheduleStart", s->scheduleStart, sizeof s->scheduleStart);
     merge_str(d, "scheduleEnd", s->scheduleEnd, sizeof s->scheduleEnd);
+    merge_str(d, "preferFormat", s->preferFormat, sizeof s->preferFormat);
+    merge_bool(d, "turboStart", &s->turboStart); merge_bool(d, "autoInstallSets", &s->autoInstallSets);
+    merge_str(d, "installOrder", s->installOrder, sizeof s->installOrder);
+    merge_bool(d, "restModeAutoResume", &s->restModeAutoResume); merge_bool(d, "extractZip", &s->extractZip);
+    merge_bool(d, "deleteArchiveAfterExtract", &s->deleteArchiveAfterExtract);
+  }
+  jv db = jv_get(o, "debrid");
+  if (jv_ok(db)) {
+    struct { const char *k; char *dst; } svc[] = {{"realdebrid", s->debrid.realdebrid.apiKey}, {"alldebrid", s->debrid.alldebrid.apiKey},
+                                                {"torbox", s->debrid.torbox.apiKey}, {"premiumize", s->debrid.premiumize.apiKey}};
+    for (size_t i = 0; i < XS_ARRAY_LEN(svc); i++) {
+      jv e = jv_get(db, svc[i].k);
+      if (jv_type(e) == JV_OBJ) merge_str(e, "apiKey", svc[i].dst, SET_DEBRID_KEY_LEN);
+      else if (jv_type(e) == JV_STR) xstrlcpy(svc[i].dst, jv_str(e, ""), SET_DEBRID_KEY_LEN);   /* {"torbox":"key"} shorthand */
+      else if (jv_type(e) == JV_NULL) svc[i].dst[0] = 0;
+      util_trim(svc[i].dst);
+      for (unsigned char *p = (unsigned char *)svc[i].dst; *p; p++) if (*p < 0x21 || *p > 0x7e) { svc[i].dst[0] = 0; break; }
+    }
+    merge_str(db, "preferred", s->debrid.preferred, sizeof s->debrid.preferred);
   }
   jv src = jv_get(o, "sources");
   if (jv_ok(src)) {
@@ -191,6 +347,14 @@ static int merge_into(settings_t *s, jv o, char *err, size_t errcap) {
     if (jv_type(lc) == JV_NUM) s->catalogLastCheck = (time_t)jv_i64(lc, 0);
     if (!s->catalogUrl[0]) xstrlcpy(s->catalogUrl, DEFAULT_CATALOG_URL, sizeof s->catalogUrl);
     if (!s->catalogRevisionUrl[0]) xstrlcpy(s->catalogRevisionUrl, DEFAULT_REVISION_URL, sizeof s->catalogRevisionUrl);
+    merge_str(c, "featuredUrl", s->featuredUrl, sizeof s->featuredUrl);
+    merge_str(c, "messagesUrl", s->messagesUrl, sizeof s->messagesUrl);
+    merge_str(c, "companionsUrl", s->companionsUrl, sizeof s->companionsUrl);
+    merge_str(c, "savesBackendUrl", s->savesBackendUrl, sizeof s->savesBackendUrl);
+    if (!s->featuredUrl[0]) xstrlcpy(s->featuredUrl, DEFAULT_FEATURED_URL, sizeof s->featuredUrl);
+    if (!s->messagesUrl[0]) xstrlcpy(s->messagesUrl, DEFAULT_MESSAGES_URL, sizeof s->messagesUrl);
+    if (!s->companionsUrl[0]) xstrlcpy(s->companionsUrl, DEFAULT_COMPANIONS_URL, sizeof s->companionsUrl);
+    if (!s->savesBackendUrl[0]) xstrlcpy(s->savesBackendUrl, DEFAULT_SAVES_BACKEND_URL, sizeof s->savesBackendUrl);
   }
   jv n = jv_get(o, "notifications");
   if (jv_ok(n)) {
@@ -207,6 +371,75 @@ static int merge_into(settings_t *s, jv o, char *err, size_t errcap) {
   }
   jv p = jv_get(o, "pairing");
   if (jv_ok(p)) merge_str(p, "pin", s->pin, sizeof s->pin);
+  jv sv = jv_get(o, "saves");
+  if (jv_ok(sv)) {
+    merge_str(sv, "backupRoot", s->saves.backupRoot, sizeof s->saves.backupRoot);
+    merge_bool(sv, "autoBackup", &s->saves.autoBackup);
+    jv iu = jv_get(sv, "indexUrls");
+    if (jv_type(iu) == JV_ARR) {
+      s->saves.n_indexUrls = 0;
+      JV_FOREACH(it, iu) {
+        const char *u = jv_str(it, NULL);
+        if (!u || !*u || strlen(u) >= 512 || s->saves.n_indexUrls >= SET_MAX_INDEX_URLS) continue;
+        int dup = 0;
+        for (int i = 0; i < s->saves.n_indexUrls; i++) if (strcmp(s->saves.indexUrls[i], u) == 0) dup = 1;
+        if (!dup) xstrlcpy(s->saves.indexUrls[s->saves.n_indexUrls++], u, 512);
+      }
+    }
+    jv be = jv_get(sv, "backend");
+    if (jv_type(be) == JV_OBJ) {
+      merge_str(be, "kind", s->saves.backend.kind, sizeof s->saves.backend.kind);
+      merge_str(be, "url", s->saves.backend.url, sizeof s->saves.backend.url);
+      merge_str(be, "anonKey", s->saves.backend.anonKey, sizeof s->saves.backend.anonKey);
+      merge_str(be, "bucket", s->saves.backend.bucket, sizeof s->saves.backend.bucket);
+      merge_str(be, "garlicFunction", s->saves.backend.garlicFunction, sizeof s->saves.backend.garlicFunction);
+      util_trim(s->saves.backend.url);
+      size_t ul = strlen(s->saves.backend.url);
+      while (ul > 0 && s->saves.backend.url[ul - 1] == '/') s->saves.backend.url[--ul] = 0;
+      util_trim(s->saves.backend.anonKey);
+      if (!s->saves.backend.bucket[0]) xstrlcpy(s->saves.backend.bucket, "ps5-saves", sizeof s->saves.backend.bucket);
+      if (!s->saves.backend.garlicFunction[0]) xstrlcpy(s->saves.backend.garlicFunction, "garlic-savedb", sizeof s->saves.backend.garlicFunction);
+    }
+    merge_str(sv, "uploadHost", s->saves.uploadHost, sizeof s->saves.uploadHost);
+    merge_str(sv, "uploadEndpoint", s->saves.uploadEndpoint, sizeof s->saves.uploadEndpoint);
+    merge_str(sv, "submitEndpoint", s->saves.submitEndpoint, sizeof s->saves.submitEndpoint);
+    merge_str(sv, "nickname", s->saves.nickname, sizeof s->saves.nickname);
+    util_trim(s->saves.nickname);
+  }
+  jv br = jv_get(o, "browse");
+  if (jv_ok(br)) {
+    jv pr = jv_get(br, "presets");
+    if (jv_type(pr) == JV_ARR) {
+      s->browse.n_presets = 0;
+      JV_FOREACH(it, pr) {
+        if (jv_type(it) != JV_OBJ || s->browse.n_presets >= SET_MAX_PRESETS) continue;
+        const char *name = jv_get_str(it, "name", "");
+        if (!*name) continue;
+        int dup = 0;
+        for (int i = 0; i < s->browse.n_presets; i++) if (strcmp(s->browse.presets[i].name, name) == 0) dup = 1;
+        if (dup) continue;
+        settings_preset *pp = &s->browse.presets[s->browse.n_presets];
+        xstrlcpy(pp->name, name, sizeof pp->name);
+        util_trim(pp->name);
+        xstrlcpy(pp->sort, jv_get_str(it, "sort", ""), sizeof pp->sort);
+        pp->filters[0] = 0;
+        jv f = jv_get(it, "filters");
+        if (jv_ok(f) && jv_type(f) != JV_NULL) {
+          jw fw;
+          jw_init(&fw);
+          jw_value(&fw, f);
+          size_t fl;
+          char *ft = jw_detach(&fw, &fl);
+          if (ft) {
+            if (fl < SET_PRESET_FILTERS_LEN) memcpy(pp->filters, ft, fl + 1);
+            else { xsnprintf(err, errcap, "preset filters too large (max %d bytes)", SET_PRESET_FILTERS_LEN - 1); free(ft); return -1; }
+            free(ft);
+          }
+        }
+        s->browse.n_presets++;
+      }
+    }
+  }
   return validate(s, err, errcap);
 }
 
