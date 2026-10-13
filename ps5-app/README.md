@@ -1,3 +1,11 @@
+> ## ⚠️ Deprecated — superseded by XENO STORE
+>
+> This folder is the **first-generation** on-console store (catalog browser only, ~800 games, no downloads on the console).
+> It stays here for older setups and is **no longer developed**. The current native PS5 store with segmented downloads,
+> PKG auto-install, install sets, debrid, saves, homebrew apps and a 1,900+ game catalog is **XENO STORE** in
+> [`../xeno-store/`](../xeno-store/) — see its [README](../xeno-store/README.md) and [user guide](../xeno-store/docs/GUIDE.md).
+> Grab the `xeno-store-v*` release instead of the `ps5-app-v*` one.
+
 # XENO Game Store — native PS5 app
 
 A tiny on-console build of the XENO Game Store: a self-contained HTTP server

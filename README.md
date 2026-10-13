@@ -134,6 +134,35 @@ and send one from **Payloads ▸ Send file** (port 9021), or any ELF loader.
 
 <sub>All of this is cross-compiled **automatically in the cloud** — source in the [`ps5-app/`](ps5-app) folder.</sub>
 
+> ⚠️ **Legacy.** The `ps5-app/` ELFs above are the first-generation store (catalog browser only, ~800 games, no downloads on the console). They stay available for older setups but receive no new features. The current on-console store is **XENO STORE** below.
+
+---
+
+## 🛒 XENO STORE — the PS5 game store that lives **on your console**
+
+<div align="center">
+
+<img src="xeno-store/homebrew/sce_sys/icon0.png" width="96" alt="XENO STORE"/>
+
+![xeno store](https://img.shields.io/badge/XENO%20STORE-1.0.0-FFCE4A?style=for-the-badge)
+![catalog](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FXENOKING123%2FXENOKING%2Fmain%2Fxeno-store%2Fcatalog%2Frevision.json&query=%24.games&suffix=%20games&label=catalog&color=2ea043&style=for-the-badge)
+[![build](https://img.shields.io/github/actions/workflow/status/XENOKING123/XENOKING/xeno-store.yml?branch=main&style=for-the-badge&label=build)](../../actions/workflows/xeno-store.yml)
+
+### 🟢 [**⬇️  GET XENO STORE  ⬇️**](../../releases?q=xeno-store&expanded=true) &nbsp;·&nbsp; 📖 [**README**](xeno-store/#readme) &nbsp;·&nbsp; 📘 [**User guide**](xeno-store/docs/GUIDE.md)
+
+</div>
+
+**XENO STORE** is a brand-new, native PS5 **game store + download manager**: one payload, a TV-first UI in the PS5 browser (or on your phone), and the console does the rest — **segmented downloads with up to 16 connections**, resume after rest mode, **PKG auto-install with install sets** (game → backport → update → DLC), image dumps handed to **ShadowMountPlus**, **debrid** support, a **Save Data Store** with backups and community saves, a **homebrew app store**, offline **account activation**, `xeno.local` pairing and a clean uninstall. The catalog (**1,965 games**) syncs every 6 hours without an app update.
+
+| File (release `xeno-store-v1.0.0`) | What it does |
+|:--|:--|
+| ⚡ **`xeno-store-browser.elf`** | The store, and it opens the PS5 browser to it. Send it with **Payloads ▸ Send file** (port 9021). |
+| 🟢 **`xeno-store.elf`** | Server only — open `http://<ps5-ip>:9095` or `http://xeno.local:9095`. Best for Payload Manager auto-start. |
+| 🏠 **`XENO-STORE.zip`** | Home-screen app for etaHEN / itemzflow: extract into `/data/homebrew/`. |
+| 🔗 **Payload Manager source** | `https://raw.githubusercontent.com/XENOKING123/XENOKING/main/xeno-store/updates/payloads.json` |
+
+<sub>Source, build system, API and docs live in [`xeno-store/`](xeno-store/). Built and released by [`xeno-store.yml`](.github/workflows/xeno-store.yml); catalog kept fresh by [`xeno-store-catalog-sync.yml`](.github/workflows/xeno-store-catalog-sync.yml).</sub>
+
 ---
 
 ## 🛠️ Build from source
