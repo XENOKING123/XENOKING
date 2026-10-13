@@ -624,6 +624,7 @@ def fetch_sitemap(ctx: SourceContext, cfg: SiteConfig) -> list[GameDraft]:
 
 def fetch_categories(ctx: SourceContext, cfg: SiteConfig) -> list[GameDraft]:
     drafts: dict[str, GameDraft] = {}
+    errors: list[str] = []
     base = cfg.base.rstrip("/")
     for platform, slugs in cfg.platforms.items():
         listing_urls = cfg.category_urls.get(platform) or [f"{base}/category/{slugs[0]}/"] if slugs else []
@@ -639,9 +640,9 @@ def fetch_categories(ctx: SourceContext, cfg: SiteConfig) -> list[GameDraft]:
                     ctx.info(f"{platform}: budget reached at page {page}")
                     return list(drafts.values())
                 except HttpError as e:
-                    if page == 1 and not drafts:
-                        raise
-                    ctx.info(f"{platform}: page {page} failed ({e}); stopping")
+                    # One platform's listing being gone must not hide the other platform's games.
+                    errors.append(f"{platform}: page {page} failed ({e})")
+                    ctx.info(errors[-1] + ("; stopping" if page > 1 else ""))
                     break
                 rows = cfg.listing_parser(body, platform) if cfg.listing_parser else parse_listing_cards(cfg, body, platform)
                 before = len(drafts)
@@ -653,6 +654,8 @@ def fetch_categories(ctx: SourceContext, cfg: SiteConfig) -> list[GameDraft]:
                         break
                 else:
                     empty = 0
+    if not drafts and errors:
+        raise HttpError(base, 0, "; ".join(errors))
     if cfg.fetch_pages and drafts and ctx.time_left() > 30:
         # Listing cards only know title/cover; the pages hold the links. Fetch as many as the budget allows.
         pages = fetch_pages(ctx, cfg, [d.pageUrl for d in drafts.values()])

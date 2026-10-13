@@ -64,8 +64,9 @@
     accountActivate: function (slot, id) { var b = {}; if (id) b.id = id; return req('POST', '/api/accounts/' + enc(String(slot)) + '/activate', b, { timeout: 30000 }); },
     accountClear: function (slot) { return req('POST', '/api/accounts/' + enc(String(slot)) + '/clear', {}, { timeout: 30000 }); },
     reboot: function () { return req('POST', '/api/accounts/reboot', {}, { timeout: 10000 }); },
-    mdns: function () { return req('GET', '/api/mdns', undefined, { timeout: 8000, quiet: true }); },
-    queueStartNow: function (id) { return req('POST', '/api/queue/' + enc(id) + '/startnow', {}); },
+    mdns: function () { return req('GET', '/api/mdns', undefined, { timeout: 8000, quiet: true }).then(function (r) { return r && r.mdns && typeof r.mdns === 'object' ? r.mdns : r; }); },
+    /* "Start now anyway" (§17.5): the engine action is startNow (dl_action also accepts "start"). */
+    queueStartNow: function (id) { return req('POST', '/api/queue/' + enc(id) + '/startNow', {}); },
     queueSet: function (body) { return req('POST', '/api/queue/set', body, { timeout: 30000 }); },
     installedVersion: function (titleId) { return req('GET', '/api/saves/installed-version' + qs({ titleId: titleId }), undefined, { timeout: 8000, quiet: true }); },
     space: function (root, bytes) { return req('GET', '/api/space' + qs({ root: root, bytes: bytes }), undefined, { timeout: 8000 }); }

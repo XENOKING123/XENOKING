@@ -17,7 +17,7 @@
     "duplicate_url": 998
   },
   "droppedSamples": [],
-  "elapsed": 4.4,
+  "elapsed": 5.2,
   "enrichment": {
     "psStoreCache": 0,
     "seeds": {
@@ -38,7 +38,7 @@
     "exFAT": 673
   },
   "games": 1965,
-  "generatedAt": "2026-10-13T04:20:31Z",
+  "generatedAt": "2026-10-13T13:10:55Z",
   "genres": {
     "Action": 239,
     "Adventure": 136,
@@ -75,7 +75,7 @@
       "draftGames": 1505,
       "draftReleases": 1801,
       "dropped": 8,
-      "elapsed": 0.1,
+      "elapsed": 0.2,
       "error": "",
       "games": 1505,
       "id": "blackbox",

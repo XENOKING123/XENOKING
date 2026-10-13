@@ -31,7 +31,10 @@ def parse_listing(page_html: str, platform: str) -> list[GameDraft]:
         if page_url in seen:
             continue
         seen.add(page_url)
-        chunk = page_html[m.start(): m.start() + 600]
+        # The title/cover live in the markup right after the link; stop at the next game link so a
+        # sparse card never borrows the following card's title attribute.
+        end = page_html.find('href="https://pspkg.com/', m.end())
+        chunk = page_html[m.start(): min(m.start() + 600, end if end != -1 else m.start() + 600)]
         name = ""
         candidates = re.findall(r'(?:alt|title)="([^"]{4,120})"', chunk, re.I) + re.findall(r">([^<]{4,80})<", chunk)
         for cand in candidates:
