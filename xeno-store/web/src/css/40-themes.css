@@ -47,6 +47,12 @@ html[data-theme="ice"] .legend { background: rgba(255, 255, 255, .9); border-top
 html[data-theme="ice"] .tab:hover, html[data-theme="ice"] .tab:focus, html[data-theme="ice"] .iconbtn, html[data-theme="ice"] .iconbtn:hover { background: rgba(13, 26, 58, .06); }
 html[data-theme="ice"] .hero .art::after { background: linear-gradient(90deg, rgba(13, 26, 58, .92) 0%, rgba(13, 26, 58, .7) 35%, rgba(13, 26, 58, .1) 70%, transparent 100%), linear-gradient(0deg, rgba(13, 26, 58, .9) 0%, rgba(13, 26, 58, .2) 50%, transparent 100%); }
 html[data-theme="ice"] .hero .body, html[data-theme="ice"] .hero .body h1, html[data-theme="ice"] .hero .tagline { color: #fff; }
+/* The hero sits on dark artwork even in the light theme: chips and the secondary button stay light-on-dark there. */
+html[data-theme="ice"] .hero .chip { color: #fff; background: rgba(255, 255, 255, .16); border-color: rgba(255, 255, 255, .3); }
+html[data-theme="ice"] .hero .chip.ps5 { background: var(--ps5); }
+html[data-theme="ice"] .hero .btn:not(.primary) { color: #fff; background: rgba(255, 255, 255, .16); border-color: rgba(255, 255, 255, .35); }
+html[data-theme="ice"] .schip.speed { color: #8a5d00; border-color: rgba(217, 154, 0, .5); }
+html[data-theme="ice"] .tab.active::after { box-shadow: none; }
 html[data-theme="ice"] .gp-backdrop::after { background: linear-gradient(180deg, rgba(238, 243, 251, .3) 0%, rgba(238, 243, 251, .85) 55%, var(--bg0) 100%); }
 html[data-theme="ice"] .input, html[data-theme="ice"] .logbox { background: rgba(13, 26, 58, .04); }
 html[data-theme="ice"] .cover .ph { color: #fff; }

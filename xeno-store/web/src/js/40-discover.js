@@ -4,6 +4,7 @@
   var XS = window.XS, U = XS.util, S = XS.state, ui = XS.ui, h = U.h, t = XS.t;
   var PAGE = 96;
   var heroTimer = null, heroIdx = 0, heroList = [], heroEl = null, page = 0, root = null, gridEl = null, lazyRails = [];
+  var dirty = false;   /* something changed while Discover was hidden (recent games, job set): re-render on the next show */
 
   function heroPool() {
     var L = S.data.lists;
@@ -137,10 +138,13 @@
     return p;
   }
 
+  /* Full render keeps the user's place: scroll offset and the focused element (by data-nav-id) survive. */
   function render() {
     if (!root) return;
     stopRotation();
+    dirty = false;
     var scroll = root.scrollTop;
+    var fid = root.contains(document.activeElement) ? document.activeElement.getAttribute('data-nav-id') : null;
     U.clear(root);
     var inner = h('div.screen-inner');
     root.appendChild(inner);
@@ -159,6 +163,7 @@
     rails(inner);
     allGames(inner);
     root.scrollTop = scroll;
+    if (fid) { var again = root.querySelector('[data-nav-id="' + fid + '"]'); if (again) XS.nav.focus(again, false); }
   }
 
   /* Only patch what changed on queue/favorite updates: no full re-render while the user is browsing. */
@@ -169,10 +174,11 @@
   }
   var lastContinueKey = '';
   function patchQueue() {
-    if (!root || !root.classList.contains('active')) return;
+    if (!root || !root.firstChild) return;
     var cont = S.data.queue.jobs.filter(function (j) { return ['downloading', 'connecting', 'queued', 'paused', 'verifying', 'installing', 'failed'].indexOf(j.state) >= 0; });
     var key = cont.map(function (j) { return j.id + ':' + j.state; }).join(',');
-    if (key !== lastContinueKey) { lastContinueKey = key; render(); return; }
+    if (key !== lastContinueKey) { lastContinueKey = key; if (root.classList.contains('active')) render(); else dirty = true; return; }
+    if (!root.classList.contains('active')) return;
     var m = jobsByGame();
     U.$$('[data-rail="continue"] .card[data-game]', root).forEach(function (c) {
       var j = m[c.getAttribute('data-game')]; if (!j) return;
@@ -184,12 +190,12 @@
   XS.router.register('discover', {
     tab: true, icon: 'compass', label: function () { return t('nav.discover'); },
     mount: function (el) { root = el; },
-    show: function () { if (!root.firstChild || !S.data.catalog) render(); else { startRotation(); patchFavorites(); } },
+    show: function () { if (!root.firstChild || !S.data.catalog || dirty) render(); else { startRotation(); patchFavorites(); } },
     hide: function () { stopRotation(); },
     refresh: render
   });
   S.on('catalog', function () { if (root) { lastContinueKey = ''; render(); if (root.classList.contains('active')) XS.nav.restore(); } });
   S.on('favorites', patchFavorites);
   S.on('queue', patchQueue);
-  S.on('recent', function () { lastContinueKey = ''; });
+  S.on('recent', function () { dirty = true; });   /* "Recently viewed" refreshes when the user comes back, never under their focus */
 })();

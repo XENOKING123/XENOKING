@@ -43,6 +43,7 @@
   function rootLabel(p) { var rs = S.data.storage || []; for (var i = 0; i < rs.length; i++) if (rs[i].path === p) return rs[i].label; return p; }
   function renderStorage() {
     if (!storEl) return;
+    var fid = storEl.contains(document.activeElement) ? document.activeElement.getAttribute('data-nav-id') : null;
     U.clear(storEl);
     var roots = S.data.storage || [];
     if (!roots.length) { storEl.appendChild(ui.emptyState(t('lib.noDrives'), t('lib.noDrivesHint'))); return; }
@@ -67,6 +68,7 @@
       box.addEventListener('click', function () { flt.root = flt.root === r.path ? '' : r.path; render(); XS.nav.remember('library', 'root:' + r.path); XS.nav.restore(); });
       storEl.appendChild(box);
     });
+    if (fid) { var again = storEl.querySelector('[data-nav-id="' + fid + '"]'); if (again) XS.nav.focus(again, false); }
   }
   function load(scan) {
     if (scanning) return;
@@ -147,5 +149,11 @@
     show: function () { render(); }
   });
   S.on('storage', function () { if (root && root.classList.contains('active')) renderStorage(); });
-  S.on('queue', function () { if (root && root.classList.contains('active') && storEl) renderStorage(); });
+  /* Queued bytes per drive change every poll: only repaint when the numbers actually moved. */
+  var lastQueuedKey = '';
+  S.on('queue', function () {
+    if (!root || !root.classList.contains('active') || !storEl) return;
+    var key = S.data.queue.jobs.map(function (j) { return j.root + ':' + j.state + ':' + Math.floor((j.written || 0) / 1e8); }).join(',');
+    if (key !== lastQueuedKey) { lastQueuedKey = key; renderStorage(); }
+  });
 })();

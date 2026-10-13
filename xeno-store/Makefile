@@ -18,7 +18,7 @@ SRC_DIR   := src
 BUILD_DIR := build
 ASSETS    := $(SRC_DIR)/assets.h
 
-COMMON_SRCS := main.c server.c api.c dl.c storage.c catalog.c settings.c install.c sys.c json.c sha256.c log.c util.c http_common.c
+COMMON_SRCS := main.c server.c api.c dl.c storage.c catalog.c settings.c install.c update.c sys.c json.c sha256.c log.c util.c http_common.c
 HOST_SRCS   := $(COMMON_SRCS) http_posix.c
 PS5_SRCS    := $(COMMON_SRCS) http_sce.c
 HEADERS     := $(wildcard $(SRC_DIR)/*.h)
@@ -44,7 +44,7 @@ PS5_LIBS := -lSceSystemService -lSceUserService -lSceAppInstUtil -lSceNotificati
 ELF         := xeno-store.elf
 ELF_BROWSER := xeno-store-browser.elf
 
-.PHONY: all web catalog assets host test ps5 pkg clean elf-check
+.PHONY: all web catalog assets host test ps5 ps5-check pkg clean distclean
 
 all: web catalog assets ps5 pkg
 
@@ -58,6 +58,8 @@ catalog:
 assets:
 	$(PYTHON) tools/gen_assets.py
 
+# Only rebuilt when missing; 'assets' (above) regenerates on demand and leaves
+# the file untouched when nothing embedded changed, so objects stay fresh.
 $(ASSETS):
 	$(PYTHON) tools/gen_assets.py
 
@@ -74,6 +76,13 @@ $(BUILD_DIR)/host/%.o: $(SRC_DIR)/%.c $(HEADERS) $(ASSETS)
 
 test: host
 	tests/host/run.sh
+
+# Compile-only check of every PS5 translation unit (no link); handy without a full SDK link.
+ps5-check: assets
+ifndef PS5_PAYLOAD_SDK
+	$(error PS5_PAYLOAD_SDK is not set)
+endif
+	$(MAKE) PS5_PAYLOAD_SDK=$(PS5_PAYLOAD_SDK) $(addprefix $(BUILD_DIR)/ps5/,$(PS5_SRCS:.c=.o))
 
 # ---- PS5 build ---------------------------------------------------------------
 ps5: assets
@@ -109,5 +118,10 @@ endif
 pkg:
 	$(PYTHON) tools/make_homebrew.py
 
+# 'clean' removes the payload build outputs; web/dist belongs to 'make web'
+# (and the UI builders working in parallel), so only 'distclean' removes it.
 clean:
-	rm -rf $(BUILD_DIR) $(ELF) $(ELF_BROWSER) $(ASSETS) web/dist dist
+	rm -rf $(BUILD_DIR) $(ELF) $(ELF_BROWSER) $(ASSETS) dist
+
+distclean: clean
+	rm -rf web/dist

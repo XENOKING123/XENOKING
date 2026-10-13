@@ -22,7 +22,7 @@
   .phonebar .pb { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 11px; font-weight: 700; color: var(--mute); position: relative; }
   .phonebar .pb svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .phonebar .pb.active { color: var(--gold); }
-  .phonebar .pb .badge { position: absolute; top: 6px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--gold); color: var(--gold-ink); font-size: 10.5px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; }
+  .phonebar .pb .badge { position: absolute; top: 3px; left: calc(50% + 4px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--gold); color: var(--gold-ink); font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; letter-spacing: -.01em; }
   .screen { padding-bottom: 30px; }
   .hero { min-height: 320px; margin-top: 14px; border-radius: var(--radius-l); }
   .hero .body { padding: 22px 18px 20px; gap: 8px; }
@@ -51,11 +51,10 @@
   .dl-summary { grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 14px; }
   .stat { padding: 10px 12px; }
   .stat .v { font-size: 18px; }
-  .job { grid-template-columns: 52px 1fr; padding: 12px; }
-  .job .cover { width: 52px; height: 68px; grid-row: 1 / span 2; }
-  .job .side { grid-column: 1 / span 2; grid-row: auto; flex-direction: row; align-items: center; justify-content: space-between; }
+  .job { grid-template-columns: 52px minmax(0, 1fr); grid-template-areas: "cover ttl" "cover meta" "bar bar" "stats stats" "side side" "err err"; padding: 12px; gap: 6px 12px; }
+  .job .cover { width: 52px; height: 68px; }
+  .job .side { flex-direction: row; align-items: center; justify-content: space-between; align-self: auto; }
   .job .acts { justify-content: flex-end; }
-  .job .err { grid-column: 1 / span 2; }
   .job .stats .spark { display: none; }
   .settings { grid-template-columns: 1fr; gap: 10px; margin-top: 14px; }
   .set-nav { position: static; flex-direction: row; overflow-x: auto; gap: 6px; padding-bottom: 6px; }

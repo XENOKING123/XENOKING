@@ -69,10 +69,11 @@ const char *sys_fw_version(void) {
     uint32_t v = 0;
     size_t sz = sizeof v;
     if (sysctlbyname("kern.sdk_version", &v, &sz, NULL, 0) != 0 || v == 0) {
-      xstrlcpy(ver, "unknown", sizeof ver);
-    } else {
-      xsnprintf(ver, sizeof ver, "%x.%02x", (v >> 24) & 0xff, (v >> 16) & 0xff);
+      /* Fallback: the SDK helper (kernel memory read); same BCD layout. */
+      v = kernel_get_fw_version();
     }
+    if (v == 0) xstrlcpy(ver, "unknown", sizeof ver);
+    else xsnprintf(ver, sizeof ver, "%x.%02x", (v >> 24) & 0xff, (v >> 16) & 0xff);
   }
   return ver;
 #endif

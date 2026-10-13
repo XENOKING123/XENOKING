@@ -26,6 +26,9 @@ typedef enum dl_state {
   DL_PAUSED, DL_FAILED, DL_CANCELLED, DL_INSTALLING, DL_INSTALLED
 } dl_state;
 
+/* Why a running worker was asked to stop. */
+enum { DL_STOP_NONE = 0, DL_STOP_PAUSE = 1, DL_STOP_CANCEL = 2, DL_STOP_REMOVE = 3, DL_STOP_SHUTDOWN = 4 };
+
 typedef struct dl_chunk {
   int64_t start, end;   /* [start, end) ; end == -1 → until EOF (unknown size) */
   int64_t cur;          /* next byte to write */
@@ -38,6 +41,7 @@ typedef struct dl_install {
   char contentId[40];
   char titleId[16];
   char token[24];       /* /pkgsrv/<token> for the etaHEN DPI fallback */
+  char via[24];
   time_t startedAt;
   int rc;
 } dl_install;
@@ -46,10 +50,10 @@ typedef struct dl_job {
   /* identity + catalog data */
   char id[16], gameId[128], title[256], titleId[16], platform[8], cover[512];
   char releaseId[128], format[16], provider[64], sourceId[32];
-  char url[2048];
+  char url[2048];                      /* source URL (primary) */
+  char activeUrl[2048];                /* what is being fetched now (url or a mirror) */
   char mirrors[DL_MAX_MIRRORS][1024];
   int nmirrors, mirror_idx;            /* mirror_idx -1 = primary url */
-  char primary_url[2048];
   char filename[256], root[256], rootLabel[32], path[1024], xpart[1040], sidecar[1056];
   /* state */
   dl_state state;
@@ -66,10 +70,14 @@ typedef struct dl_job {
   char etag[128], lastModified[64];
   int synthetic;                       /* library install job: no transfer */
   /* runtime (never persisted) */
-  volatile int cancel;                 /* stop the worker */
-  volatile int running;                /* worker thread alive */
-  volatile int remove_pending, delete_files_pending, url_replaced, discard_partial;
+  volatile int cancel;                 /* DL_STOP_* (user intent) */
+  volatile int stop_io;                /* segments must abort now (cancel or fatal error) */
+  volatile int running;                /* a worker thread owns the job */
+  volatile int remove_pending, delete_files_pending, discard_partial;
   int fd;
+  unsigned slot_mask;                  /* segment slots in use */
+  int seg_retry_now, seg_err_streak, drive_missing, insecure_tls;
+  dl_state verify_prev_state;
   dl_chunk *chunks;
   int nchunks;
   int64_t chunk_size;
@@ -77,6 +85,9 @@ typedef struct dl_job {
   int64_t clean_bytes, last_fsync, last_space_check;
   int seg_fatal, seg_status;           /* set by a segment thread on a non-retryable error */
   char seg_error[160];
+  char seg_code[32];
+  int retry_after;
+  int64_t last_seg_error_ms;
   int64_t last_sample_written, last_sample_ms;
   int64_t hist[DL_HISTORY];
   int hist_n, hist_head;
@@ -84,10 +95,14 @@ typedef struct dl_job {
   int log_n, log_head;
   int64_t last_sidecar_ms;
   int probe_status;
+  int url_replaced;
+  void *seg_conns[DL_MAX_SEGMENTS];    /* xhttp_conn* per slot for prompt abort */
 } dl_job;
 
 typedef struct dl_add_req {
-  const char *gameId, *releaseId, *root, *url, *filename, *format;
+  const char *gameId, *releaseId, *root, *url, *filename, *format, *title, *sha256;
+  jv mirrors;               /* optional JSON array of extra mirror URLs */
+  int64_t size;             /* expected size for raw urls (0 = unknown) */
   int connections;          /* 0 = settings default */
   int verify;               /* -1 default, 0/1 */
   int autoInstall;          /* -1 default, 0/1 */
@@ -100,7 +115,7 @@ typedef struct dl_summary {
   int keepAwake;
 } dl_summary;
 
-int dl_init(const char *data_dir);
+int dl_init(const char *data_dir, int port);
 void dl_shutdown(void);
 /* Called by the housekeeping thread every ~500 ms. */
 void dl_housekeeping_tick(void);

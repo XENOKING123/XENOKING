@@ -49,6 +49,21 @@
     return gap + edge * 0.5;
   }
 
+  /* Layout rect without the focus/hover lift (cards translateY(-6px), buttons -2px): a lifted element would
+     otherwise see its own row neighbours as "below" it and ↓ would walk along the row instead of leaving it. */
+  function layoutRect(el) {
+    var r = el.getBoundingClientRect();
+    var tf = getComputedStyle(el).transform;
+    if (!tf || tf === 'none') return r;
+    var m = /^matrix(3d)?\((.+)\)$/.exec(tf);
+    if (!m) return r;
+    var v = m[2].split(',').map(parseFloat), tx = 0, ty = 0;
+    if (m[1]) { if (v[0] === 1 && v[5] === 1) { tx = v[12]; ty = v[13]; } }
+    else if (v[0] === 1 && v[3] === 1) { tx = v[4]; ty = v[5]; }
+    if (!tx && !ty) return r;
+    return { left: r.left - tx, right: r.right - tx, top: r.top - ty, bottom: r.bottom - ty, width: r.width, height: r.height };
+  }
+
   function scrollContainersTo(el, smooth) {
     var r = el.getBoundingClientRect();
     var behavior = smooth && !U.reducedMotion() ? 'smooth' : 'auto';
@@ -115,13 +130,13 @@
     if (!current || !current.hasAttribute('data-nav') || !visible(current) || (sc && !sc.contains(current)) || (!sc && current.closest('#layers'))) {
       return restore();
     }
-    var from = current.getBoundingClientRect();
+    var from = layoutRect(current);
     var horizontal = dir === 'left' || dir === 'right';
     var inBeam = function (r) { return horizontal ? (r.top < from.bottom && from.top < r.bottom) : (r.left < from.right && from.left < r.right); };
     var pick = function (pool, beamOnly) {
       var best = null, bestScore = Infinity;
       for (var i = 0; i < pool.length; i++) {
-        var rect = pool[i].getBoundingClientRect();
+        var rect = layoutRect(pool[i]);
         if (beamOnly && !inBeam(rect)) continue;
         var s = distance(from, rect, dir);
         if (s < bestScore) { bestScore = s; best = pool[i]; }
@@ -259,6 +274,6 @@
 
   nav.scope = scope; nav.focusables = focusables; nav.focus = focusEl; nav.focusFirst = focusFirst; nav.restore = restore;
   nav.move = move; nav.init = init; nav.remember = function (key, id) { remembered[key] = id; }; nav.forget = function (key) { delete remembered[key]; };
-  nav.scrollIntoView = scrollContainersTo; nav.isTyping = isTyping;
+  nav.scrollIntoView = scrollContainersTo; nav.isTyping = isTyping; nav.layoutRect = layoutRect;
   XS.nav = nav;
 })();

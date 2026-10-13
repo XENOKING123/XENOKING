@@ -437,7 +437,7 @@
         return;
       }
       if (err.error === 'queued' || err.error === 'already_queued') {
-        ui.toast({ cls: 'gold', title: t('err.queued'), action: { label: t('game.viewDownloads'), onClick: function () { ui.closeLayer(handle); XS.router.go('downloads'); } } });
+        ui.toast({ cls: 'gold', title: t('err.queued'), action: { label: t('game.viewDownloads'), onClick: function () { XS.router.go('downloads'); } } });
         return;
       }
       XS.sound.error();
@@ -464,7 +464,7 @@
     handle.foot.appendChild(h('button.btn.lg', { nav: 'q-done', text: t('common.done'), on: { click: function () { ui.closeLayer(handle); } } }));
     handle.foot.appendChild(h('span.spacer'));
     var view = h('button.btn.primary.lg', { nav: 'q-view', 'data-autofocus': '', html: U.icon('download') + '<span>' + U.escapeHtml(t('game.viewDownloads')) + '</span>' });
-    view.addEventListener('click', function () { ui.closeLayer(handle); XS.router.go('downloads'); });
+    view.addEventListener('click', function () { XS.router.go('downloads'); });   /* a tab switch collapses the sheet and the game page through history */
     handle.foot.appendChild(view);
     XS.nav.focus(view, false);
     ui.toast({ cls: 'gold', title: t('toast.queued'), desc: g.title, cover: g.cover });

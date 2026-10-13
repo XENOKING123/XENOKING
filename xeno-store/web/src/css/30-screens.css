@@ -50,31 +50,35 @@
 .stat .v { font-size: 24px; font-weight: 900; margin-top: 4px; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stat .v small { font-size: 13px; font-weight: 700; color: var(--dim); margin-inline-start: 4px; letter-spacing: 0; }
 .stat.gold .v { color: var(--gold2); }
-.stat.pill { display: flex; align-items: center; gap: 10px; }
+.stat.pill { display: flex; align-items: center; gap: 10px; grid-column: span 2; }
+.stat.pill > div { min-width: 0; }
 .stat.pill .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--mute); box-shadow: 0 0 0 4px rgba(255, 255, 255, .06); flex: 0 0 auto; }
 .stat.pill.on .dot { background: var(--good); box-shadow: 0 0 0 4px rgba(74, 255, 138, .18), 0 0 12px var(--good); }
-.stat.pill .v { font-size: 15px; }
+.stat.pill .v { font-size: 15px; white-space: normal; line-height: 1.25; }
 .dl-tools { display: flex; align-items: center; gap: 10px; margin: 20px 0 10px; flex-wrap: wrap; }
 .dl-tools .spacer { flex: 1; }
 .jobs { display: flex; flex-direction: column; gap: 10px; }
+/* Explicit grid areas: cover | title / meta / bar / stats | percentage + actions; errors span the text columns. */
 .job {
-  display: grid; grid-template-columns: 64px 1fr auto; gap: 8px 16px; align-items: center; padding: 14px 16px; border-radius: var(--radius-l);
+  display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; grid-template-areas: "cover ttl side" "cover meta side" "cover bar side" "cover stats side" "cover err err";
+  gap: 6px 16px; align-items: center; padding: 14px 16px; border-radius: var(--radius-l);
   background: var(--card); border: 1px solid var(--line); transition: box-shadow var(--dur-fast), border-color var(--dur-fast), transform var(--dur) var(--ease); min-width: 0;
 }
 .job:hover, .job:focus { border-color: var(--line2); transform: translateY(-2px); }
 .job:focus { box-shadow: var(--focus-ring); }
-.job .cover { width: 64px; height: 84px; border-radius: 10px; grid-row: 1 / span 3; }
-.job .ttl { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.job .cover { grid-area: cover; width: 64px; height: 84px; border-radius: 10px; align-self: start; }
+.job .ttl { grid-area: ttl; display: flex; align-items: center; gap: 10px; min-width: 0; }
 .job .ttl h4 { font-size: 17px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.job .meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12.5px; color: var(--dim); }
-.job .bar { height: 12px; margin: 2px 0; }
-.job .stats { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--dim); align-items: center; min-height: 20px; }
+.job .meta { grid-area: meta; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12.5px; color: var(--dim); }
+.job .bar { grid-area: bar; height: 12px; margin: 2px 0; }
+.job .stats { grid-area: stats; display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--dim); align-items: center; min-height: 20px; }
 .job .stats b { color: var(--txt); font-weight: 700; }
 .job .stats .spd { color: var(--gold2); font-weight: 800; }
-.job .side { grid-column: 3; grid-row: 1 / span 3; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.job .stats .spark { height: 26px; }
+.job .side { grid-area: side; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; align-self: start; }
 .job .pct { font-size: 26px; font-weight: 900; letter-spacing: -.02em; line-height: 1; }
 .job .acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-.job .err { grid-column: 2 / span 2; display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; background: rgba(255, 92, 108, .1); border: 1px solid rgba(255, 92, 108, .3); font-size: 13.5px; }
+.job .err { grid-area: err; display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; background: rgba(255, 92, 108, .1); border: 1px solid rgba(255, 92, 108, .3); font-size: 13.5px; margin-top: 4px; }
 .job .err svg { width: 18px; height: 18px; flex: 0 0 auto; fill: none; stroke: var(--bad); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; margin-top: 1px; }
 .job .err b { display: block; }
 .job .err span { color: var(--dim); }
@@ -121,6 +125,7 @@
 .set-body { max-width: 900px; min-width: 0; }
 .set-group { margin-bottom: 34px; }
 .set-group h2 { font-size: 22px; margin-bottom: 14px; display: flex; align-items: center; gap: 10px; }
+.set-group h2 svg { width: 22px; height: 22px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; color: var(--gold); }
 .set-group .list { gap: 4px; }
 .about-hero { display: flex; gap: 20px; align-items: center; padding: 22px; border-radius: var(--radius-xl); background: linear-gradient(135deg, var(--card2), var(--card)); border: 1px solid var(--line); }
 .about-hero .brand-badge { width: 84px; height: 84px; }
@@ -142,7 +147,8 @@
 .search-top .input { height: 64px; font-size: 24px; font-weight: 700; border-radius: 18px; padding-inline-start: 60px; background: rgba(0, 0, 0, .4); }
 .search-top .search-box svg { width: 26px; height: 26px; inset-inline-start: 22px; }
 .search-body { flex: 1; min-height: 0; overflow-y: auto; padding: 10px var(--gutter) 40px; }
-.search-hint { color: var(--mute); font-size: 13px; padding: 0 var(--gutter) 6px; display: flex; gap: 18px; }
+.search-hint { color: var(--mute); font-size: 13px; padding: 0 var(--gutter) 6px; display: flex; gap: 18px; align-items: center; }
+.search-hint .glyph { width: 18px; height: 18px; margin-inline-end: 4px; }
 .sug { display: flex; gap: 8px; flex-wrap: wrap; }
 
 /* ---------- Toolbar generic ---------- */

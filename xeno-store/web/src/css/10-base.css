@@ -132,7 +132,7 @@ p { margin: 0; }
 .legend .hint .glyph { width: 22px; height: 22px; }
 .legend .spacer { flex: 1; }
 .legend .ver { color: var(--mute); font-size: 12px; letter-spacing: .08em; }
-.glyph { display: inline-block; vertical-align: middle; }
+.glyph { display: inline-block; vertical-align: middle; width: 20px; height: 20px; }
 .glyph circle.ring { fill: none; stroke: currentColor; stroke-width: 1.6; }
 .glyph .in { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .glyph.cross .in { stroke: var(--acc2); }
@@ -147,6 +147,8 @@ p { margin: 0; }
 
 /* ---------- Generic helpers ---------- */
 .row { display: flex; align-items: center; gap: 10px; }
+/* Any inline icon dropped straight into a row (notices, panels) gets the standard 18 px stroke look. */
+.row > svg { width: 18px; height: 18px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; color: var(--gold); }
 .grow { flex: 1 1 auto; min-width: 0; }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

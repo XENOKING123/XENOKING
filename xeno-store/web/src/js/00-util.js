@@ -30,7 +30,7 @@
         else if (k === 'cls' || k === 'className') el.className += (el.className ? ' ' : '') + v;
         else if (k === 'style' && typeof v === 'object') { for (var s in v) el.style[s] = v[s]; }
         else if (k === 'on') { for (var ev in v) el.addEventListener(ev, v[ev]); }
-        else if (k === 'data') { for (var d in v) if (v[d] !== null && v[d] !== undefined) el.setAttribute('data-' + d, v[d]); }
+        else if (k === 'data') { for (var d in v) if (v[d] !== null && v[d] !== undefined) el.setAttribute('data-' + d.replace(/[A-Z]/g, function (c) { return '-' + c.toLowerCase(); }), v[d]); }  /* navRegion → data-nav-region */
         else if (k === 'nav') { el.setAttribute('data-nav', ''); if (v !== true) el.setAttribute('data-nav-id', v); el.tabIndex = -1; }
         else if (v === true) el.setAttribute(k, '');
         else el.setAttribute(k, v);

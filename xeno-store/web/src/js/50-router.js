@@ -7,6 +7,28 @@
   R.screens = {};
   R.tabs = [];
   var scrolls = {}, pendingTab = null, polling = { queue: 0, status: 0, catalog: 0 }, prevJobs = {}, bannerEls = {}, dismissedUpdate = U.store.get('dismissedUpdate', '');
+  /* ---- History model ----
+     Every screen above the base tab and every open layer (sheet/menu/dialog) owns one history entry carrying
+     {d: depth}. Browser Back (the PS5's ○) pops the entry and reconcile() closes whatever sits above it.
+     Traversals are asynchronous, so the router tracks the ones in flight (navPending):
+       - a second ○ while one is landing is swallowed (it would overshoot the first entry and unload the page);
+       - a layer opened while a traversal is in flight gets its entry once everything settled (handle.hd),
+         otherwise the landing popstate would close it again;
+       - sub-screen pushes while in flight are deferred to the settle point. */
+  var navPending = 0, idleQueue = [];
+  function historyBack(n) {
+    navPending++;
+    try { history.go(-(n || 1)); } catch (e) { navPending--; return; }
+    /* a traversal that cannot happen (no such entry) fires no popstate: release the lock after a grace period */
+    setTimeout(function () { if (navPending > 0) { navPending--; if (!navPending) settled(); } }, 1200);
+  }
+  /* Every traversal landed: give pending layers their entry and run deferred navigations. */
+  function settled() {
+    var pend = ui.layers.filter(function (l) { return l.hd === undefined; });
+    if (pend.length) { pushHistory(); pend.forEach(function (l) { l.hd = depth(); }); }
+    var q = idleQueue; idleQueue = [];
+    q.forEach(function (fn) { try { fn(); } catch (e) { console.error(e); } });
+  }
 
   function depth() { return Math.max(0, R.stack.length - 1) + ui.layers.length; }
   function pushHistory() { try { history.pushState({ d: depth() }, ''); } catch (e) { /* ignore */ } }
@@ -32,7 +54,18 @@
       favorite: function () { favoriteFocused(); },
       options: function () { if (R.current().id !== 'settings') R.go('settings'); }
     };
-    window.addEventListener('popstate', function (e) { reconcile(e.state && typeof e.state.d === 'number' ? e.state.d : 0); });
+    window.addEventListener('popstate', function (e) {
+      if (navPending > 0) navPending--;
+      if (e.state && e.state.guard) {
+        /* ○ at the root reached the exit guard entry: stay in the app by re-pushing the base entry */
+        reconcile(0);
+        try { history.pushState({ d: 0 }, ''); } catch (err) { /* ignore */ }
+        setHash();
+      } else {
+        reconcile(e.state && typeof e.state.d === 'number' ? e.state.d : 0);
+      }
+      if (navPending === 0) settled();
+    });
     window.addEventListener('hashchange', function () { routeHash(false); });
     window.addEventListener('resize', U.debounce(function () { renderChrome(); }, 150));
     window.addEventListener('online', updateBanners); window.addEventListener('offline', updateBanners);
@@ -68,12 +101,17 @@
     var isTab = !!def.tab || id === 'settings';
     if (isTab) {
       if (depth() > 0 && !opts.noHistory) {
-        /* Collapse everything above the base through history so the browser's stack matches ours. */
+        /* Collapse everything above the base through history so the browser's stack matches ours.
+           Entries that in-flight back() calls will already remove are not counted again. */
+        var already = !!pendingTab;
         pendingTab = { id: id, params: params };
-        var d = depth();
+        if (already) return;
+        var cur = history.state && typeof history.state.d === 'number' ? history.state.d : depth();
+        var steps = cur - navPending;
         closeAllLayersNow();
-        history.go(-d);
-        setTimeout(function () { if (pendingTab) { var p = pendingTab; pendingTab = null; R.stack = []; finishTab(p); } }, 350);
+        if (steps > 0) historyBack(steps);
+        else if (navPending === 0) { var now = pendingTab; pendingTab = null; R.stack = []; finishTab(now); return; }
+        setTimeout(function () { if (pendingTab) { var p = pendingTab; pendingTab = null; R.stack = []; finishTab(p); } }, 400 + 150 * Math.max(0, steps));
         return;
       }
       R.stack = [];
@@ -82,6 +120,7 @@
     }
     var same = R.current().id === id && JSON.stringify(R.current().params) === JSON.stringify(params);
     if (same) { showScreen(R.current(), { fresh: false }); return; }
+    if (navPending > 0) { idleQueue.push(function () { R.go(id, params, opts); }); return; }   /* pushState while a traversal is in flight gets undone by it */
     if (!R.stack.length) R.stack.push({ id: 'discover', params: {} });
     R.stack.push({ id: id, params: params });
     pushHistory();
@@ -102,32 +141,47 @@
     if (R.defs[tab] && (R.defs[tab].tab || tab === 'settings')) { if (R.current().id !== tab || initial) R.go(tab, {}, { noHistory: initial }); return; }
     if (initial) R.go('discover', {}, { noHistory: true });
   }
-  R.start = function () { syncHistory(); routeHash(true); };
+  R.start = function () {
+    /* Exit guard: an extra entry below the base so that ○ on the root screen never leaves XENO STORE.
+       The guard keeps a hash-free URL so landing on it never routes anywhere. */
+    try {
+      var url = location.pathname + location.search + location.hash;
+      history.replaceState({ d: 0, guard: true }, '', location.pathname + location.search);
+      history.pushState({ d: 0 }, '', url);
+    } catch (e) { syncHistory(); }
+    routeHash(true);
+  };
 
   R.back = function () {
+    if (navPending > 0) return true;   /* a back is still landing: swallow the repeat instead of leaving the app */
     XS.sound.back();
     if (ui.layers.length) { ui.closeLayer(ui.topLayer()); return true; }
-    if (R.stack.length > 1) { history.back(); return true; }
+    if (R.stack.length > 1) { historyBack(1); return true; }
     if (R.current().id !== 'discover') { R.go('discover'); return true; }
     return false;
   };
+  /* The browser landed on the entry with depth `target`: close layers and pop screens that live above it.
+     Layers still waiting for their entry (hd undefined) were opened after the traversal started and stay. */
   function reconcile(target) {
-    var guard = 0;
-    while (depth() > target && guard++ < 50) {
-      if (ui.layers.length) ui.closeNow(ui.topLayer());
-      else if (R.stack.length > 1) { R.stack.pop(); showScreen(R.current(), { fresh: false }); setHash(); }
-      else break;
-    }
-    if (depth() < target) syncHistory();
-    if (pendingTab && depth() === 0) { var p = pendingTab; pendingTab = null; R.stack = []; finishTab(p); }
+    for (var i = ui.layers.length - 1; i >= 0; i--) { var l = ui.layers[i]; if (l.hd !== undefined && l.hd > target) ui.closeNow(l); }
+    var popped = false;
+    while (R.stack.length - 1 > target && R.stack.length > 1) { R.stack.pop(); popped = true; }
+    if (popped) { showScreen(R.current(), { fresh: false }); setHash(); }
+    if (pendingTab && target === 0 && R.stack.length <= 1) { var p = pendingTab; pendingTab = null; R.stack = []; finishTab(p); }
+    else if (depth() < target) syncHistory();
   }
-  R.layerOpened = function () { pushHistory(); updateLegend(); };
+  R.layerOpened = function (handle) {
+    if (navPending === 0) { pushHistory(); handle.hd = depth(); }   /* otherwise settled() assigns the entry */
+    updateLegend();
+  };
   R.layerClosing = function (handle) {
     var top = ui.topLayer();
-    if (handle === top && history.state && history.state.d === depth()) { history.back(); return true; }
-    setTimeout(syncHistory, 0);
+    if (handle.closingViaHistory) return true;     /* its back() is already in flight */
+    if (handle === top && handle.hd !== undefined && history.state && history.state.d === handle.hd) { handle.closingViaHistory = true; historyBack(1); return true; }
+    setTimeout(syncHistory, 0);                    /* no entry of its own (or not on top): close in place */
     return false;
   };
+  R.busy = function () { return navPending > 0 || !!pendingTab; };
   R.restoreScreenFocus = function (opener) {
     updateLegend();
     var e = R.current(); XS.nav.key = screenKey(e);

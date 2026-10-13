@@ -48,7 +48,8 @@
   ui.card = function (g, opts) {
     opts = opts || {};
     var job = opts.job || null;
-    var card = h('a.card', { nav: 'g:' + g.id, data: { hints: 'open fav', game: g.id }, href: '#game/' + encodeURIComponent(g.id) });
+    /* nav ids must be unique per screen: the same game can sit in several rails, so each rail prefixes its cards */
+    var card = h('a.card', { nav: (opts.navPrefix || 'g') + ':' + g.id, data: { hints: 'open fav', game: g.id }, href: '#game/' + encodeURIComponent(g.id) });
     card.appendChild(ui.cover(g.cover, g.coverFallback, g.title));
     card.appendChild(h('span.plat.' + (g.platform === 'PS4' ? 'ps4' : 'ps5'), { text: g.platform }));
     if (g.sizeMax) card.appendChild(h('span.size', { text: U.fmtBytes(g.sizeMax, g.sizeMax >= 1e10 ? 0 : 1) }));
@@ -88,10 +89,27 @@
     }
     sec.appendChild(head);
     var track = h('div.rail-track', { data: { navRegion: '' } });
-    var limit = opts.limit || 30;
-    for (var i = 0; i < games.length && i < limit; i++) {
-      if (opts.render) track.appendChild(opts.render(games[i]));
-      else track.appendChild(ui.card(games[i], { job: opts.jobs ? opts.jobs[games[i].id] : null }));
+    var limit = Math.min(games.length, opts.limit || 30), chunk = opts.chunk || 10, rendered = 0;
+    var prefix = 'rail.' + (opts.id || U.hashStr(String(title)).toString(36));
+    /* Rails render a first chunk and extend as the user nears the end (focus on a controller, scroll on touch):
+       keeps the Discover DOM around the ~120-card budget the PS5 browser is comfortable with. */
+    function renderMore() {
+      var end = Math.min(limit, rendered + chunk);
+      for (; rendered < end; rendered++) {
+        var g = games[rendered];
+        track.appendChild(opts.render ? opts.render(g) : ui.card(g, { job: opts.jobs ? opts.jobs[g.id] : null, navPrefix: prefix }));
+      }
+    }
+    renderMore();
+    if (rendered < limit) {
+      track.addEventListener('focusin', function (e) {
+        if (rendered >= limit) return;
+        var el = e.target && e.target.closest ? e.target.closest('[data-nav]') : null;
+        if (el && el.parentNode === track && Array.prototype.indexOf.call(track.children, el) >= rendered - 3) renderMore();
+      });
+      track.addEventListener('scroll', function () {
+        if (rendered < limit && track.scrollLeft + track.clientWidth >= track.scrollWidth - track.clientWidth / 2) renderMore();
+      }, { passive: true });
     }
     sec.appendChild(track);
     return sec;
@@ -155,8 +173,10 @@
     sheet.appendChild(head);
     var body = h('div.sheet-body', { data: { navRegion: '' } });
     sheet.appendChild(body);
-    var foot = null;
-    if (o.foot && o.foot.length) { foot = h('div.sheet-foot', o.foot); sheet.appendChild(foot); }
+    /* The foot always exists (hidden while empty) so screens can fill it later, e.g. the wizard steps. */
+    var foot = h('div.sheet-foot');
+    if (o.foot && o.foot.length) U.append(foot, o.foot);
+    sheet.appendChild(foot);
     layer.appendChild(h('div.backdrop'));
     layer.appendChild(sheet);
     var handle = null;

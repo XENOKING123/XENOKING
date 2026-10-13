@@ -150,8 +150,9 @@ int install_read_pkg_header(const char *path, char *content_id, size_t cap, char
   return 0;
 }
 
-/* ---- DPI line protocol -------------------------------------------------- */
+/* ---- DPI line protocol (console only; the host build simulates installs) -- */
 
+#ifndef XENO_HOST
 /* Connects to 127.0.0.1:port, sends "<line>\n" and reads a decimal rc.
  * Returns 0 when the daemon accepted (rc 0), -1 when unreachable (ENOENT) or
  * rejected (*rc_out set). */
@@ -180,6 +181,7 @@ static int dpi_send_line(int port, const char *line, int *rc_out, int timeout_ms
   *rc_out = atoi(resp);
   return *rc_out == 0 ? 0 : -1;
 }
+#endif
 
 /* ---- start -------------------------------------------------------------- */
 
