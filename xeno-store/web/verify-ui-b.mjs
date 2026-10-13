@@ -290,7 +290,7 @@ const put = (path, body) => api(path, { method: 'PUT', headers: { 'Content-Type'
     await page.waitForFunction(() => { const r = document.querySelector('#scr-settings [data-nav-id="debrid-alldebrid"]'); return r && r.classList.contains('on'); }, null, { timeout: 8000 }).catch(() => fail('AllDebrid row should turn connected'));
     await page.click('[data-nav-id="set-nav-accounts"]');
     await page.waitForSelector('#scr-settings .acc-row', { timeout: 8000 });
-    await sleep(300);
+    await sleep(800);
     await shot(page, 'tv-b-settings-accounts.png');
     await page.click('[data-nav-id="acc-2-activate"]');
     await page.waitForSelector('.sheet [data-nav-id="act-go"]');
@@ -301,10 +301,11 @@ const put = (path, body) => api(path, { method: 'PUT', headers: { 'Content-Type'
     await page.waitForFunction(() => !!document.querySelector('#scr-settings [data-nav-id="acc-2-clear"]'), null, { timeout: 8000 }).catch(() => fail('activated slot should offer Clear'));
     await page.click('[data-nav-id="set-nav-saves"]');
     await page.waitForSelector('#scr-settings [data-nav-id="sv-root"]');
-    await sleep(300);
+    await sleep(800);
     await shot(page, 'tv-b-settings-saves.png');
     await page.click('[data-nav-id="set-nav-pair"]');
     await page.waitForSelector('#scr-settings [data-nav-id="pair-local"]');
+    await sleep(700);
     await expect(async () => page.evaluate(() => /xeno\.local:/.test(document.querySelector('#scr-settings [data-nav-id="pair-local"]').textContent)), 'Pair a device should show http://xeno.local:<port>');
     await expect(async () => !!(await page.$('#scr-settings [data-nav-id="pair-mdns"]')), 'mDNS toggle missing');
     await sleep(200);
