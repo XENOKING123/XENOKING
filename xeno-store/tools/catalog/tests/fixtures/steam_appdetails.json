@@ -1,0 +1,22 @@
+{"990080": {"success": true, "data": {
+  "type": "game", "name": "Hogwarts Legacy", "steam_appid": 990080, "required_age": "16",
+  "about_the_game": "<h1>About</h1><p>Hogwarts Legacy is an <strong>open-world</strong> action RPG set in the world first introduced in the Harry Potter books.</p><br><p>Embark on a journey through familiar and new locations. Explore and discover magical beasts, customize your character and craft potions.</p>",
+  "short_description": "Short text.",
+  "developers": ["Avalanche Software"], "publishers": ["Warner Bros. Games"],
+  "genres": [{"id": "1", "description": "Action"}, {"id": "3", "description": "RPG"}],
+  "categories": [{"id": 2, "description": "Single-player"}, {"id": 28, "description": "Full controller support"}, {"id": 22, "description": "Steam Achievements"}],
+  "metacritic": {"score": 84, "url": "https://www.metacritic.com/game/pc/hogwarts-legacy"},
+  "release_date": {"coming_soon": false, "date": "Feb 10, 2023"},
+  "supported_languages": "English<strong>*</strong>, French<strong>*</strong>, Italian, German, Spanish - Spain<br><strong>*</strong>languages with full audio support",
+  "screenshots": [
+    {"id": 0, "path_thumbnail": "https://cdn.test/ss_1.600x338.jpg", "path_full": "https://cdn.test/ss_1.1920x1080.jpg"},
+    {"id": 1, "path_thumbnail": "https://cdn.test/ss_2.600x338.jpg", "path_full": "https://cdn.test/ss_2.1920x1080.jpg"},
+    {"id": 2, "path_full": "https://cdn.test/ss_3.1920x1080.jpg"},
+    {"id": 3, "path_full": "https://cdn.test/ss_4.1920x1080.jpg"},
+    {"id": 4, "path_full": "https://cdn.test/ss_5.1920x1080.jpg"},
+    {"id": 5, "path_full": "https://cdn.test/ss_6.1920x1080.jpg"},
+    {"id": 6, "path_full": "https://cdn.test/ss_7.1920x1080.jpg"},
+    {"id": 7, "path_full": "https://cdn.test/ss_8.1920x1080.jpg"},
+    {"id": 8, "path_full": "https://cdn.test/ss_9.1920x1080.jpg"}
+  ]
+}}}

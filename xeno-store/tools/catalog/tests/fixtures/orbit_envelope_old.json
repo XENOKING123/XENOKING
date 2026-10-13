@@ -1,0 +1,8 @@
+{"schemaVersion": 1, "revision": 13, "releases": [
+  {"id": "ppsa04029-ffpfsc", "titleId": "PPSA04029", "sizeBytes": 156011528192, "provider": "Archive.org", "format": "FFPFSC", "version": null,
+   "filename": "PPSA04029 Cyberpunk 2077.ffpfsc", "url": "https://archive.org/download/PPSA04029-Cyberpunk-2077/PPSA04029%20Cyberpunk%202077.ffpfsc",
+   "sha256": "", "sourceId": "archive", "gameId": "cyberpunk-2077", "title": "Cyberpunk 2077", "genre": "Role-playing", "region": "EUR", "homeOrder": 2},
+  {"id": "ppsa01342-exfat", "titleId": "PPSA01342", "sizeBytes": 10, "provider": "Vikingfile", "format": "exFAT", "version": "01.00",
+   "filename": "ASTRO BOT.exfat", "url": "https://vikingfile.com/f/old-astro", "browserUrl": "https://vikingfile.com/f/old-astro",
+   "sourceId": "vikingfile", "gameId": "astro-bot", "title": "ASTRO BOT", "genre": "Platformer"}
+]}

@@ -28,7 +28,7 @@
       "kind": "page",
       "homepage": "https://www.superpsx.com",
       "password": "SuperPSX",
-      "notice": "Game pages with mirror links."
+      "notice": "Game pages with mirror links per version (base, updates, DLC, backports). Archives use the password SuperPSX."
     },
     {
       "id": "pkggames",
@@ -88,10 +88,10 @@
     },
     {
       "id": "pkgzone",
-      "name": "Pkg-Zone",
-      "kind": "page",
+      "name": "pkg-zone",
+      "kind": "direct",
       "homepage": "https://pkg-zone.com",
-      "notice": "Game pages with direct package links, updates and backports."
+      "notice": "Homebrew apps, emulators and tools as PKG files (Homebrew tab). PS5 builds install natively; PS4 builds run through backwards compatibility."
     },
     {
       "id": "espacypkg",

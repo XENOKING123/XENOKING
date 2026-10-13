@@ -158,6 +158,55 @@ class Http:
             raise BudgetExceeded("budget exhausted during backoff")
         time.sleep(wait)
 
+    def request(self, method: str, url: str, *, timeout: float = DEFAULT_TIMEOUT,
+                headers: dict[str, str] | None = None, max_bytes: int = DEFAULT_MAX_BYTES,
+                deadline: float | None = None) -> "HttpResponse":
+        """One request of any method (HEAD / GET with Range …) with the same politeness as ``get``.
+
+        HTTP error statuses are *returned* (status + headers, body truncated), not raised; only
+        transport failures raise ``HttpError`` (status 0). No retries: the audit decides those.
+        """
+        host = host_of(url)
+        if not host:
+            raise HttpError(url, 0, "bad url")
+        if deadline is not None and time.monotonic() >= deadline:
+            raise BudgetExceeded(f"budget exhausted before {url}")
+        with self._lock:
+            if self._down.get(host, 0) >= self.host_down_after:
+                raise HttpError(url, 0, f"host {host} unreachable (circuit open)")
+        self._wait_turn(host, deadline)
+        req = urllib.request.Request(url, method=method.upper())
+        req.add_header("User-Agent", self.user_agent)
+        req.add_header("Accept", "*/*")
+        req.add_header("Accept-Language", "en-US,en;q=0.8")
+        for k, v in (headers or {}).items():
+            req.add_header(k, v)
+        eff_timeout = timeout
+        if deadline is not None:
+            eff_timeout = max(1.0, min(timeout, deadline - time.monotonic()))
+        self.requests += 1
+        try:
+            with urllib.request.urlopen(req, timeout=eff_timeout) as resp:
+                body = b"" if method.upper() == "HEAD" else _read_bounded_soft(resp, max_bytes)
+                with self._lock:
+                    self._down[host] = 0
+                return HttpResponse(resp.status, _lower_headers(resp.headers), body, resp.geturl())
+        except urllib.error.HTTPError as e:
+            with self._lock:
+                self._down[host] = 0
+            try:
+                body = b"" if method.upper() == "HEAD" else _read_bounded_soft(e, min(max_bytes, 256 * 1024))
+            except (OSError, ValueError):
+                body = b""
+            return HttpResponse(e.code, _lower_headers(e.headers), body, url)
+        except BudgetExceeded:
+            raise
+        except (urllib.error.URLError, socket.timeout, TimeoutError, ConnectionError, OSError, EOFError) as e:
+            self.failures += 1
+            with self._lock:
+                self._down[host] = self._down.get(host, 0) + 1
+            raise HttpError(url, 0, f"{type(e).__name__}: {getattr(e, 'reason', e)}") from None
+
     def text(self, url: str, **kw: Any) -> str:
         return self.get(url, **kw).decode("utf-8", "replace")
 
@@ -168,6 +217,41 @@ class Http:
             return json.loads(raw.decode("utf-8", "replace"))
         except ValueError as e:
             raise HttpError(url, 200, f"invalid JSON: {e}") from None
+
+
+class HttpResponse:
+    """What ``Http.request`` returns: status, lower-cased headers, (possibly truncated) body, final URL."""
+
+    __slots__ = ("status", "headers", "body", "url")
+
+    def __init__(self, status: int, headers: dict[str, str], body: bytes, url: str):
+        self.status, self.headers, self.body, self.url = status, headers, body, url
+
+    def header(self, name: str, default: str = "") -> str:
+        return self.headers.get(name.lower(), default)
+
+
+def _lower_headers(msg: Any) -> dict[str, str]:
+    out: dict[str, str] = {}
+    try:
+        for k, v in msg.items():
+            out[str(k).lower()] = str(v)
+    except AttributeError:
+        pass
+    return out
+
+
+def _read_bounded_soft(resp: Any, max_bytes: int) -> bytes:
+    """Like _read_bounded but truncates instead of raising (audit bodies are only inspected)."""
+    chunks: list[bytes] = []
+    total = 0
+    while total < max_bytes:
+        chunk = resp.read(min(256 * 1024, max_bytes - total))
+        if not chunk:
+            break
+        total += len(chunk)
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _read_bounded(resp: Any, max_bytes: int) -> bytes:

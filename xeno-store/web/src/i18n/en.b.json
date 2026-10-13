@@ -404,7 +404,8 @@
     "cleared": "{name} cleared",
     "fakeText": "np-fake-signin.elf pretends PSN is signed in so trophies pop offline; np-fake-signout.elf reverts it. Both come from the companion catalog (earthonion/np-fake-signin), are checked against their SHA-256 and sent to the ELF loader on :9021.",
     "fakeMissing": "The companion feed lists no fake sign-in payloads right now.",
-    "fakeNote": "Activate the profile first; the fake sign-in does nothing on a profile without an account id."
+    "fakeNote": "Activate the profile first; the fake sign-in does nothing on a profile without an account id.",
+    "simulated": "Simulated on the host build"
   },
   "debrid": {
     "intro": "Premium link services unrestrict free hosts into fast CDN links that the segmented engine downloads with up to 16 connections. Keys stay on this console.",

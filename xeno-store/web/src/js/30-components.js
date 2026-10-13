@@ -44,19 +44,27 @@
   ui.svg = function (name) { return U.svgEl(U.icon(name)); };
   ui.glyph = function (name) { return U.svgEl(U.glyph(name)); };
 
-  /* ---------- Game card ---------- */
+  /* ---------- Game card ("bubble 3D", SPEC §18.2) ----------
+     a.card > .cf (3D frame: cover, platform bubble, favourite dot, bottom bubbles, progress) + .title + .sub.
+     Only the frame of the focused card is 3D-transformed (CSS); 33-design.js tilts it toward the pointer. */
   ui.card = function (g, opts) {
     opts = opts || {};
     var job = opts.job || null;
     /* nav ids must be unique per screen: the same game can sit in several rails, so each rail prefixes its cards */
     var card = h('a.card', { nav: (opts.navPrefix || 'g') + ':' + g.id, data: { hints: 'open fav', game: g.id }, href: '#game/' + encodeURIComponent(g.id) });
-    card.appendChild(ui.cover(g.cover, g.coverFallback, g.title));
-    card.appendChild(h('span.plat.' + (g.platform === 'PS4' ? 'ps4' : 'ps5'), { text: g.platform }));
-    if (g.sizeMax) card.appendChild(h('span.size', { text: U.fmtBytes(g.sizeMax, g.sizeMax >= 1e10 ? 0 : 1) }));
-    if (g.verified) card.appendChild(h('span.vtick', { html: U.icon('check'), title: t('common.verified') }));
-    card.appendChild(h('span.fav-dot', { html: U.icon('heart') }));
+    var frame = h('div.cf');
+    frame.appendChild(ui.cover(g.cover, g.coverFallback, g.title));
+    frame.appendChild(h('span.plat.' + (g.platform === 'PS4' ? 'ps4' : 'ps5'), { text: g.platform }));
+    frame.appendChild(h('span.fav-dot', { html: U.icon('heart') }));
+    var foot = h('div.cfoot');
+    if (g.verified) foot.appendChild(h('span.vtick', { html: U.icon('check'), title: t('common.verified') }));
+    if (g.cheats > 0) foot.appendChild(h('span.cheats', { html: U.icon('zap') }));
+    foot.appendChild(h('span.spacer'));
+    if (g.sizeMax) foot.appendChild(h('span.size', { text: U.fmtBytes(g.sizeMax, g.sizeMax >= 1e10 ? 0 : 1) }));
+    frame.appendChild(foot);
+    if (job && job.total) { frame.appendChild(h('div.prog', [h('i', { style: { width: U.pct(job.written, job.total).toFixed(1) + '%' } })])); card.classList.add('has-prog'); }
+    card.appendChild(frame);
     if (S.isFav(g.id)) card.classList.add('fav');
-    if (job && job.total) card.appendChild(h('div.prog', [h('i', { style: { width: U.pct(job.written, job.total).toFixed(1) + '%' } })]));
     card.appendChild(h('div.title.clamp2', { text: g.title }));
     var sub = h('div.sub');
     if (job) sub.appendChild(h('span.gold', { text: t('dl.state.' + job.state) + (job.total ? ' · ' + U.fmtPct(U.pct(job.written, job.total)) : '') }));
@@ -114,11 +122,15 @@
     sec.appendChild(track);
     return sec;
   };
+  /* Genre tile: glass bubble with an inline-SVG icon (33-design.js picks one per genre) and a hashed gradient wash. */
   ui.genreTile = function (genre, count) {
-    var tile = h('a.tile', { nav: 'genre:' + genre, style: { '--tile-tint': U.tintFor(genre) }, href: '#browse' }, [
-      h('span', { text: genre }), h('span.count', { text: t('common.nGames', { n: count }) })
-    ]);
+    var tile = h('a.tile', { nav: 'genre:' + genre, href: '#browse' });
     tile.style.setProperty('--tile-tint', U.tintFor(genre));
+    tile.appendChild(h('span.wash'));
+    var icon = XS.design && XS.design.genreIcon ? XS.design.genreIcon(genre) : U.icon('gamepad');
+    tile.appendChild(h('span.gi', { html: icon }));
+    tile.appendChild(h('span.name', { text: genre }));
+    tile.appendChild(h('span.count', { text: t('common.nGames', { n: count }) }));
     tile.addEventListener('click', function (e) { e.preventDefault(); XS.router.go('browse', { genre: genre }); });
     return tile;
   };
@@ -358,25 +370,37 @@
       i0.style.width = p.toFixed(2) + '%';
     }
   };
+  var sparkSeq = 0;
   ui.sparkline = function (hist, w, h0) {
     w = w || 120; h0 = h0 || 34;
     var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('class', 'spark'); svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h0); svg.setAttribute('preserveAspectRatio', 'none');
+    svg.setAttribute('data-grad', 'xs-spark-' + (++sparkSeq));
     ui.updateSparkline(svg, hist, w, h0);
     return svg;
   };
+  /* gold line over a gold→transparent fill (SVG gradient; the stops take their colour from CSS so themes apply) */
   ui.updateSparkline = function (svg, hist, w, h0) {
     w = w || 120; h0 = h0 || 34;
     hist = (hist || []).slice(-60);
     U.clear(svg);
     if (hist.length < 2) return;
+    var NS = 'http://www.w3.org/2000/svg';
+    var gid = svg.getAttribute('data-grad') || ('xs-spark-' + (++sparkSeq));
+    var defs = document.createElementNS(NS, 'defs');
+    var grad = document.createElementNS(NS, 'linearGradient');
+    grad.setAttribute('id', gid); grad.setAttribute('x1', '0'); grad.setAttribute('y1', '0'); grad.setAttribute('x2', '0'); grad.setAttribute('y2', '1');
+    var s1 = document.createElementNS(NS, 'stop'); s1.setAttribute('offset', '0'); s1.setAttribute('class', 's1');
+    var s2 = document.createElementNS(NS, 'stop'); s2.setAttribute('offset', '1'); s2.setAttribute('class', 's2');
+    grad.appendChild(s1); grad.appendChild(s2); defs.appendChild(grad); svg.appendChild(defs);
     var max = 1; for (var i = 0; i < hist.length; i++) max = Math.max(max, hist[i]);
     var pts = [];
     for (var k = 0; k < hist.length; k++) pts.push([(k / (hist.length - 1) * w).toFixed(1), (h0 - 2 - (hist[k] / max) * (h0 - 4)).toFixed(1)]);
     var d = 'M' + pts.map(function (p) { return p[0] + ' ' + p[1]; }).join(' L');
-    var area = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    var area = document.createElementNS(NS, 'path');
     area.setAttribute('class', 'area'); area.setAttribute('d', d + ' L' + w + ' ' + h0 + ' L0 ' + h0 + ' Z');
-    var line = document.createElementNS('http://www.w3.org/2000/svg', 'path'); line.setAttribute('d', d);
+    area.style.fill = 'url(#' + gid + ')';
+    var line = document.createElementNS(NS, 'path'); line.setAttribute('d', d);
     svg.appendChild(area); svg.appendChild(line);
   };
   ui.statePill = function (job) {

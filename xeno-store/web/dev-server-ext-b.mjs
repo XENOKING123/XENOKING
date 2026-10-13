@@ -448,7 +448,8 @@ export function register({ route, state }) {
   function seedJobs() {
     const jobs = state.jobs;
     const used = new Set(jobs.map((j) => j.gameId));
-    const pool = games().filter((g) => g.platform === 'PS5' && !used.has(g.id)).sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+    /* leave the most popular titles alone: part A's keyboard walk needs untouched cards at the start of the Trending rail */
+    const pool = games().filter((g) => g.platform === 'PS5' && !used.has(g.id)).sort((a, b) => (b.popularity || 0) - (a.popularity || 0)).slice(30);
     const direct = (g) => (g.releases || []).find((r) => r.sourceId === 'archive' && r.sizeBytes > 0 && (r.kind || 'game') === 'game' && r.format !== 'PAGE');
     const kindRel = (g, k) => (g.releases || []).find((r) => r.kind === k && r.format !== 'PAGE');
     const withSet = pool.filter((g) => direct(g) && kindRel(g, 'update') && kindRel(g, 'dlc'));

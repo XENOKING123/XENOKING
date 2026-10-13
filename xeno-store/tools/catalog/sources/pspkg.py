@@ -11,7 +11,8 @@ import html
 import re
 
 from merge import GameDraft, clean_title
-from sources.base import BudgetExceeded, HttpError, SourceContext, SourceSpec, page_release
+from sources.base import HttpError, SourceContext, SourceSpec, page_release
+from sources.wpsite import SiteConfig, fetch_site
 
 BASE = "https://pspkg.com/"
 PROVIDER = "pspkg.com"
@@ -49,40 +50,22 @@ def parse_listing(page_html: str, platform: str) -> list[GameDraft]:
     return out
 
 
+SITE = SiteConfig(
+    id="pspkg", name="pspkg.com", base=BASE, provider=PROVIDER, priority=30, budget=180.0,
+    platforms={"PS5": ["ps5"], "PS4": ["ps4"]}, category_urls={"PS5": [BASE + "ps5/"], "PS4": [BASE + "ps4/"]},
+    default_platform="PS4", listing_parser=parse_listing, max_pages=MAX_PAGES,
+    description="pspkg.com (WP REST → sitemap → paginated PS4/PS5 listings; Cloudflare often blocks)",
+)
+
+
 def fetch_online(ctx: SourceContext) -> list[GameDraft]:
-    drafts: dict[str, GameDraft] = {}
-    for platform in ("PS5", "PS4"):
-        base = f"{BASE}{platform.lower()}/"
-        for page in range(1, MAX_PAGES + 1):
-            if ctx.limit and len(drafts) >= ctx.limit:
-                break
-            url = base if page == 1 else f"{base}page/{page}/"
-            try:
-                body = ctx.get_text(url)
-            except BudgetExceeded:
-                ctx.info(f"{platform}: budget reached at page {page}")
-                break
-            except HttpError as e:
-                if page == 1 and platform == "PS5":
-                    raise
-                ctx.info(f"{platform}: page {page} failed ({e}); stopping")
-                break
-            if len(body) < 500:
-                break
-            rows = parse_listing(body, platform)
-            added = 0
-            for d in rows:
-                if d.pageUrl not in drafts:
-                    drafts[d.pageUrl] = d
-                    added += 1
-            if added == 0 or (added < 8 and page > 1):
-                break
+    drafts = fetch_site(ctx, SITE)
     if not drafts:
         raise HttpError(BASE, 0, "no games parsed")
-    return ctx.truncate(list(drafts.values()))
+    return drafts
 
 
 SOURCE = SourceSpec(
     id="pspkg", name="pspkg.com", priority=30, budget=180.0, release_source_ids=("pspkg",),
-    online=fetch_online, snapshot=None, description="pspkg.com PS4/PS5 listings",
+    online=fetch_online, snapshot=None, description=SITE.description,
 )

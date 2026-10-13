@@ -31,7 +31,7 @@ from typing import Any, Callable
 
 from merge import (
     GameDraft, clean_title, detect_kind, format_from_filename, make_release_id, parse_backport, parse_compat,
-    parse_region, parse_title_ids, parse_version, platform_for_title_id, strip_marks,
+    parse_region, parse_title_ids, parse_version, platform_for_title_id, requires_fw, strip_marks,
 )
 from netutil import BudgetExceeded, HttpError
 from schema import Release
@@ -101,7 +101,8 @@ _PASSWORD_NOISE = {"is", "protected", "required", "none", "no", "not", "needed",
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
 _ANCHOR_RE = re.compile(r'<a\s[^>]*?href\s*=\s*["\']([^"\']+)["\'][^>]*>([\s\S]*?)</a>', re.I)
-_HEADING_RE = re.compile(r"<(h[1-6]|strong|b|p|li|div|span|td|summary)[^>]*>([\s\S]*?)</\1>", re.I)
+_HEADING_RE = re.compile(r"<(h[1-6]|strong|b|summary|th)[^>]*>([\s\S]*?)</\1>", re.I)
+_LINE_RE = re.compile(r"<(p|li|div|span|td|dt|dd)[^>]*>([\s\S]*?)</\1>", re.I)
 _IMG_RE = re.compile(r'<img[^>]+(?:data-src|data-lazy-src|data-bgset|src)\s*=\s*["\']\s*(https?://[^"\'\s]+)\s*["\']', re.I)
 _OG_IMAGE_RE = re.compile(r'<meta\s+(?:property|name)=["\']og:image["\']\s+content=["\']([^"\']+)["\']', re.I)
 _OG_IMAGE_RE2 = re.compile(r'<meta\s+content=["\']([^"\']+)["\']\s+(?:property|name)=["\']og:image["\']', re.I)
@@ -114,6 +115,7 @@ _CONTENT_RE = re.compile(
     r'(?:<footer|<div[^>]+class=["\'][^"\']*(?:comments|related|sidebar|post-tags)|</article>|</main>)', re.I)
 _DATE_META_RE = re.compile(r'(?:article:published_time|datePublished)["\']?\s*(?:content=|:)\s*["\']([0-9]{4}-[0-9]{2}-[0-9]{2})', re.I)
 _PLATFORM_HINT_RE = re.compile(r"\b(ps5|ps4|playstation\s*5|playstation\s*4)\b", re.I)
+_BACKPORT_TAG_RE = re.compile(r"(?:backport(?:ed|s)?|\bbp)\s*(?:fw\s*|for\s*|to\s*)?\d{1,2}\.(?:xx|\d{2})\+?", re.I)
 _LOC_RE = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>", re.I)
 _SITEMAP_SKIP_RE = re.compile(r"/(?:category|tag|author|page|feed|wp-content|wp-json|search|privacy|contact|about|dmca|faq)(?:/|$)|\?", re.I)
 _CARD_RE = re.compile(
@@ -195,21 +197,35 @@ def extract_links(content: str, site_host: str) -> list[LinkInfo]:
     """Every download-looking anchor of a post body with its section label, in document order."""
     out: list[LinkInfo] = []
     seen: set[str] = set()
-    section = ""
-    pos = 0
+    heading = ""     # nearest preceding h1-h6 / strong / b
+    line = ""        # nearest preceding anchor-free p / li / div … under that heading ("Size: 1.2 GB")
     events: list[tuple[int, str, Any]] = []
     for m in _HEADING_RE.finditer(content or ""):
         t = text_of(m.group(2))
         if 0 < len(t) <= 120 and not _ANCHOR_RE.search(m.group(2)):
             events.append((m.start(), "h", t))
+    for m in _LINE_RE.finditer(content or ""):
+        t = text_of(m.group(2))
+        if 0 < len(t) <= 120 and not _ANCHOR_RE.search(m.group(2)) and not _HEADING_RE.fullmatch(m.group(2).strip()):
+            events.append((m.start(), "l", t))
     for m in _ANCHOR_RE.finditer(content or ""):
         events.append((m.start(), "a", m))
     events.sort(key=lambda e: e[0])
+    prev_end = 0
     for pos, kind, payload in events:
         if kind == "h":
-            section = payload
+            heading, line = payload, ""
+            prev_end = pos
+            continue
+        if kind == "l":
+            line = payload
             continue
         m = payload
+        # Text right before the anchor inside its own block ("Game : ", "Update 1.05 (Fix 5.05) : ").
+        lead = text_of(content[prev_end:pos])[-80:] if pos > prev_end else ""
+        lead = lead.split(">")[-1] if ">" in lead else lead
+        prev_end = m.end()
+        section = " ".join(x for x in (heading, line, lead.strip(" :|-–")) if x).strip()
         url = html.unescape(m.group(1).strip())
         label = text_of(m.group(2))
         if not url.startswith(("http://", "https://")) or url in seen:
@@ -268,7 +284,7 @@ def group_links(links: list[LinkInfo], default_title_id: str, default_region: st
 
 
 def releases_from_groups(groups: list[ReleaseGroup], *, site_id: str, provider: str, page_url: str, password: str,
-                         prefix: str, post_size: int) -> list[Release]:
+                         prefix: str, post_size: int, post_compat: str = "") -> list[Release]:
     out: list[Release] = []
     for g in groups:
         terminals = [l for l in g.links if l.cls == "terminal"]
@@ -289,9 +305,10 @@ def releases_from_groups(groups: list[ReleaseGroup], *, site_id: str, provider: 
         out.append(Release(
             id=make_release_id(prefix, g.title_id, g.kind, g.version, primary.url), url=primary.url, sourceId=site_id,
             provider=provider, format=fmt, kind=g.kind, titleId=g.title_id, region=g.region, version=g.version,
-            filename=fname, browserUrl=page_url, mirrors=[l.url for l in ordered[1:]], sizeBytes=g.size or post_size,
-            compat=g.compat, password=password, notes=" · ".join(n for n in notes if n),
-            backportFw=g.backport_fw, requiresFw=g.backport_fw,
+            filename=fname, browserUrl=page_url, mirrors=[l.url for l in ordered[1:]],
+            sizeBytes=g.size or (post_size if g.kind in ("game", "bundle") else 0),
+            compat=g.compat or post_compat, password=password, notes=" · ".join(n for n in notes if n),
+            backportFw=g.backport_fw, requiresFw=requires_fw((g.compat or post_compat).split(), g.backport_fw),
         ))
     return out
 
@@ -348,8 +365,11 @@ def parse_post(cfg: SiteConfig, *, title: str, url: str, content: str, categorie
     post_size = parse_size(raw_title) or parse_size(text[:3000])
     links = extract_links(content, cfg.host)
     groups = group_links(links, own_ids[0] if own_ids else "", region)
+    # Firmware tags in the title apply to every release, except the ones that belong to a backport tag
+    # ("+ Backport 5.05" describes one file, not the base game).
+    post_compat = " ".join(parse_compat(_BACKPORT_TAG_RE.sub(" ", raw_title)))
     releases = releases_from_groups(groups, site_id=cfg.id, provider=cfg.provider or cfg.name, page_url=url,
-                                    password=password, prefix=cfg.prefix, post_size=post_size)
+                                    password=password, prefix=cfg.prefix, post_size=post_size, post_compat=post_compat)
     if not releases:
         rel = page_release(cfg.id, cfg.provider or cfg.name, url, title_id=own_ids[0] if own_ids else "",
                            platform=platform, password=password, prefix=cfg.prefix)

@@ -358,15 +358,15 @@
     fixLegend: function () {
       var legend = U.$('#legend'); if (!legend) return;
       var want = swapOn();
-      var done = legend.getAttribute('data-swapped') === '1';
-      if (want === done) return;
-      U.$$('.hint .glyph', legend).forEach(function (g) {
-        var isCross = g.classList.contains('cross'), isCircle = g.classList.contains('circle');
-        if (!isCross && !isCircle) return;
-        var repl = U.svgEl(U.glyph(isCross ? 'circle' : 'cross'));
+      U.$$('.hint', legend).forEach(function (hint) {
+        var swapped = hint.getAttribute('data-swapped') === '1';
+        if (want === swapped) return;
+        var g = hint.querySelector('.glyph.cross, .glyph.circle');
+        if (!g) return;
+        var repl = U.svgEl(U.glyph(g.classList.contains('cross') ? 'circle' : 'cross'));
         if (repl) g.parentNode.replaceChild(repl, g);
+        if (want) hint.setAttribute('data-swapped', '1'); else hint.removeAttribute('data-swapped');
       });
-      legend.setAttribute('data-swapped', want ? '1' : '0');
     }
   };
   cb.remap.install();
@@ -426,7 +426,7 @@
       var hits = [];
       if (XS.ca && typeof XS.ca.search === 'function') { try { hits = XS.ca.search(q, 8) || []; } catch (e) { hits = []; } }
       if (!hits.length) { for (var i = 0; i < S.data.games.length && hits.length < 8; i++) { var g = S.data.games[i]; if (g._search && g._search.indexOf(q) >= 0 && (g.platform === 'PS5' || g.platform === 'PS4')) hits.push(g); } }
-      hits.forEach(function (hit) { var g = hit && hit.game ? hit.game : hit; if (!g || !g.id) return; if (recent.indexOf(g) >= 0) return; items.push({ kind: 'game', game: g, label: g.title, sub: t('palette.kind.game') + ' · ' + g.platform, run: function () { XS.router.go('game', { id: g.id }); } }); });
+      hits.forEach(function (hit) { var g = hit && hit.g ? hit.g : (hit && hit.game ? hit.game : hit); if (!g || !g.id) return; if (recent.indexOf(g) >= 0) return; items.push({ kind: 'game', game: g, label: g.title, sub: t('palette.kind.game') + ' · ' + g.platform, run: function () { XS.router.go('game', { id: g.id }); } }); });
     }
     return items.slice(0, 24);
   }

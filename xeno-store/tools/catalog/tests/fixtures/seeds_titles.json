@@ -1,0 +1,9 @@
+[
+  {"titleId": "CUSA00207_00", "conceptId": 201500, "name": "Bloodborne™", "contentId": "UP9000-CUSA00207_00-BLOODBORNE0000US", "region": "UP", "publisherId": "UP9000"},
+  {"titleId": "CUSA00299_00", "conceptId": 201500, "name": "Bloodborne™", "contentId": "EP9000-CUSA00299_00-BLOODBORNE0000EU", "region": "EP", "publisherId": "EP9000"},
+  {"titleId": "PPSA03243_00", "conceptId": 10000001, "name": "Hogwarts Legacy", "contentId": "EP1018-PPSA03243_00-HOGWARTSLEGACY00", "region": "EP", "publisherId": "EP1018"},
+  {"titleId": "PPSA03244_00", "conceptId": 10000001, "name": "Hogwarts Legacy", "contentId": "UP1018-PPSA03244_00-HOGWARTSLEGACY00", "region": "UP", "publisherId": "UP1018"},
+  {"titleId": "CUSA12345_00", "conceptId": 0, "name": "Hogwarts Legacy", "contentId": "JP0123-CUSA12345_00-HOGWARTSLEGACYJP", "region": "JP", "publisherId": "JP0123"},
+  {"titleId": "CUSA00002_00", "conceptId": 202335, "name": "KILLZONE™ SHADOW FALL", "contentId": "EP9000-CUSA00002_00-KZ4RELEASE000041", "region": "EP", "publisherId": "EP9000"},
+  {"titleId": "NPIA00001_00", "conceptId": 1, "name": "Not a game id format", "contentId": "", "region": null, "publisherId": ""}
+]

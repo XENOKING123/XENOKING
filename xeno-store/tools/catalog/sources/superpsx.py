@@ -11,7 +11,8 @@ import html
 import re
 
 from merge import GameDraft, clean_title
-from sources.base import BudgetExceeded, HttpError, SourceContext, SourceSpec, page_release
+from sources.base import HttpError, SourceContext, SourceSpec, page_release
+from sources.wpsite import SiteConfig, fetch_site
 
 CATEGORY = {
     "PS4": ("https://www.superpsx.com/category/ps4/ps4-games-free/", 130),
@@ -46,35 +47,24 @@ def parse_listing(page_html: str, platform: str) -> list[GameDraft]:
     return out
 
 
+SITE = SiteConfig(
+    id="superpsx", name="SuperPSX", base="https://www.superpsx.com", provider=PROVIDER, password=PASSWORD,
+    priority=40, budget=240.0, platforms={"PS5": ["ps5-games", "ps5"], "PS4": ["ps4-games-free", "ps4"]},
+    category_urls={p: [u] for p, (u, _) in CATEGORY.items()}, default_platform="PS4",
+    listing_parser=lambda body, platform: parse_listing(body, platform), max_pages=130,
+    description="superpsx.com (WP REST → sitemap → Pencil category listings)",
+)
+
+
 def fetch_online(ctx: SourceContext) -> list[GameDraft]:
-    drafts: dict[str, GameDraft] = {}
-    for platform, (base, max_pages) in CATEGORY.items():
-        for page in range(1, max_pages + 1):
-            if ctx.limit and len(drafts) >= ctx.limit:
-                break
-            url = base if page == 1 else f"{base}page/{page}/"
-            try:
-                body = ctx.get_text(url)
-            except BudgetExceeded:
-                ctx.info(f"{platform}: budget reached at page {page}")
-                break
-            except HttpError as e:
-                if page == 1 and platform == "PS4":
-                    raise
-                ctx.info(f"{platform}: page {page} failed ({e}); stopping")
-                break
-            rows = parse_listing(body, platform)
-            before = len(drafts)
-            for d in rows:
-                drafts.setdefault(d.pageUrl, d)
-            if len(drafts) == before:
-                break
+    """§17.10 strategies in order; the Pencil-theme listing parser above is the category-page fallback."""
+    drafts = fetch_site(ctx, SITE)
     if not drafts:
         raise HttpError(CATEGORY["PS4"][0], 0, "no games parsed")
-    return ctx.truncate(list(drafts.values()))
+    return drafts
 
 
 SOURCE = SourceSpec(
     id="superpsx", name="SuperPSX", priority=40, budget=240.0, release_source_ids=("superpsx",),
-    online=fetch_online, snapshot=None, description="superpsx.com category listings",
+    online=fetch_online, snapshot=None, description=SITE.description,
 )

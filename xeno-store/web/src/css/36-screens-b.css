@@ -2,6 +2,8 @@
    debrid/accounts/uninstall, setup checklist/payloads/ghost cleaner, command palette, shortcuts, console jobs. */
 
 /* ---------- shared ---------- */
+.set-body .lrow .desc, .set-body .lrow .name, .set-body .lrow .val .mono, .pair-url, .lrow .desc.mono { overflow-wrap: anywhere; min-width: 0; }
+.set-body .lrow .val { max-width: 45%; white-space: normal; text-align: end; }
 .two-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .lrow.crow .cbox { width: 26px; height: 26px; border-radius: 8px; border: 2px solid var(--line2); display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; color: transparent; transition: background-color var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast); }
 .lrow.crow .cbox svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
@@ -11,6 +13,8 @@
 .lrow .main .fixline svg { width: 15px; height: 15px; flex: 0 0 auto; margin-top: 2px; fill: none; stroke: var(--acc2); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .lrow .ic.fmt.big { width: 74px; height: 74px; font-size: 13px; font-weight: 900; font-family: var(--mono); letter-spacing: .04em; border-radius: 12px; }
 .lrow .val .mono { font-size: 13px; }
+.chip.wrap { white-space: normal; height: auto; min-height: 28px; padding: 4px 10px; line-height: 1.3; text-align: start; }
+.chip.wrap svg { flex: 0 0 auto; }
 .empty.sm { padding: 22px 16px; }
 .empty.sm h3 { font-size: 15px; }
 .space-line { min-height: 20px; margin: 10px 2px 0; font-size: 13.5px; font-weight: 700; display: flex; align-items: center; gap: 6px; }

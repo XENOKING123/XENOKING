@@ -5,7 +5,9 @@
     build_catalog.py --online             live sources (each with a time budget; a failing
                                           source falls back to its snapshot / the previous catalog)
     build_catalog.py --validate           validate catalog/xeno-catalog.json and exit non-zero on errors
-    options: --limit N (debug: cap games per source), --out PATH, --sources a,b, --quiet
+    options: --limit N (debug: cap games per source), --out PATH, --sources a,b, --quiet,
+             --orbit PATH (a decrypted Orbit catalogue file/dir, §17.11), --enrich-budget N (seconds for the
+             online Steam / PS Store passes, §17.1), --no-seeds (skip the §17.9 offline enrichment)
 
 Writes catalog/xeno-catalog.json (compact, deterministic), catalog/revision.json
 (revision bumps only when content changed) and catalog/report.json (per-source
@@ -25,6 +27,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+from audit import audited_at_of, load_results as load_audit_results  # noqa: E402
+from enrich import psstore, seeds, steam  # noqa: E402
 from merge import GameDraft, catalog_content_signature, merge_drafts  # noqa: E402
 from netutil import BROWSER_UA, BudgetExceeded, Http, HttpError  # noqa: E402
 from schema import Catalog, SourceInfo, validate_catalog  # noqa: E402
@@ -32,16 +36,35 @@ from sources import REGISTRY, SourceContext, SourceSpec, get_sources  # noqa: E4
 from sources.base import drafts_from_previous  # noqa: E402
 
 PROJECT_ROOT = HERE.parent.parent          # xeno-store/
+REPO_ROOT = PROJECT_ROOT.parent            # the repository (holds client/ with the bundled seeds)
 CATALOG_DIR = PROJECT_ROOT / "catalog"
 DEFAULT_OUT = CATALOG_DIR / "xeno-catalog.json"
+AUDIT_RESULTS = CATALOG_DIR / "snapshots" / "audit" / "results.json"
 JSON_SEPARATORS = (",", ":")
+MAX_NODES = 600_000                        # the console parser caps at 900k JSON values; stay well under
 
 # Politeness per host (seconds between requests); everything else uses 1 req/s.
 HOST_INTERVALS = {
     "raw.githubusercontent.com": 0.2,
     "archive.org": 0.34,
     "dlpsgame.com": 1.0,
+    "store.steampowered.com": 2.5,
+    "store.playstation.com": 2.0,
 }
+
+
+def count_nodes(value) -> int:
+    """Number of JSON values (objects, arrays and scalars) — what the console's bounded parser counts."""
+    stack = [value]
+    n = 0
+    while stack:
+        v = stack.pop()
+        n += 1
+        if isinstance(v, dict):
+            stack.extend(v.values())
+        elif isinstance(v, list):
+            stack.extend(v)
+    return n
 
 
 def utc_now_iso() -> str:
@@ -108,11 +131,11 @@ class SourceRun:
 
 
 def run_source(spec: SourceSpec, mode: str, *, root: Path, http: Http, limit: int, previous: Catalog | None,
-               log) -> SourceRun:
+               log, extra: dict | None = None) -> SourceRun:
     run = SourceRun(spec)
     started = time.monotonic()
     ctx = SourceContext(root=root, http=http, mode=mode, limit=limit, previous=previous, log=log, source_id=spec.id,
-                        deadline=started + spec.budget)
+                        deadline=started + spec.budget, extra=dict(extra or {}))
     before = http.requests
 
     def finish(status: str, drafts: list[GameDraft]) -> SourceRun:
@@ -153,15 +176,16 @@ def run_source(spec: SourceSpec, mode: str, *, root: Path, http: Http, limit: in
 
 
 def run_all_sources(specs: list[SourceSpec], mode: str, *, root: Path, http: Http, limit: int,
-                    previous: Catalog | None, log) -> list[SourceRun]:
+                    previous: Catalog | None, log, extra: dict | None = None) -> list[SourceRun]:
     if mode == "offline":
-        return [run_source(s, mode, root=root, http=http, limit=limit, previous=previous, log=log) for s in specs]
+        return [run_source(s, mode, root=root, http=http, limit=limit, previous=previous, log=log, extra=extra)
+                for s in specs]
     # Online: sources run in parallel; each respects its own deadline so the
     # slowest site bounds the build, not the sum of all sites.
     runs: list[SourceRun] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(specs)) or 1) as pool:
-        futures = {pool.submit(run_source, s, mode, root=root, http=http, limit=limit, previous=previous, log=log): s
-                   for s in specs}
+        futures = {pool.submit(run_source, s, mode, root=root, http=http, limit=limit, previous=previous, log=log,
+                               extra=extra): s for s in specs}
         for fut, spec in futures.items():
             try:
                 runs.append(fut.result(timeout=spec.budget + 90))
@@ -201,9 +225,16 @@ def print_summary(runs: list[SourceRun], report: dict, out_path: Path, size: int
     dg = report["droppedGames"]
     if dg:
         log("dropped games: " + ", ".join(f"{k}={v}" for k, v in sorted(dg.items())))
-    log(f"catalog: {report['games']} games, {report['releases']} releases, "
+    a = report.get("audit") or {}
+    if a.get("auditedAt"):
+        log(f"audit: {a.get('ok', 0)} ok, {a.get('flaky', 0)} flaky, {a.get('page', 0)} page, "
+            f"{a.get('droppedDead', 0)} dead dropped (results from {a['auditedAt']})")
+    en = report.get("enrichment") or {}
+    if en:
+        log("enrichment: " + ", ".join(f"{k}={v}" for k, v in en.items() if not isinstance(v, dict)))
+    log(f"catalog: {report['games']} games ({report['platforms'].get('HOMEBREW', 0)} homebrew), {report['releases']} releases, "
         f"{report['verifiedReleases']} verified, revision {report['revision']} "
-        f"({'changed' if report['changed'] else 'unchanged'}), {fmt_size(size)} -> {out_path}")
+        f"({'changed' if report['changed'] else 'unchanged'}), {fmt_size(size)}, {report['nodes']} JSON nodes -> {out_path}")
 
 
 def build(args: argparse.Namespace, log) -> int:
@@ -217,16 +248,50 @@ def build(args: argparse.Namespace, log) -> int:
 
     http = Http(user_agent=BROWSER_UA, min_interval=1.0, host_intervals=HOST_INTERVALS)
     t0 = time.monotonic()
+    extra = {"orbit_paths": [str(Path(p).resolve()) for p in (args.orbit or [])]}
     log(f"building catalog ({mode}) from {len(specs)} sources: {', '.join(s.id for s in specs)}")
-    runs = run_all_sources(specs, mode, root=PROJECT_ROOT, http=http, limit=args.limit, previous=previous, log=log)
+    runs = run_all_sources(specs, mode, root=PROJECT_ROOT, http=http, limit=args.limit, previous=previous, log=log,
+                           extra=extra)
 
     drafts: list[GameDraft] = []
     for r in runs:
         drafts.extend(r.drafts)
     generated_at = utc_now_iso()
     prev_revision = previous.revision if previous else 0
+
+    # Enrichment (§17.9 seeds offline; §17.1 Steam / PS Store caches, refreshed online within a budget).
+    enrichment: dict = {}
+    enrichers = []
+    seed_obj = None
+    if not args.no_seeds:
+        seed_fn, seed_obj = seeds.enricher(REPO_ROOT, log)
+        if seed_fn is not None:
+            enrichers.append(seed_fn)
+    steam_cache = steam.SteamCache(PROJECT_ROOT / steam.CACHE_FILE)
+    ps_cache = psstore.PsStoreCache(PROJECT_ROOT / psstore.CACHE_FILE)
+    if mode == "online" and args.enrich_budget > 0:
+        # A first merge pass tells us which titles matter most (popularity) and which store URLs exist.
+        pre, _ = merge_drafts([_copy_draft(d) for d in drafts], source_infos, revision=1, generated_at=generated_at,
+                              previous=previous, enrichers=enrichers)
+        ranked = sorted((g for g in pre.games if g.platform in ("PS4", "PS5")), key=lambda g: (-g.popularity, g.title))
+        half = args.enrich_budget / 2.0
+        enrichment["steam"] = steam.run(steam.SteamClient(http), steam_cache, [g.title for g in ranked], half, log)
+        enrichment["psstore"] = psstore.run(http, ps_cache, [g.psStoreUrl for g in ranked if g.psStoreUrl], half, log)
+    enrichers.append(steam.enricher(steam_cache))
+    enrichers.append(psstore.enricher(ps_cache))
+    enrichment["steamCache"] = len(steam_cache.entries)
+    enrichment["psStoreCache"] = len(ps_cache.entries)
+
+    audit_results = load_audit_results(AUDIT_RESULTS)
+    audited_at = audited_at_of(AUDIT_RESULTS) if audit_results else ""
+    if audit_results:
+        log(f"audit results: {len(audit_results)} URLs from {audited_at or 'unknown date'}")
+
     catalog, mreport = merge_drafts(drafts, source_infos, revision=prev_revision + 1 or 1,
-                                    generated_at=generated_at, previous=previous)
+                                    generated_at=generated_at, previous=previous, enrichers=enrichers,
+                                    audit=audit_results or None)
+    if seed_obj is not None:
+        enrichment["seeds"] = seed_obj.stats.to_dict()
 
     doc = catalog.to_dict()
     changed = True
@@ -244,21 +309,41 @@ def build(args: argparse.Namespace, log) -> int:
             log("  " + e)
         return 2
 
+    nodes = count_nodes(doc)
+    if nodes > MAX_NODES:
+        log(f"TOO LARGE: {nodes} JSON nodes exceeds the {MAX_NODES} budget the console parser is sized for")
+        return 2
     size = write_json_atomic(out_path, doc, compact=True)
     verified = sum(1 for g in doc["games"] for r in g["releases"] if r["verifiedAt"])
     write_json_atomic(revision_path, {
         "revision": doc["revision"], "generatedAt": doc["generatedAt"], "games": len(doc["games"]),
         "releases": sum(len(g["releases"]) for g in doc["games"]), "verifiedReleases": verified,
+        "auditedAt": audited_at,
     }, compact=False)
+    health = _count(r["health"] or "unaudited" for g in doc["games"] for r in g["releases"])
+    dropped_links = [s.split(": ", 2)[-1] for s in mreport.dropped_samples if ": audit_dead: " in s]
     report = {
         "generatedAt": generated_at, "mode": mode, "revision": doc["revision"], "changed": changed,
         "games": len(doc["games"]), "releases": sum(len(g["releases"]) for g in doc["games"]),
         "verifiedReleases": verified, "bytes": size, "elapsed": round(time.monotonic() - t0, 1),
         "httpRequests": http.requests, "httpFailures": http.failures, "mergedGroups": mreport.merged_groups,
-        "platforms": {p: sum(1 for g in doc["games"] if g["platform"] == p) for p in ("PS5", "PS4")},
+        "nodes": nodes,
+        "platforms": {p: sum(1 for g in doc["games"] if g["platform"] == p) for p in ("PS5", "PS4", "HOMEBREW")},
         "formats": _count(r["format"] for g in doc["games"] for r in g["releases"]),
         "kinds": _count(r["kind"] for g in doc["games"] for r in g["releases"]),
         "genres": _count(ge for g in doc["games"] for ge in g["genres"]),
+        "backports": sum(g["backports"] for g in doc["games"]),
+        "withScreenshots": sum(1 for g in doc["games"] if g["screenshots"]),
+        "withMetacritic": sum(1 for g in doc["games"] if g["metacritic"] is not None),
+        "withCheats": sum(1 for g in doc["games"] if g["cheats"]),
+        "withPsStoreUrl": sum(1 for g in doc["games"] if g["psStoreUrl"]),
+        "withTitleIds": sum(1 for g in doc["games"] if g["titleIds"]),
+        "enrichment": enrichment,
+        "audit": {
+            "auditedAt": audited_at, "results": len(audit_results), "ok": health.get("ok", 0),
+            "flaky": health.get("flaky", 0), "page": health.get("page", 0), "unaudited": health.get("unaudited", 0),
+            "droppedDead": mreport.dropped_releases.get("audit_dead", 0), "droppedLinks": dropped_links[:500],
+        },
         "droppedReleases": dict(sorted(mreport.dropped_releases.items())),
         "droppedGames": dict(sorted(mreport.dropped_games.items())),
         "droppedSamples": mreport.dropped_samples,
@@ -271,6 +356,12 @@ def build(args: argparse.Namespace, log) -> int:
         if failed:
             log(f"note: sources with no data this run: {', '.join(failed)}")
     return 0
+
+
+def _copy_draft(d: GameDraft) -> GameDraft:
+    """A deep-enough copy so the pre-merge pass cannot mutate the drafts the real merge consumes."""
+    import copy
+    return copy.deepcopy(d)
 
 
 def _count(items) -> dict[str, int]:
@@ -306,8 +397,13 @@ def validate(args: argparse.Namespace, log) -> int:
         return 1
     games = doc.get("games", [])
     releases = sum(len(g.get("releases", [])) for g in games)
+    nodes = count_nodes(doc)
+    if nodes > MAX_NODES:
+        log(f"INVALID: {path} has {nodes} JSON nodes (budget {MAX_NODES})")
+        return 1
     log(f"OK: {path} revision {doc.get('revision')} — {len(games)} games, {releases} releases, "
-        f"{len(doc.get('sources', []))} sources ({len(known)} registered modules), {fmt_size(path.stat().st_size)}")
+        f"{len(doc.get('sources', []))} sources ({len(known)} registered modules), {fmt_size(path.stat().st_size)}, "
+        f"{nodes} JSON nodes")
     return 0
 
 
@@ -321,6 +417,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", default="", help=f"catalog path (default {DEFAULT_OUT})")
     ap.add_argument("--sources", default="", help="comma-separated source ids to run (default: all)")
     ap.add_argument("--quiet", action="store_true", help="only print the summary")
+    ap.add_argument("--orbit", action="append", default=[], metavar="PATH",
+                    help="a decrypted Orbit catalogue (file or directory of catalogue*.json); repeatable")
+    ap.add_argument("--enrich-budget", type=float, default=240.0, metavar="SECONDS",
+                    help="online only: seconds for the Steam + PS Store enrichment passes (0 = cache only)")
+    ap.add_argument("--no-seeds", action="store_true", help="skip the offline seeds enrichment (titles-seed.zip, covers.json)")
     args = ap.parse_args(argv)
 
     messages: list[str] = []

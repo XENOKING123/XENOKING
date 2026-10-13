@@ -68,7 +68,7 @@
 .tick svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
 
 /* ---------- Covers: skeleton shimmer (transform only) + tinted placeholder with a bold condensed title ---------- */
-.cover { position: relative; overflow: hidden; background: var(--card2); border-radius: var(--radius-m); -webkit-mask-image: -webkit-radial-gradient(#fff, #fff); }
+.cover { position: relative; overflow: hidden; background: var(--card2); border-radius: var(--radius-m); }
 .cover::before {
   content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 55%; pointer-events: none;
   background: linear-gradient(100deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, .09) 50%, rgba(255, 255, 255, 0) 100%);
@@ -100,19 +100,19 @@
   background: var(--el-1); border: 1px solid var(--line-soft); padding: 8px; scroll-snap-align: start;
   box-shadow: inset 0 1px 0 var(--hl), 0 2px 6px rgba(0, 0, 0, .25);
   transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease), border-color var(--dur-fast), background-color var(--dur-fast);
-  transform: translateZ(0);
 }
 /* conic gradient rim, free when idle (opacity 0), drawn through a mask so only a 1.5 px ring is painted */
 .card::before, .tile::before, .hb-card::before, .save-card::before, .gal-thumb::before, .inst::before {
   content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1.5px; pointer-events: none; opacity: 0;
   background: var(--rim);
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); mask-composite: exclude;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); mask-composite: exclude;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
   transition: opacity var(--dur);
 }
 .card:hover::before, .card:focus::before, .tile:hover::before, .tile:focus::before, .hb-card:hover::before, .hb-card:focus::before, .save-card:hover::before, .save-card:focus::before, .gal-thumb:hover::before, .gal-thumb:focus::before, .inst:hover::before, .inst:focus::before { opacity: 1; }
 .card:hover, .card:focus { transform: translateY(-8px); background: var(--el-1-hover); border-color: transparent; box-shadow: var(--shadow-1); z-index: 2; }
 .card:focus { box-shadow: var(--focus-lift), var(--shadow-1); will-change: transform; }
-.card .cf { position: relative; border-radius: var(--radius-m); overflow: hidden; transform: translateZ(0); transition: transform var(--dur) var(--ease); -webkit-mask-image: -webkit-radial-gradient(#fff, #fff); }
+.card .cf { position: relative; border-radius: var(--radius-m); overflow: hidden; transition: transform var(--dur) var(--ease); }
 .card:focus .cf { transform: perspective(900px) rotateX(var(--rx, 2deg)) rotateY(var(--ry, -2deg)); will-change: transform; }
 .card .cover { aspect-ratio: 3 / 4; border-radius: var(--radius-m); }
 .card .cover.wide { aspect-ratio: 3 / 4; }
@@ -196,10 +196,10 @@
   position: relative; min-height: 480px; border-radius: 28px; overflow: hidden; margin-top: 22px;
   background: var(--el-1); border: 1px solid var(--hl2); display: flex; align-items: flex-end;
   box-shadow: var(--shadow-2);
-  -webkit-mask-image: -webkit-radial-gradient(#fff, #fff);
+ 
 }
 .hero .art { position: absolute; inset: 0; }
-.hero .art .cover { position: absolute; inset: 0; border-radius: 0; -webkit-mask-image: none; }
+.hero .art .cover { position: absolute; inset: 0; border-radius: 0; }
 .hero .art .cover img { opacity: 0; transform-origin: 62% 38%; animation: kenburns 12s linear both; }
 .hero .art .cover.loaded img { opacity: 1; }
 .hero .art .cover::before { display: none; }
@@ -232,7 +232,7 @@
 .hero .dots i.on::after { content: ""; position: absolute; inset: 0; background: var(--gold); transform-origin: 0 50%; animation: pager-fill 8s linear both; }
 [dir="rtl"] .hero .dots i.on::after { transform-origin: 100% 50%; }
 .hero:focus-within .dots i.on::after { animation-play-state: paused; }
-.hero .thumb { position: absolute; z-index: 2; bottom: 40px; inset-inline-end: 48px; width: 156px; border-radius: var(--radius-m); overflow: hidden; box-shadow: 0 1px 0 rgba(255, 255, 255, .18) inset, 0 20px 50px rgba(0, 0, 0, .6); border: 1px solid rgba(255, 255, 255, .18); -webkit-mask-image: -webkit-radial-gradient(#fff, #fff); }
+.hero .thumb { position: absolute; z-index: 2; bottom: 40px; inset-inline-end: 48px; width: 156px; border-radius: var(--radius-m); overflow: hidden; box-shadow: 0 1px 0 rgba(255, 255, 255, .18) inset, 0 20px 50px rgba(0, 0, 0, .6); border: 1px solid rgba(255, 255, 255, .18); }
 .hero .thumb .cover { aspect-ratio: 3 / 4; border-radius: 0; }
 .hero.swap .body, .hero.swap .thumb { animation: fade-in var(--dur-slow) var(--ease) both; }
 .hero.skel { box-shadow: none; }

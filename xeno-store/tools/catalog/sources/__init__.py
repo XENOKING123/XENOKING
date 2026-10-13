@@ -7,10 +7,14 @@ Order here is the order sources are listed in reports and run.
 """
 from __future__ import annotations
 
-from sources import arabicps4, archive_org, blackbox, dlpsgame, orbit, pkggames, pspkg, superpsx
+from sources import (
+    arabicps4, archive_org, blackbox, dlpsgame, espacypkg, orbit, pkggames, pkgzone, pspkg, romsfun, romspure,
+    superpsx,
+)
 from sources.base import SourceContext, SourceSpec
 
-_MODULES = (blackbox, orbit, dlpsgame, archive_org, superpsx, pkggames, pspkg, arabicps4)
+_MODULES = (blackbox, orbit, dlpsgame, archive_org, superpsx, romsfun, romspure, pkgzone, espacypkg, pkggames, pspkg,
+            arabicps4)
 
 REGISTRY: dict[str, SourceSpec] = {m.SOURCE.id: m.SOURCE for m in _MODULES}
 

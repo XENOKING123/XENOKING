@@ -81,8 +81,8 @@ class Seeds:
             if not isinstance(row, dict):
                 continue
             m = _TITLE_ID_RE.match(str(row.get("titleId") or "").strip().upper())
-            if not m:
-                continue
+            if not m or not platform_for_title_id(m.group(1)):
+                continue           # PS3/PSP/Vita ids (NPIA…, PCSE…) are not catalog platforms
             tid = m.group(1)
             name = str(row.get("name") or "").strip()
             try:

@@ -32,6 +32,7 @@ from merge import (
 )
 from schema import Release
 from sources.base import BudgetExceeded, HttpError, SourceContext, SourceSpec, page_release, read_json_file
+from sources import wpsite
 
 BASE = "https://dlpsgame.com"
 WP_API = BASE + "/wp-json/wp/v2/posts"
@@ -280,7 +281,63 @@ def draft_from_post(post: dict, platform: str) -> GameDraft | None:
     )
 
 
+SITE = wpsite.SiteConfig(
+    id="dlpsgame", name="DLPSGAME", base=BASE, provider=PROVIDER, password=PASSWORD, priority=60, budget=420.0,
+    platforms={"PS5": ["ps5"], "PS4": ["ps4"]},
+    category_urls={"PS5": [BASE + "/category/ps5/"], "PS4": [BASE + "/category/ps4/"]}, default_platform="PS4",
+    rest=False, id_prefix=ID_PREFIX, description="dlpsgame.com WP REST + decoded bundles; sitemap/category fallback",
+)
+
+
+def draft_from_page_html(page_html: str, page_url: str) -> GameDraft | None:
+    """A full post page (sitemap / category fallback): the generic parser for title/cover/platform, the
+    deep bundle parser for the releases whenever the page still carries ``data-payload`` blocks."""
+    d = wpsite.parse_page(SITE, page_html, page_url)
+    if d is None:
+        return None
+    releases = releases_from_bundle(parse_bundle(page_html, page_url), page_url)
+    if releases:
+        d.releases = releases
+    elif not d.releases:
+        d.releases = [page_release(SOURCE.id, PROVIDER, page_url, platform=d.platform, password=PASSWORD, prefix=ID_PREFIX)]
+    return d
+
+
+def fetch_fallback(ctx: SourceContext) -> list[GameDraft]:
+    """§17.10 strategies 2 and 3 when the REST listing is unavailable."""
+    urls = wpsite.sitemap_post_urls(ctx, SITE)
+    drafts: dict[str, GameDraft] = {}
+    if urls:
+        ctx.info(f"sitemap fallback: {len(urls)} post URLs")
+        for url in urls[: SITE.max_posts]:
+            if ctx.limit and len(drafts) >= ctx.limit:
+                break
+            try:
+                body = ctx.get_text(url, timeout=30, max_bytes=4 * 1024 * 1024)
+            except BudgetExceeded:
+                break
+            except HttpError:
+                continue
+            d = draft_from_page_html(body, url)
+            if d:
+                drafts[url] = d
+    if not drafts:
+        for d in wpsite.fetch_categories(ctx, SITE):
+            drafts.setdefault(d.pageUrl, d)
+    if not drafts:
+        raise HttpError(BASE, 0, "no posts from sitemap or category pages")
+    return ctx.truncate(list(drafts.values()))
+
+
 def fetch_online(ctx: SourceContext) -> list[GameDraft]:
+    try:
+        return fetch_rest(ctx)
+    except HttpError as e:
+        ctx.info(f"REST listing failed ({e}); trying sitemap / category pages")
+        return fetch_fallback(ctx)
+
+
+def fetch_rest(ctx: SourceContext) -> list[GameDraft]:
     drafts: dict[str, GameDraft] = {}
     complete = True
     for platform, cat in CATEGORY_IDS.items():

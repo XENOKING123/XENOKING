@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from merge import normalize_genres, normalize_title
+from merge import ascii_fold, normalize_genres, normalize_title, strip_marks
 from netutil import BudgetExceeded, Http, HttpError
 from schema import Game
 
@@ -151,19 +151,24 @@ def entry_from_appdetails(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _exact_key(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", ascii_fold(strip_marks(name)).lower()).strip()
+
+
 def pick_search_item(items: list[dict[str, Any]], title: str) -> int:
-    """Steam app id of the first search item whose name normalizes exactly like ``title``, else 0."""
-    want = normalize_title(title)
+    """Steam app id for ``title``: the app whose name matches exactly (ignoring case/punctuation) wins, else the
+    first app whose name *normalizes* like ours (editions stripped), else 0."""
+    want_exact, want = _exact_key(title), normalize_title(title)
     if not want:
         return 0
-    for it in items or []:
-        if not isinstance(it, dict) or str(it.get("type") or "app") != "app":
-            continue
-        if normalize_title(str(it.get("name") or "")) == want:
-            try:
-                return int(it.get("id") or 0)
-            except (TypeError, ValueError):
-                return 0
+    apps = [it for it in items or [] if isinstance(it, dict) and str(it.get("type") or "app") == "app"]
+    for key_fn, want_key in ((_exact_key, want_exact), (normalize_title, want)):
+        for it in apps:
+            if key_fn(str(it.get("name") or "")) == want_key:
+                try:
+                    return int(it.get("id") or 0)
+                except (TypeError, ValueError):
+                    return 0
     return 0
 
 

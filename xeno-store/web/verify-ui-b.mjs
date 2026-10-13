@@ -284,7 +284,7 @@ const put = (path, body) => api(path, { method: 'PUT', headers: { 'Content-Type'
     await shot(page, 'tv-b-settings-debrid.png');
     await page.click('[data-nav-id="debrid-alldebrid-connect"]');
     await page.waitForSelector('.dialog [data-nav-id="prompt-input"]');
-    await page.keyboard.type('alldebrid-test-key-123456');
+    await page.fill('.dialog [data-nav-id="prompt-input"]', 'alldebrid-test-key-123456');
     await page.keyboard.press('Enter');
     await waitToast(page, 'AllDebrid connected', 10000);
     await page.waitForFunction(() => { const r = document.querySelector('#scr-settings [data-nav-id="debrid-alldebrid"]'); return r && r.classList.contains('on'); }, null, { timeout: 8000 }).catch(() => fail('AllDebrid row should turn connected'));
@@ -340,17 +340,18 @@ const put = (path, body) => api(path, { method: 'PUT', headers: { 'Content-Type'
     await page.waitForSelector('#scr-discover.active');
     await page.keyboard.press('Control+k');
     await page.waitForSelector('.palette [data-nav-id="palette-input"]', { timeout: 5000 });
-    await page.keyboard.type('debrid');
+    await page.fill('.palette [data-nav-id="palette-input"]', 'debrid');
     await page.waitForFunction(() => document.querySelectorAll('.palette .pal-item').length >= 1 && /Debrid/.test(document.querySelector('.palette .pal-item').textContent), null, { timeout: 4000 }).catch(() => fail('palette should list "Settings → Debrid" for "debrid"'));
     await sleep(200);
     await shot(page, 'tv-b-palette.png');
     await page.keyboard.press('Enter');
     await page.waitForSelector('#scr-settings.active', { timeout: 6000 });
     await expect(async () => page.evaluate(() => !!document.querySelector('[data-nav-id="set-nav-debrid"].on')), 'palette entry should open Settings → Debrid');
+    await page.waitForFunction(() => !XS.router.busy() && !XS.ui.layers.length && !document.querySelector('.layer'), null, { timeout: 5000 });
     await page.keyboard.press('Control+k');
     await page.waitForSelector('.palette [data-nav-id="palette-input"]');
-    await page.keyboard.type('god of');
-    await page.waitForFunction(() => Array.from(document.querySelectorAll('.palette .pal-item .kind')).some((k) => /Game/.test(k.textContent)), null, { timeout: 4000 }).catch(() => fail('palette should find catalog games'));
+    await page.fill('.palette [data-nav-id="palette-input"]', 'god of');
+    await page.waitForFunction(() => Array.from(document.querySelectorAll('.palette .pal-item .kind')).some((k) => /Game/.test(k.textContent)), null, { timeout: 4000 }).catch(async () => fail('palette should find catalog games (' + await page.evaluate(() => JSON.stringify({ active: document.activeElement && (document.activeElement.className + '/' + document.activeElement.value), palettes: document.querySelectorAll('.palette').length, layers: XS.ui.layers.map((l) => l.key).join('+'), busy: XS.router.busy(), items: Array.from(document.querySelectorAll('.palette .pal-item')).map((e) => e.textContent.trim().slice(0, 30)), search: (function () { try { return XS.ca.search('god of', 2).map((x) => x.g.title); } catch (e) { return 'ERR ' + e.message; } })() })) + ')'));
     await page.keyboard.press('Escape'); await noLayer(page);
     await page.keyboard.press('?');
     await page.waitForSelector('.dialog .sc-row', { timeout: 5000 });
@@ -404,7 +405,8 @@ const put = (path, body) => api(path, { method: 'PUT', headers: { 'Content-Type'
     watch(pp, 'phone');
     await pp.goto(BASE + '/#downloads', { waitUntil: 'load' });
     await pp.waitForSelector('#scr-downloads.active .job', { timeout: 20000 });
-    await pp.waitForSelector('#scr-downloads .jobgroup', { timeout: 8000 });
+    /* by now the seeded install sets may have finished (6× speed): show whichever tab holds one */
+    if (!(await pp.$('#scr-downloads .jobgroup'))) { await pp.click('[data-nav-id="dltab-finished"]'); await pp.waitForSelector('#scr-downloads .jobgroup', { timeout: 8000 }).catch(() => fail('phone: no install-set group in Active or Finished')); }
     await waitCovers(pp, 3);
     await sleep(500);
     await shot(pp, 'phone-b-downloads.png');

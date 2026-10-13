@@ -384,8 +384,8 @@
     U.clear(box);
     var slots = (r.slots || []).slice();
     var head = h('div.row', { style: { marginBottom: '10px', flexWrap: 'wrap' } });
-    head.appendChild(r.supported === false ? h('span.chip.warn', { text: t('accounts.unsupported') }) : h('span.chip.good', { text: t('accounts.supported') }));
-    if (r.simulated) head.appendChild(h('span.chip', { text: t('lib2.simulatedHost') }));
+    head.appendChild(r.supported === false ? h('span.chip.warn.wrap', { text: t('accounts.unsupported') }) : h('span.chip.good', { text: t('accounts.supported') }));
+    if (r.simulated) head.appendChild(h('span.chip.wrap', { text: t('accounts.simulated') }));
     if (r.foregroundUser && r.foregroundUser.name) head.appendChild(h('span.chip.gold', { text: t('accounts.foreground', { name: r.foregroundUser.name }) }));
     box.appendChild(head);
     var list = h('div.list');
@@ -698,7 +698,7 @@
   XS.router.register('settings', {
     tab: false, icon: 'settings', label: function () { return t('nav.settings'); },
     mount: function (el) { root = el; },
-    show: function (params) { if (params && params.group) group = params.group; render(); if (params && params.group) { var target = bodyEl.querySelector('[data-group="' + params.group + '"]'); if (target) { root.scrollTop = target.offsetTop - 10; var first = target.querySelector('[data-nav]'); if (first) requestAnimationFrame(function () { XS.nav.focus(first, false); }); } } },
+    show: function (params) { if (params && params.group) group = params.group; render(); if (params && params.group) { var target = bodyEl.querySelector('[data-group="' + params.group + '"]'); if (target) { root.scrollTop = target.offsetTop - 10; var first = target.querySelector('[data-nav]'); if (first && !ui.layers.length) requestAnimationFrame(function () { if (!ui.layers.length && root.classList.contains('active')) XS.nav.focus(first, false); }); } } },
     refresh: function () { if (root && root.classList.contains('active')) render(); }
   });
   S.on('status', function () { /* values are read on render; avoid re-rendering under the user */ });

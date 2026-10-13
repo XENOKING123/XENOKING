@@ -6,10 +6,8 @@
 .aurora i { position: absolute; display: block; border-radius: 50%; will-change: transform; }
 .aurora .a1 { width: 1500px; height: 1100px; left: -420px; top: -560px; opacity: .5; background: radial-gradient(closest-side, var(--aurora-1) 0%, rgba(0, 0, 0, 0) 100%); animation: aurora-a 40s ease-in-out infinite alternate; }
 .aurora .a2 { width: 1300px; height: 1000px; right: -480px; top: -300px; opacity: .34; background: radial-gradient(closest-side, var(--aurora-2) 0%, rgba(0, 0, 0, 0) 100%); animation: aurora-b 52s ease-in-out infinite alternate; }
-.aurora .a3 { width: 1100px; height: 800px; left: 28%; bottom: -620px; opacity: .22; background: radial-gradient(closest-side, var(--aurora-3) 0%, rgba(0, 0, 0, 0) 100%); animation: aurora-c 46s ease-in-out infinite alternate; }
 @keyframes aurora-a { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(220px, 140px, 0); } }
 @keyframes aurora-b { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(-260px, 180px, 0); } }
-@keyframes aurora-c { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(-180px, -120px, 0); } }
 
 /* ---------- Keyframe library ---------- */
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -23,6 +21,7 @@
 @keyframes kenburns { from { transform: scale(1); } to { transform: scale(1.06); } }
 @keyframes pager-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 @keyframes ping { 0% { transform: scale(1); opacity: .75; } 100% { transform: scale(1.4); opacity: 0; } }
+@keyframes glow-pulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
 @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(2px); } }
 @keyframes blink { 50% { opacity: .2; } }
 @keyframes stripes { to { transform: translateX(22.6px); } }

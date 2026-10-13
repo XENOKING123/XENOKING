@@ -82,8 +82,8 @@ _TITLE_NOISE = [
     re.compile(r"\s*\[\s*v?\d+[\d.]*\s*\]", re.I),                     # [v1.00] [1.00.002]
     re.compile(r"\s*\(\s*v\d+[\d.]*\s*\)", re.I),                      # (v1.00)
     re.compile(r"\s+v\d+[\d.]*(?=\s|$)", re.I),                        # v1.00
-    re.compile(r"\s*[\[(]\s*(?:bp|backport(?:ed)?)\s*[\d.x+]*\s*[\])]", re.I),  # [BP 9.00] (Backport)
-    re.compile(r"\s*\b(?:backported|backport|bp\s?\d{1,2}\.\w{2}\+?)\b", re.I),
+    re.compile(r"\s*[\[(]\s*(?:bp|backport(?:ed)?)\s*(?:fw\s*)?[\d.x+]*\s*[\])]", re.I),  # [BP 9.00] (Backport)
+    re.compile(r"\s*\+?\s*\b(?:backported|backports?|bp)\b\s*(?:fw\s*|for\s*|to\s*)?(?:\d{1,2}\.(?:xx|\d{2})\+?)?", re.I),  # + Backport 5.05, BP4.xx
     re.compile(r"\s*\[\s*(?:\d{1,2}\.(?:xx|\d{2})\+?(?:\s*[/,-]\s*)?)+\s*\]", re.I),   # [9.xx] [5.05/6.72]
     re.compile(r"\s*\b\d{1,2}\.xx\+?\b", re.I),                        # 9.xx
     re.compile(r"\s*\((?:fw|firmware)\s*[^)]*\)", re.I),               # (FW 11.00)
@@ -101,6 +101,7 @@ _TITLE_NOISE = [
     re.compile(r"\s*[\[(]\s*(?:exfat|fat32|ffpfsc|ffpkg|ffpfs|offline|online|repack|dlc|update|patch|multi)[^\])]*[\])]", re.I),
 ]
 _TRAILING_PUNCT_RE = re.compile(r"[\s\-:,/|+&]+$")
+_TRAILING_FW_RE = re.compile(r"[\s\-:,/|+&]+(?:fw\s*)?(\d{1,2}\.\d{2})\+?\s*$", re.I)
 _LEADING_PUNCT_RE = re.compile(r"^[\s\-:,/|+]+")
 
 
@@ -124,6 +125,10 @@ def clean_title(raw: str) -> str:
     for _ in range(2):  # tags nest ("Game PS4 [FPKG] v1.03"); two passes settle every order
         for rx in _TITLE_NOISE:
             s = rx.sub("", s)
+        # A bare trailing firmware number ("Bloodborne 9.00", "Game 5.05+") is a site tag, not part of the name.
+        m = _TRAILING_FW_RE.search(s)
+        if m and m.group(1) in KNOWN_FIRMWARES:
+            s = s[: m.start()]
     s = _TRAILING_PUNCT_RE.sub("", s)
     s = _LEADING_PUNCT_RE.sub("", s)
     return _WS_RE.sub(" ", s).strip()
@@ -178,7 +183,7 @@ _SERIES_TAIL_WORDS = {
 def series_slug(title: str) -> str:
     """§17.1 ``series``: normalized title with the subtitle and trailing numbers stripped, as a slug.
 
-    'Final Fantasy VII Remake' -> 'final-fantasy-vii-remake' (mid-title numerals stay), 'Cyberpunk 2077' ->
+    'Final Fantasy VII Remake' -> 'final-fantasy' (so one series rail covers the numbered games), 'Cyberpunk 2077' ->
     'cyberpunk', 'The Last of Us Part II' -> 'last-of-us', 'God of War: Ragnarok' -> 'god-of-war'.
     """
     head = _SUBTITLE_SPLIT_RE.split(strip_marks(title), maxsplit=1)[0] or title
@@ -856,6 +861,7 @@ def apply_audit(game: Game, audit: dict[str, dict], direct_sources: set[str], re
         if verdict == "dead":
             report.drop_release(r.sourceId, "audit_dead", f"{game.id} {r.url}")
             continue
+        kept.append(r)
         if verdict in ("ok", "flaky", "page"):
             r.health = verdict
         direct = r.format != "PAGE" and r.sourceId in direct_sources
@@ -879,6 +885,8 @@ def _apply_backport_fields(r: Release) -> None:
     is_bp, bp_fw = parse_backport(text)
     if not r.backportFw and (is_bp or r.kind == "backport"):
         r.backportFw = bp_fw or lowest_firmware(compat_tags)
+    if is_bp and r.backportFw and r.kind in ("game", "update") and r.format not in _FULL_IMAGE_FORMATS:
+        r.kind = "backport"   # the file name is the evidence, whatever the source called it
     if r.kind == "backport" and not r.backportFw:
         # A backport whose target firmware nobody states is just an update/game to the user.
         r.kind = "update" if re.search(r"update|patch", r.filename, re.I) else "game"

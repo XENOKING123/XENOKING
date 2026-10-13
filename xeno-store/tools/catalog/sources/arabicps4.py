@@ -13,6 +13,7 @@ import re
 
 from merge import GameDraft, clean_title
 from sources.base import BudgetExceeded, HttpError, SourceContext, SourceSpec, page_release
+from sources.wpsite import SiteConfig
 
 BASE = "https://arabicps4games.com/0/"
 PROVIDER = "ArabicPS4Games"
@@ -77,6 +78,16 @@ def parse_ps5_list(page_html: str) -> list[GameDraft]:
             releases=[page_release(SOURCE.id, PROVIDER, page_url, platform="PS5")],
         ))
     return out
+
+
+# Static HTML, not WordPress: no REST/sitemap strategies; the card/list parsers above are the only route.
+SITE = SiteConfig(
+    id="arabicps4", name="ArabicPS4Games", base="https://arabicps4games.com", provider=PROVIDER, priority=20,
+    budget=120.0, platforms={"PS5": ["ps5"], "PS4": ["ps4"]}, rest=False, sitemap=False, fetch_pages=False,
+    category_urls={"PS4": [BASE + "ps4/index.html"], "PS5": [BASE + "ps5/index.html"]}, default_platform="PS4",
+    listing_parser=lambda body, platform: parse_cards(body, platform) if platform == "PS4" else parse_ps5_list(body),
+    description="arabicps4games.com static PS4 card grids + PS5 direct list (not WordPress)",
+)
 
 
 def fetch_online(ctx: SourceContext) -> list[GameDraft]:

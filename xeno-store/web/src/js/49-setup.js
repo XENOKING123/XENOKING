@@ -141,7 +141,7 @@
     U.clear(box);
     var r = data.payloads, list = r.payloads || [];
     var head = h('div.row', { style: { marginBottom: '10px', flexWrap: 'wrap' } });
-    head.appendChild(h('span.chip' + (r.loaderAvailable ? '.good' : '.warn'), { html: U.icon(r.loaderAvailable ? 'check' : 'alert') + '<span>' + U.escapeHtml(r.loaderAvailable ? t('companions.loaderOk', { port: r.loaderPort || 9021 }) : t('companions.loaderMissing', { port: r.loaderPort || 9021 })) + '</span>' }));
+    head.appendChild(h('span.chip.wrap' + (r.loaderAvailable ? '.good' : '.warn'), { html: U.icon(r.loaderAvailable ? 'check' : 'alert') + '<span>' + U.escapeHtml(r.loaderAvailable ? t('companions.loaderOk', { port: r.loaderPort || 9021 }) : t('companions.loaderMissing', { port: r.loaderPort || 9021 })) + '</span>' }));
     if (r.feedFetchedAt) head.appendChild(h('span.dim.small', { text: t('companions.feedAt', { when: cb.fmtAgo(r.feedFetchedAt) }), style: { marginTop: 0 } }));
     head.appendChild(h('span.spacer'));
     var rf = h('button.btn.sm.ghost', { nav: 'pl-refresh', html: U.icon('refresh') + '<span>' + U.escapeHtml(t('common.refresh')) + '</span>' });
