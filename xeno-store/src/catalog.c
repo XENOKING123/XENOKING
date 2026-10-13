@@ -122,7 +122,7 @@ static int build_index(cat_state *s) {
  * for the life of the state when embedded (it points into assets.h). */
 static cat_state *state_build(const unsigned char *text, size_t len, const unsigned char *gz, size_t gz_len,
                               int embedded, const char *source, char *err, size_t errcap) {
-  jdoc *doc = json_parse((const char *)text, len, 400000, 32);
+  jdoc *doc = json_parse((const char *)text, len, 900000, 32);
   if (!doc) { xsnprintf(err, errcap, "catalog is not valid JSON"); return NULL; }
   jv root = json_root(doc);
   if (jv_type(root) != JV_OBJ || jv_type(jv_get(root, "games")) != JV_ARR) {

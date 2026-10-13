@@ -132,12 +132,16 @@ if (!vendor) console.warn('build: web/vendor/qrcode.js missing — pairing QR wi
 const flatten = (o, p = '', out = {}) => { for (const k of Object.keys(o)) { const key = p ? p + '.' + k : k; if (o[k] && typeof o[k] === 'object') flatten(o[k], key, out); else out[key] = String(o[k]); } return out; };
 const i18n = {};
 let enKeys = null;
+/* A file named <code>.<part>.json (e.g. en.saves.json) is a fragment merged into <code>; top-level
+ * namespaces are deep-merged so feature modules can ship their own strings without editing en.json. */
+const deepMerge = (dst, src) => { for (const k of Object.keys(src)) { if (src[k] && typeof src[k] === 'object' && !Array.isArray(src[k]) && dst[k] && typeof dst[k] === 'object') deepMerge(dst[k], src[k]); else dst[k] = src[k]; } return dst; };
 for (const f of i18nFiles) {
-  const code = f.split('/').pop().replace(/\.json$/, '');
+  const base = f.split('/').pop().replace(/\.json$/, '');
+  const code = base.split('.')[0];
   let obj;
   try { obj = JSON.parse(readFileSync(f, 'utf8')); } catch (e) { console.error(`build: ${f} is not valid JSON: ${e.message}`); process.exit(1); }
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) { console.error(`build: ${f} must contain an object`); process.exit(1); }
-  i18n[code] = obj;
+  i18n[code] = i18n[code] ? deepMerge(i18n[code], obj) : obj;
 }
 enKeys = Object.keys(flatten(i18n.en));
 for (const code of Object.keys(i18n)) {

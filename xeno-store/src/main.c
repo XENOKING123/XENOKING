@@ -81,6 +81,8 @@ static void *housekeeping(void *arg) {
   time_t boot = util_now();
   while (!g_cfg.stop_requested) {
     dl_housekeeping_tick();
+    if (ext_downloads_tick) ext_downloads_tick();
+    if (ext_console_tick) ext_console_tick();
     time_t now = util_now();
     settings_t s;
     settings_get(&s);
@@ -133,6 +135,7 @@ int main(int argc, char **argv) {
   dl_init(g_cfg.data_dir, g_cfg.port);
   update_init(g_cfg.data_dir);
   api_init();
+  api_ext_init();
 
   if (server_start(g_cfg.port) != 0) {
     LOGE("cannot bind :%d (%s)", g_cfg.port, strerror(errno));

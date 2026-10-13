@@ -24,36 +24,21 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct api_ctx {
-  http_req *req;
-  jdoc *doc;          /* parsed body (NULL when absent/invalid) */
-  jv body;
-  char params[3][96]; /* {captures} in route order */
-  int nparams;
-} api_ctx;
-
-typedef void (*api_handler)(api_ctx *c);
-
-typedef struct api_route {
-  const char *method;
-  const char *pattern;   /* "/api/queue/{id}/{action}" */
-  api_handler fn;
-} api_route;
 
 /* ---- envelope helpers --------------------------------------------------- */
 
-static void api_begin(jw *w) {
+void api_begin(jw *w) {
   jw_init(w);
   jw_obj_begin(w);
   jw_kv_bool(w, "ok", 1);
 }
 
-static void api_send(api_ctx *c, jw *w) {
+void api_send(api_ctx *c, jw *w) {
   jw_obj_end(w);
   http_send_json(c->req, 200, w);
 }
 
-static void api_error(api_ctx *c, int status, const char *code, const char *msg) {
+void api_error(api_ctx *c, int status, const char *code, const char *msg) {
   http_send_error(c->req, status, code, msg);
 }
 
@@ -66,6 +51,7 @@ static int status_for_code(const char *code) {
 }
 
 static const char *body_str(api_ctx *c, const char *key, const char *dflt) { return jv_get_str(c->body, key, dflt); }
+const char *api_body_str(api_ctx *c, const char *key, const char *dflt) { return body_str(c, key, dflt); }
 
 /* ---- system ------------------------------------------------------------- */
 
@@ -112,6 +98,7 @@ static void h_status(api_ctx *c) {
   jw_obj_end(&w);
   jw_key(&w, "storage"); storage_summary_json(&w);
   jw_key(&w, "update"); jw_obj_begin(&w); update_status_json(&w); jw_obj_end(&w);
+  if (api_status_extra) api_status_extra(&w);
   jw_key(&w, "notices"); jw_arr_begin(&w);
   if (!xhttp_available()) {
     jw_obj_begin(&w); jw_kv_str(&w, "id", "downloads_unavailable");
@@ -552,6 +539,20 @@ static const api_route ROUTES[] = {
   { "GET", "/api/pair", h_pair },
 };
 
+/* Extension route tables (registered by Phase 2 modules). */
+#define API_EXT_MAX 8
+static struct { const api_route *t; size_t n; } g_ext[API_EXT_MAX];
+static int g_ext_n = 0;
+int api_register_routes(const api_route *table, size_t n) {
+  if (!table || !n || g_ext_n >= API_EXT_MAX) return -1;
+  g_ext[g_ext_n].t = table; g_ext[g_ext_n].n = n; g_ext_n++;
+  return 0;
+}
+void api_ext_init(void) {
+  if (ext_downloads_init) ext_downloads_init();
+  if (ext_console_init) ext_console_init();
+}
+
 /* Matches path against pattern segment by segment; fills captures. */
 static int route_match(const char *pattern, const char *path, api_ctx *c) {
   const char *p = pattern, *s = path;
@@ -594,6 +595,19 @@ void api_handle(http_req *req) {
       hit = &ROUTES[i];
       c = probe;
       break;
+    }
+  }
+  /* Extension tables (Phase 2 modules) are consulted after the core table. */
+  for (int t = 0; !hit && t < g_ext_n; t++) {
+    for (size_t i = 0; i < g_ext[t].n; i++) {
+      api_ctx probe = c;
+      if (!route_match(g_ext[t].t[i].pattern, req->path, &probe)) continue;
+      method_seen = 1;
+      if (strcmp(g_ext[t].t[i].method, req->method) == 0 || (strcmp(req->method, "HEAD") == 0 && strcmp(g_ext[t].t[i].method, "GET") == 0)) {
+        hit = &g_ext[t].t[i];
+        c = probe;
+        break;
+      }
     }
   }
   if (!hit) {

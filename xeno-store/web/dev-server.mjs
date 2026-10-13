@@ -21,7 +21,7 @@
  *          [--catalog PATH] [--dist PATH]
  */
 import { createServer } from 'node:http';
-import { readFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { createHash, randomBytes } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
@@ -340,6 +340,18 @@ const findJob = (id) => { const j = jobs.find((x) => x.id === id); if (!j) throw
 /* ============================================================ routes (method + regex → handler) ============================================================ */
 const routes = [];
 const route = (method, pattern, handler) => routes.push({ method, pattern, handler });
+
+/* Extension mocks: every web/dev-server-ext-*.mjs may export `register({ route, state })` to add routes
+ * for new features without editing this file (Phase 2 builders each own one such file). */
+import { pathToFileURL } from 'node:url';
+const EXT_DIR = dirname(fileURLToPath(import.meta.url));
+const extFiles = readdirSync(EXT_DIR).filter((f) => /^dev-server-ext-.*\.mjs$/.test(f)).sort();
+for (const f of extFiles) {
+  try {
+    const mod = await import(pathToFileURL(join(EXT_DIR, f)).href);
+    if (typeof mod.register === 'function') { mod.register({ route, state: globalThis.XS_MOCK_STATE || {} }); console.log(`dev-server: loaded ${f}`); }
+  } catch (e) { console.error(`dev-server: ${f} failed to load: ${e.message}`); }
+}
 
 route('GET', /^\/api\/status$/, () => ({
   ok: true, app: 'XENO STORE', version: VERSION, build: 'dev-mock', platform: 'host', fw: '13.60', ip: HOST === '0.0.0.0' ? '192.168.1.20' : HOST, port: PORT, uptime: now() - startedAt,

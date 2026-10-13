@@ -18,7 +18,8 @@ SRC_DIR   := src
 BUILD_DIR := build
 ASSETS    := $(SRC_DIR)/assets.h
 
-COMMON_SRCS := main.c server.c api.c dl.c storage.c catalog.c settings.c install.c update.c sys.c json.c sha256.c log.c util.c http_common.c
+# Every src/*.c is built except the two transport backends, which are picked per target.
+COMMON_SRCS := $(filter-out http_posix.c http_sce.c,$(sort $(notdir $(wildcard $(SRC_DIR)/*.c))))
 HOST_SRCS   := $(COMMON_SRCS) http_posix.c
 PS5_SRCS    := $(COMMON_SRCS) http_sce.c
 HEADERS     := $(wildcard $(SRC_DIR)/*.h)
