@@ -121,6 +121,8 @@ const api = (path, init) => fetch(BASE + path, init).then((r) => r.json());
     await page.focus('[data-nav-id="flt-genre"]');
     await page.keyboard.press('Enter');
     await page.waitForSelector('.sheet.facets .fopt');
+    /* openLayer lands focus on the next animation frame; wait for it (bounded) so a busy host does not race the check */
+    await page.waitForFunction(() => document.activeElement && document.activeElement.closest('[data-facet="genre"]') !== null, undefined, { timeout: 2000 }).catch(() => {});
     await expect(async () => page.evaluate(() => document.activeElement && document.activeElement.closest('[data-facet="genre"]') !== null), 'facet sheet should focus the Genre section (got ' + await activeInfo(page) + ')');
     const genreCountBefore = await page.$eval('.sheet.facets [data-facet="genre"] .fopt [data-count]', (e) => e.textContent);
     const totalBefore = await page.$eval('.sheet.facets [data-facet-total]', (e) => e.textContent);
