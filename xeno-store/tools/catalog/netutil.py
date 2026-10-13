@@ -58,9 +58,11 @@ class Http:
         self.min_interval = min_interval
         self.host_intervals = dict(host_intervals or {})
         self._last: dict[str, float] = {}
+        self._down: dict[str, int] = {}     # consecutive transport failures per host
         self._lock = threading.Lock()
         self.requests = 0
         self.failures = 0
+        self.host_down_after = 5            # transport failures in a row before a host is declared down
 
     # -- politeness ----------------------------------------------------------
     def _interval_for(self, host: str) -> float:
@@ -96,6 +98,12 @@ class Http:
         while True:
             if deadline is not None and time.monotonic() >= deadline:
                 raise BudgetExceeded(f"budget exhausted before {url}")
+            # Circuit breaker: once a host has refused N connections in a row it
+            # is treated as down and every further request fails immediately
+            # instead of queueing behind the rate limiter.
+            with self._lock:
+                if self._down.get(host, 0) >= self.host_down_after:
+                    raise HttpError(url, 0, f"host {host} unreachable (circuit open)")
             self._wait_turn(host, deadline)
             req = urllib.request.Request(url, method="GET")
             req.add_header("User-Agent", self.user_agent)
@@ -113,10 +121,14 @@ class Http:
                     body = _read_bounded(resp, max_bytes)
                     if resp.headers.get("Content-Encoding", "").lower() == "gzip":
                         body = gzip.decompress(body)
+                    with self._lock:
+                        self._down[host] = 0
                     return body
             except urllib.error.HTTPError as e:
                 status = e.code
                 last_err = f"HTTP {status}"
+                with self._lock:
+                    self._down[host] = 0        # the host answered; it is up
                 retry_after = _retry_after(e.headers.get("Retry-After"))
                 if status in (429, 500, 502, 503, 504, 520, 521, 522, 524) and attempt < retries:
                     attempt += 1
@@ -136,6 +148,8 @@ class Http:
                     self._backoff(attempt, 0, deadline)
                     continue
                 self.failures += 1
+                with self._lock:
+                    self._down[host] = self._down.get(host, 0) + 1
                 raise HttpError(url, 0, last_err) from None
 
     def _backoff(self, attempt: int, retry_after: int, deadline: float | None) -> None:

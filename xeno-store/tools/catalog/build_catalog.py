@@ -184,7 +184,7 @@ def fmt_size(n: int) -> str:
 
 
 def print_summary(runs: list[SourceRun], report: dict, out_path: Path, size: int, log) -> None:
-    rows = [("source", "status", "games", "releases", "dropped", "time", "note")]
+    rows = [("source", "status", "games", "uniqueReleases", "dropped", "time", "note")]
     for r in runs:
         rep = next(x for x in report["sources"] if x["id"] == r.spec.id)
         note = r.error[:60]

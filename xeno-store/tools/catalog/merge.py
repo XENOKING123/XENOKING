@@ -152,6 +152,7 @@ def normalize_title(title: str) -> str:
     and 'Final Fantasy 7' meet; mid-title numerals are left alone.
     """
     s = ascii_fold(clean_title(title)).lower()
+    s = s.replace("'", "").replace("\u2019", "")   # "assassin's" == "assassins"
     s = s.replace("&", " and ")
     s = _EDITION_RE.sub(" ", s)
     s = _NON_ALNUM_RE.sub(" ", s).strip()
@@ -624,6 +625,15 @@ def _group_drafts(drafts: list[GameDraft]) -> dict[str, list[GameDraft]]:
         key = f"{d.platform}|{normalize_title(d.title)}"
         keys.append(key)
         uf.find(key)
+    # Safety net: the same download URL can only belong to one game.
+    by_url: dict[str, str] = {}
+    for d, key in zip(drafts, keys):
+        for r in d.releases:
+            k = f"{d.platform}|{r.url}"
+            if k in by_url:
+                uf.union(by_url[k], key)
+            else:
+                by_url[k] = key
     by_title_id: dict[str, str] = {}
     for d, key in zip(drafts, keys):
         ids = set(d.titleIds) | {r.titleId for r in d.releases if r.titleId}
@@ -658,7 +668,10 @@ def _pick_title(drafts: list[GameDraft]) -> str:
         if not t:
             continue
         shouting = t.isupper() and len(t) > 4
-        key = (-d.priority, 1 if shouting else 0, len(t), t)
+        # Punctuated variants ("Assassin's Creed", "Hitman: World of ...") are the
+        # publisher spelling; prefer them over flattened copies of the same title.
+        punct = 1 if re.search(r"[':&!.-]", t) else 0
+        key = (-d.priority, 1 if shouting else 0, -punct, len(t), t)
         if best_key is None or key < best_key:
             best, best_key = t, key
     return best
@@ -758,10 +771,13 @@ def merge_drafts(
             report.merged_groups += 1
         platform = members[0].platform
         title = _pick_title(members)
-        slug_source = next((d.slugHint for d in members if d.slugHint), "")
-        slug = slugify(slug_source) if slug_source else slugify(normalize_title(title) or title)
-        # BlackBox PS4 ids end with "-ps4"; the suffix is re-added by the id rule.
-        slug = re.sub(r"-(ps4|ps5)$", "", slug) or "untitled"
+        # The slug comes from the normalized title so the PS4 and PS5 entries of
+        # one game share it ("assassins-creed-mirage-ps4" / "-ps5"); a source's
+        # own id (slugHint) is only used when the title normalizes to nothing.
+        slug = slugify(normalize_title(title))
+        if slug == "untitled":
+            hint = next((d.slugHint for d in members if d.slugHint), "")
+            slug = re.sub(r"-(ps4|ps5)$", "", slugify(hint)) if hint else slugify(title)
 
         # Releases: dedupe by URL, higher-priority copy first.
         by_url: dict[str, Release] = {}

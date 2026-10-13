@@ -16,9 +16,13 @@ downloads from.
 """
 from __future__ import annotations
 
+import re
+import urllib.parse
 from typing import Any
 
-from merge import GameDraft, detect_kind, parse_compat, parse_region, parse_version, platform_for_title_id
+from merge import (
+    GameDraft, clean_title, detect_kind, parse_compat, parse_region, parse_version, platform_for_title_id,
+)
 from schema import Release
 from sources.base import HttpError, SourceContext, SourceSpec, read_json_file
 
@@ -63,18 +67,50 @@ def entry_to_release(entry: dict, ver: dict | None = None, v2: dict | None = Non
         return None
     filename = str(entry.get("filename") or "")
     fmt = str(entry.get("format") or "")
+    # Collection items keep the descriptive name only in the URL ("Rayman Legends - [EU] [EN] [1.00].pkg").
+    url_name = urllib.parse.unquote(url.rsplit("/", 1)[-1])
     verified_at, md5, sha1, console = _verification(entry, ver)
-    region = str(entry.get("region") or (v2 or {}).get("region") or "") or parse_region(filename)
-    version = str(entry.get("version") or (ver or {}).get("version") or "") or parse_version(filename)
+    region = (str(entry.get("region") or (v2 or {}).get("region") or "")
+              or parse_region(filename) or parse_region(url_name))
+    version = (str(entry.get("version") or (ver or {}).get("version") or "")
+               or parse_version(filename) or parse_version(url_name))
     browser = str(entry.get("browserUrl") or (ver or {}).get("browserUrl") or (v2 or {}).get("browserUrl") or "")
     return Release(
         id=str(entry.get("id") or ""), url=url, sourceId=sid, provider=str(entry.get("provider") or ""),
         format=fmt, kind=detect_kind("", filename, fmt), titleId=str(entry.get("titleId") or ""),
         region=region, version=version, filename=filename, browserUrl=browser,
         sizeBytes=int(entry.get("sizeBytes") or 0), sha256=str(entry.get("sha256") or ""), md5=md5, sha1=sha1,
-        verifiedAt=verified_at, consoleVerified=console, compat=" ".join(parse_compat(filename)),
+        verifiedAt=verified_at, consoleVerified=console,
+        compat=" ".join(parse_compat(filename) or parse_compat(url_name)),
         addedAt=str(entry.get("addedAt") or "")[:10],
     )
+
+
+_EXT_RE = re.compile(r"\.[a-z0-9]{1,6}$", re.I)
+_COLLECTION_FILE_RE = re.compile(r"^(.*?)\s*-\s*\[(?:EU|US|JP|AS|EUR|USA|JPN|ASIA)\]", re.I)
+
+
+def best_title(entry: dict, meta: dict, v2: dict) -> str:
+    """A displayable title: the entry's own, else games.json / v2, else the file name in the URL.
+
+    BlackBox's PS4 collection entries sometimes carry only the title id as
+    ``title`` ("CUSA00031") while the URL still names the game
+    ("Rayman Legends - [EU] [EN] [1.00].pkg"); that name is recovered here.
+    """
+    for cand in (entry.get("title"), meta.get("title"), v2.get("title")):
+        if cand and clean_title(str(cand)):
+            return str(cand)
+    url = str(entry.get("url") or "")
+    base = urllib.parse.unquote(url.rsplit("/", 1)[-1]) if "/" in url else ""
+    for cand in (base, str(entry.get("filename") or "")):
+        cand = _EXT_RE.sub("", cand)
+        m = _COLLECTION_FILE_RE.match(cand)
+        if m:
+            cand = m.group(1)
+        if clean_title(cand):
+            return clean_title(cand)
+    game_id = re.sub(r"-(ps4|ps5)$", "", str(entry.get("gameId") or ""))
+    return game_id.replace("-", " ").title() if game_id else ""
 
 
 def _platform(entry: dict) -> str:
@@ -97,7 +133,7 @@ def entries_to_drafts(entries: list[dict], games_meta: dict[str, dict], verifica
         meta = games_meta.get(game_id, {})
         v2 = v2_by_id.get(rid, {})
         platform = _platform(e)
-        title = str(e.get("title") or meta.get("title") or v2.get("title") or "")
+        title = best_title(e, meta, v2)
         key = (game_id or rel.url, platform)
         d = groups.get(key)
         if d is None:

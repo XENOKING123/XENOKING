@@ -1,0 +1,146 @@
+{
+  "bytes": 2755348,
+  "changed": false,
+  "droppedGames": {},
+  "droppedReleases": {
+    "duplicate_url": 673
+  },
+  "droppedSamples": [],
+  "elapsed": 1.0,
+  "formats": {
+    "FFPFSC": 312,
+    "PAGE": 799,
+    "PKG": 808,
+    "exFAT": 673
+  },
+  "games": 1965,
+  "generatedAt": "2026-10-13T01:56:37Z",
+  "genres": {
+    "Action": 239,
+    "Adventure": 136,
+    "Family": 28,
+    "Fighting": 24,
+    "Horror": 50,
+    "Music": 1,
+    "Puzzle": 17,
+    "RPG": 84,
+    "Racing": 34,
+    "Shooter": 34,
+    "Simulation": 32,
+    "Sports": 14,
+    "Strategy": 24
+  },
+  "httpFailures": 0,
+  "httpRequests": 0,
+  "kinds": {
+    "game": 2591,
+    "update": 1
+  },
+  "mergedGroups": 670,
+  "mode": "offline",
+  "platforms": {
+    "PS4": 1163,
+    "PS5": 802
+  },
+  "releases": 2592,
+  "revision": 1,
+  "sources": [
+    {
+      "draftGames": 1505,
+      "draftReleases": 1801,
+      "dropped": 8,
+      "elapsed": 0.2,
+      "error": "",
+      "games": 1505,
+      "id": "blackbox",
+      "name": "BlackBox catalog",
+      "releases": 1793,
+      "status": "snapshot"
+    },
+    {
+      "draftGames": 581,
+      "draftReleases": 665,
+      "dropped": 665,
+      "elapsed": 0.0,
+      "error": "",
+      "games": 581,
+      "id": "orbit",
+      "name": "Orbit catalogue",
+      "releases": 0,
+      "status": "snapshot"
+    },
+    {
+      "draftGames": 799,
+      "draftReleases": 799,
+      "dropped": 0,
+      "elapsed": 0.0,
+      "error": "",
+      "games": 799,
+      "id": "dlpsgame",
+      "name": "DLPSGAME",
+      "releases": 799,
+      "status": "snapshot"
+    },
+    {
+      "draftGames": 0,
+      "draftReleases": 0,
+      "dropped": 0,
+      "elapsed": 0.0,
+      "error": "no snapshot for this source (online only)",
+      "games": 0,
+      "id": "archive_org",
+      "name": "Archive.org",
+      "releases": 0,
+      "status": "skipped"
+    },
+    {
+      "draftGames": 0,
+      "draftReleases": 0,
+      "dropped": 0,
+      "elapsed": 0.0,
+      "error": "no snapshot for this source (online only)",
+      "games": 0,
+      "id": "superpsx",
+      "name": "SuperPSX",
+      "releases": 0,
+      "status": "skipped"
+    },
+    {
+      "draftGames": 0,
+      "draftReleases": 0,
+      "dropped": 0,
+      "elapsed": 0.0,
+      "error": "no snapshot for this source (online only)",
+      "games": 0,
+      "id": "pkggames",
+      "name": "pkg.games",
+      "releases": 0,
+      "status": "skipped"
+    },
+    {
+      "draftGames": 0,
+      "draftReleases": 0,
+      "dropped": 0,
+      "elapsed": 0.0,
+      "error": "no snapshot for this source (online only)",
+      "games": 0,
+      "id": "pspkg",
+      "name": "pspkg.com",
+      "releases": 0,
+      "status": "skipped"
+    },
+    {
+      "draftGames": 0,
+      "draftReleases": 0,
+      "dropped": 0,
+      "elapsed": 0.0,
+      "error": "no snapshot for this source (online only)",
+      "games": 0,
+      "id": "arabicps4",
+      "name": "ArabicPS4Games",
+      "releases": 0,
+      "status": "skipped"
+    }
+  ],
+  "verifiedReleases": 881
+}
