@@ -499,7 +499,7 @@ export function register({ route, state }) {
       jobs.push(j); state.jlog(j, 'link unrestricted by Real-Debrid (16 connections)');
     }
     /* 5. copy between drives, running */
-    const srcJob = jobs.find((j) => (j.state === 'done' || j.state === 'installed') && j.type !== 'copy' && /exfat|ffpfsc/i.test(j.format)) || null;
+    const srcJob = jobs.find((j) => (j.state === 'done' || j.state === 'installed') && j.type !== 'copy' && j.root !== '/mnt/ext0' && /exfat|ffpfsc/i.test(j.format)) || null;
     const srcPath = srcJob ? srcJob.path : '/mnt/usb0/homebrew/PPSA04029 Cyberpunk 2077.exfat';
     const cg = srcJob ? state.gamesById.get(srcJob.gameId) : (take((x) => direct(x)) || games()[0]);
     if (cg) {

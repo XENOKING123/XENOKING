@@ -75,7 +75,7 @@
     "sureText": "This cannot be undone.",
     "analyze": "Analyze",
     "updatesCenter": "Updates center",
-    "updatesN": "{n, plural, =0{No updates waiting} one{# update available} other{# updates available}}",
+    "updatesN": "{n, plural, one{# update available} other{# updates available}}",
     "updatesNone": "Installed and downloaded titles are up to date",
     "savesHub": "Saves hub",
     "savesHubDesc": "Back up, restore and move saves between profiles",
@@ -431,13 +431,14 @@
     "disconnectTitle": "Disconnect {name}?",
     "disconnectText": "The API key is removed from the console. Downloads already running keep their links.",
     "disconnected": "{name} disconnected",
-    "hostsSub": "{n, plural, =0{Supported hosts not listed yet} one{# supported host} other{# supported hosts}}",
+    "hostsSub": "{n, plural, one{# supported host} other{# supported hosts}}",
     "status": "Status",
     "userLabel": "User",
     "expiresLabel": "Expires",
     "hosts": "Supported hosts",
     "hostsUnknown": "The host list is fetched once a day; nothing cached yet.",
-    "hostsNote": "Auto picks this service only for links on these hosts; everything else downloads directly."
+    "hostsNote": "Auto picks this service only for links on these hosts; everything else downloads directly.",
+    "hostsNone": "Supported hosts not listed yet"
   },
   "companions": {
     "title": "Companion payloads",
@@ -488,12 +489,13 @@
     "confirmTitle": "Uninstall now?",
     "doneTitle": "XENO STORE was removed",
     "doneText": "The server has stopped. You can close this page.",
-    "removedN": "{n, plural, =0{Nothing removed} one{# item removed} other{# items removed}}",
+    "removedN": "{n, plural, one{# item removed} other{# items removed}}",
     "nothing": "—",
     "kept": "Kept",
     "failed": "Could not remove",
     "reinstall": "To reinstall, send xeno-store.elf again from Payload Manager or your loader.",
-    "thanks": "Thanks for trying XENO STORE."
+    "thanks": "Thanks for trying XENO STORE.",
+    "nothingRemoved": "Nothing removed"
   },
   "a11y": {
     "title": "Accessibility & comfort",
@@ -534,7 +536,7 @@
     "rowHint": "Jump anywhere from the keyboard",
     "hintMove": "Move",
     "hintOpen": "Open",
-    "hintCount": "{n, plural, =0{No matches} one{# match} other{# matches}}",
+    "hintCount": "{n, plural, one{# match} other{# matches}}",
     "empty": "Nothing matches",
     "emptyHint": "Try a screen name, a setting group or a game title.",
     "settingsArrow": "Settings → {name}",
@@ -553,7 +555,8 @@
       "updates": "Updates center",
       "saveshub": "Saves hub",
       "setup": "Setup"
-    }
+    },
+    "noMatches": "No matches"
   },
   "dl": {
     "state": {

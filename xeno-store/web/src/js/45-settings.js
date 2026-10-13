@@ -237,7 +237,7 @@
     }
     function hostsSheet(def, s) {
       var hosts = (s.hosts || []).slice().sort();
-      var hd = ui.sheet({ title: s.name || def.name, sub: t('debrid.hostsSub', { n: hosts.length }), cls: 'narrow', body: function (body) {
+      var hd = ui.sheet({ title: s.name || def.name, sub: hosts.length ? t('debrid.hostsSub', { n: hosts.length }) : t('debrid.hostsNone'), cls: 'narrow', body: function (body) {
         body.appendChild(h('div.panel', [cb.kv([[t('debrid.status'), t('debrid.connected')], [t('debrid.userLabel'), s.user || '—'], [t('debrid.expiresLabel'), s.expires ? U.fmtDate(s.expires) : '—'], [t('debrid.apiKey'), s.apiKeyMasked || cb.maskKey(sget('debrid.' + def.id + '.apiKey', '')) || '••••']])]));
         body.appendChild(h('h3', { text: t('debrid.hosts') }));
         if (!hosts.length) body.appendChild(h('p.dim', { text: t('debrid.hostsUnknown') }));
@@ -683,7 +683,8 @@
     box.appendChild(h('h1', { text: t('uninstall.doneTitle') }));
     box.appendChild(h('p', { text: t('uninstall.doneText') }));
     var kv = [];
-    kv.push([t('uninstall.removedN', { n: r.removedCount !== undefined ? r.removedCount : (r.removed || []).length }), (r.removed || []).length ? h('div.paths', (r.removed || []).slice(0, 12).map(function (p) { return h('div.mono', { text: p }); })) : t('uninstall.nothing')]);
+    var nRemoved = r.removedCount !== undefined ? r.removedCount : (r.removed || []).length;
+    kv.push([nRemoved ? t('uninstall.removedN', { n: nRemoved }) : t('uninstall.nothingRemoved'), (r.removed || []).length ? h('div.paths', (r.removed || []).slice(0, 12).map(function (p) { return h('div.mono', { text: p }); })) : t('uninstall.nothing')]);
     if ((r.kept || []).length) kv.push([t('uninstall.kept'), h('div.paths', r.kept.slice(0, 12).map(function (p) { return h('div.mono', { text: p }); }))]);
     if ((r.failed || []).length) kv.push([t('uninstall.failed'), h('div.paths', r.failed.slice(0, 12).map(function (p) { return h('div.mono.bad', { text: p }); }))]);
     box.appendChild(h('div.panel', [cb.kv(kv)]));

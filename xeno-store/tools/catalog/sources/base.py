@@ -33,6 +33,7 @@ class SourceContext:
     previous: Catalog | None = None
     log: Callable[[str], None] = print
     source_id: str = ""
+    extra: dict[str, Any] = field(default_factory=dict)   # CLI extras, e.g. {"orbit_paths": [...]}
 
     @property
     def snapshots_dir(self) -> Path:

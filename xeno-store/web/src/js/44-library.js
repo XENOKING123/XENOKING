@@ -453,7 +453,7 @@
     var upToDate = cands.filter(function (e) { return !e.updates.length && !e.backports.length; });
     var fw = cb.consoleFw();
     var toolbar = h('div.toolbar', { style: { marginBottom: '14px' } });
-    toolbar.appendChild(h('span.chip.gold', { text: t('lib2.updatesN', { n: withUp.length }) }));
+    toolbar.appendChild(h('span.chip.gold', { text: withUp.length ? t('lib2.updatesN', { n: withUp.length }) : t('lib2.updatesNone') }));
     if (withBp.length) toolbar.appendChild(h('span.chip.warn', { text: t('lib2.backportsN', { n: withBp.length }) }));
     if (fw) toolbar.appendChild(h('span.chip', { text: t('game2.firmware') + ' ' + fw }));
     toolbar.appendChild(h('span.spacer'));

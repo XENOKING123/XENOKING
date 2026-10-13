@@ -179,6 +179,7 @@ const put = (path, body) => api(path, { method: 'PUT', headers: { 'Content-Type'
     await waitToast(page, 'uninstalled');
     await expect(async () => (await api('/api/library')).installed.length === instCount - 1, 'uninstall should remove the title from /api/library.installed');
     /* copy to another drive */
+    await page.waitForFunction(() => !document.querySelector('#scr-library .files .busy-row') && Array.from(document.querySelectorAll('#scr-library .files .frow')).some((r) => !/Partial/.test(r.textContent)), null, { timeout: 10000 }).catch(() => fail('no complete file row to copy after the rescan'));
     await page.evaluate(() => { const row = Array.from(document.querySelectorAll('#scr-library .files .frow')).find((r) => !/Partial/.test(r.textContent)); if (row) row.click(); });
     await clickMenuItem(page, 'Copy to another drive');
     await page.waitForSelector('.sheet [data-nav-id="tr-start"]');

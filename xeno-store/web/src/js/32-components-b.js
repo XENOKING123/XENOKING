@@ -442,7 +442,7 @@
       box.appendChild(h('div.palette-top', [ui.svg('search'), input, h('kbd', { text: 'Esc' })]));
       var list = h('div.palette-list', { data: { navRegion: '' } });
       box.appendChild(list);
-      box.appendChild(h('div.palette-hint', [h('span', { html: U.glyph('dpad') + ' ' + U.escapeHtml(t('palette.hintMove')) }), h('span', { html: U.glyph('cross') + ' ' + U.escapeHtml(t('palette.hintOpen')) }), h('span.spacer'), h('span.dim', { text: t('palette.hintCount', { n: 0 }) })]));
+      box.appendChild(h('div.palette-hint', [h('span', { html: U.glyph('dpad') + ' ' + U.escapeHtml(t('palette.hintMove')) }), h('span', { html: U.glyph('cross') + ' ' + U.escapeHtml(t('palette.hintOpen')) }), h('span.spacer'), h('span.dim', { text: t('palette.noMatches') })]));
       layer.appendChild(box);
       var handle = null;
       function paint() {
@@ -458,7 +458,7 @@
           list.appendChild(row);
         });
         if (!items.length) list.appendChild(h('div.empty.sm', [h('h3', { text: t('palette.empty') }), h('p', { text: t('palette.emptyHint') })]));
-        var hint = box.querySelector('.palette-hint .dim'); if (hint) hint.textContent = t('palette.hintCount', { n: items.length });
+        var hint = box.querySelector('.palette-hint .dim'); if (hint) hint.textContent = items.length ? t('palette.hintCount', { n: items.length }) : t('palette.noMatches');
       }
       input.addEventListener('input', U.debounce(paint, 60));
       input.addEventListener('keydown', function (e) {
