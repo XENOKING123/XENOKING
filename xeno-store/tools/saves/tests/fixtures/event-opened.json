@@ -1,0 +1,23 @@
+{
+  "action": "opened",
+  "issue": {
+    "number": 42,
+    "title": "[save] Cyberpunk 2077 — Chapter 4 — all weapons unlocked",
+    "body": "<!-- Submitted from XENO STORE 1.0.0. Keep the JSON block below unchanged. -->\n\n```json\n{\n  \"titleId\": \"PPSA04029\",\n  \"gameId\": \"cyberpunk-2077-ps5\",\n  \"title\": \"Cyberpunk 2077\",\n  \"category\": \"chapter\",\n  \"name\": \"Chapter 4 — all weapons unlocked\",\n  \"description\": \"Right after the heist. Every iconic weapon in the stash, 1.2M eddies.\",\n  \"author\": \"nick\",\n  \"gameVersion\": \"01.004.000\",\n  \"region\": \"EUR\",\n  \"dirName\": \"SAVEDATA00\",\n  \"size\": 5313,\n  \"sha256\": \"903591445ed50fe324f714ca9c6479bb407f0e3c918deb8397456363639eb99b\",\n  \"url\": \"https://pixeldrain.com/api/file/xenoTestGood\",\n  \"format\": \"xeno-save-zip\",\n  \"kind\": \"ps5\",\n  \"tags\": [\n    \"ng+\",\n    \"max money\"\n  ]\n}\n```\n",
+    "state": "open",
+    "labels": [
+      {
+        "name": "save-submission"
+      }
+    ],
+    "created_at": "2026-01-02T10:00:00Z",
+    "updated_at": "2026-01-02T10:00:00Z",
+    "html_url": "https://github.com/XENOKING123/XENOKING/issues/42",
+    "user": {
+      "login": "someone"
+    }
+  },
+  "repository": {
+    "full_name": "XENOKING123/XENOKING"
+  }
+}

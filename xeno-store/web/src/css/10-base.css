@@ -1,0 +1,198 @@
+/* Base: reset, canvas, typography, app chrome (glass top bar, legend, screens). */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+html { font-size: 16px; -webkit-text-size-adjust: 100%; }
+body {
+  font-family: var(--font);
+  color: var(--txt);
+  background: var(--bg0);
+  background-image: var(--canvas);
+  background-attachment: fixed;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+/* 2 % film grain over everything: one static SVG feTurbulence tile, no image request, no repaint. */
+body::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 2;
+  opacity: var(--grain);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n' x='0' y='0'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .9 0'/></filter><rect width='180' height='180' filter='url(%23n)'/></svg>");
+  background-size: 180px 180px;
+}
+input, textarea, button, select { font: inherit; color: inherit; }
+input, textarea { -webkit-user-select: text; user-select: text; }
+button { background: none; border: 0; padding: 0; cursor: pointer; }
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
+h1, h2, h3, h4 { margin: 0; font-weight: 800; letter-spacing: -.015em; }
+p { margin: 0; }
+::-webkit-scrollbar { width: 0; height: 0; }
+[hidden] { display: none !important; }
+[data-nav] { outline: none; cursor: pointer; }
+[dir="rtl"] { direction: rtl; }
+
+.app { position: fixed; inset: 0; z-index: 1; display: flex; flex-direction: column; }
+
+/* ---------- Top bar: glass ---------- */
+.topbar {
+  height: var(--topbar-h); flex: 0 0 auto;
+  display: flex; align-items: center; gap: 22px;
+  padding: 0 var(--gutter);
+  background: var(--glass-top);
+  -webkit-backdrop-filter: var(--glass-blur-sm); backdrop-filter: var(--glass-blur-sm);
+  border-bottom: 1px solid var(--hl);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .03) inset, 0 10px 30px rgba(0, 0, 0, .22);
+  position: relative; z-index: 5;
+}
+.brand { position: relative; display: flex; align-items: center; gap: 12px; border-radius: 999px; padding: 4px 10px 4px 4px; transition: box-shadow var(--dur) var(--ease); }
+.brand:focus { box-shadow: var(--focus-ring); }
+.brand-badge { position: relative; width: 40px; height: 40px; border-radius: 50%; flex: 0 0 auto; background: var(--card); }
+/* conic gold ring; rotates on hover/focus (transform only) */
+.brand-badge::before {
+  content: ""; position: absolute; inset: -3px; border-radius: 50%;
+  background: conic-gradient(from 0deg, var(--gold) 0%, var(--gold2) 30%, var(--acc2) 50%, var(--gold2) 70%, var(--gold) 100%);
+  box-shadow: 0 0 18px var(--gold-glow);
+}
+.brand-badge img { position: relative; z-index: 1; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .4); }
+.brand:hover .brand-badge::before, .brand:focus .brand-badge::before { animation: spin 2.4s linear infinite; }
+.brand-word { font-weight: 900; font-size: 18px; letter-spacing: .12em; white-space: nowrap; }
+.brand-word em { font-style: normal; color: var(--gold); margin-inline-start: 6px; }
+
+/* tabs: pill group; the gold indicator (.tab-ind, 05-design.css) slides under the active tab */
+.tabs { position: relative; display: flex; gap: 2px; align-items: center; padding: 4px; border-radius: 999px; background: rgba(255, 255, 255, .045); border: 1px solid var(--hl); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04); }
+.tab {
+  position: relative; display: flex; align-items: center; gap: 8px;
+  height: 38px; padding: 0 16px; border-radius: 999px; color: var(--dim);
+  font-weight: 700; font-size: 15px; white-space: nowrap;
+  transition: color var(--dur), background-color var(--dur-fast), box-shadow var(--dur-fast);
+}
+.tab:hover, .tab:focus { color: var(--txt); background: rgba(255, 255, 255, .07); }
+.tab:focus { box-shadow: var(--focus-ring); }
+.tab.active { color: var(--txt); }
+.tab.active:hover, .tab.active:focus { background: transparent; }
+.tab.active::after {
+  content: ""; position: absolute; left: 16px; right: 16px; bottom: 4px; height: 3px; border-radius: 3px;
+  background: var(--gold); box-shadow: 0 0 12px var(--gold-glow);
+}
+.tab .badge {
+  position: relative; min-width: 22px; height: 22px; padding: 0 7px; border-radius: 11px; font-size: 12px; font-weight: 800;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--gold); color: var(--gold-ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .4);
+}
+.topbar.has-ind .tab.active .badge { background: var(--gold-ink); color: var(--gold2); box-shadow: none; }
+.tab .badge::after { content: ""; position: absolute; inset: 0; border-radius: 999px; box-shadow: 0 0 0 3px var(--gold-soft), 0 0 16px var(--gold-glow); opacity: 0; pointer-events: none; }
+.tab .badge.pulse::after { animation: glow-pulse 1.8s ease-in-out infinite; }
+
+.topbar-right { margin-inline-start: auto; display: flex; align-items: center; gap: 10px; }
+.status-chips { display: flex; gap: 8px; align-items: center; }
+.schip {
+  position: relative; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 999px;
+  background: var(--chip-bg); border: 1px solid var(--chip-line); color: var(--dim); font-size: 12.5px; font-weight: 700;
+  box-shadow: inset 0 1px 0 var(--hl2); white-space: nowrap; letter-spacing: .01em;
+}
+.schip svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.schip.speed { color: var(--gold2); border-color: var(--gold-line); background: var(--gold-soft); }
+.schip.speed::before { content: ""; position: absolute; inset: -1px; border-radius: 999px; box-shadow: 0 0 0 3px var(--gold-soft), 0 0 18px var(--gold-glow); opacity: 0; animation: glow-pulse 1.8s ease-in-out infinite; pointer-events: none; }
+.schip.speed svg { animation: bob 1.2s ease-in-out infinite; }
+.schip.warn { color: var(--warn); border-color: rgba(255, 154, 74, .4); }
+.schip.bad { color: var(--bad); border-color: rgba(255, 92, 108, .4); }
+.iconbtn {
+  width: 42px; height: 42px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--dim); background: rgba(255, 255, 255, .05); border: 1px solid var(--hl); box-shadow: inset 0 1px 0 var(--hl);
+  transition: box-shadow var(--dur-fast), color var(--dur-fast), background-color var(--dur-fast), transform var(--dur-fast) var(--ease);
+}
+.iconbtn:hover, .iconbtn:focus { color: var(--txt); background: rgba(255, 255, 255, .1); }
+.iconbtn:focus { box-shadow: var(--focus-ring), inset 0 1px 0 var(--hl2); transform: translateY(-1px); }
+.iconbtn svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------- Banners ---------- */
+.banners { flex: 0 0 auto; position: relative; z-index: 4; }
+.banner {
+  display: flex; align-items: center; gap: 12px; padding: 8px var(--gutter); font-size: 14px; font-weight: 600;
+  background: rgba(255, 154, 74, .1); border-bottom: 1px solid rgba(255, 154, 74, .28); color: var(--txt);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04);
+}
+.banner.bad { background: rgba(255, 92, 108, .1); border-color: rgba(255, 92, 108, .32); }
+.banner.info { background: rgba(74, 163, 255, .1); border-color: rgba(74, 163, 255, .28); }
+.banner .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 10px var(--warn); flex: 0 0 auto; }
+.banner.bad .dot { background: var(--bad); box-shadow: 0 0 10px var(--bad); }
+.banner.info .dot { background: var(--acc); box-shadow: 0 0 10px var(--acc); }
+.banner .spacer { flex: 1; }
+
+/* ---------- Screens ---------- */
+.main { flex: 1 1 auto; position: relative; min-height: 0; }
+.screen {
+  position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden;
+  -webkit-overflow-scrolling: touch; display: none;
+  padding: 0 var(--gutter) 60px;
+}
+.screen.active { display: block; }
+.screen-inner { max-width: 1840px; margin: 0 auto; }
+
+/* ---------- Legend: glass strip, crisp PS glyphs, dim-gold labels ---------- */
+.legend {
+  height: var(--legend-h); flex: 0 0 auto; display: flex; align-items: center; gap: 26px; padding: 0 var(--gutter);
+  background: var(--glass-top); -webkit-backdrop-filter: var(--glass-blur-sm); backdrop-filter: var(--glass-blur-sm);
+  border-top: 1px solid var(--hl); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .03);
+  font-size: 13px; color: var(--dim); position: relative; z-index: 5;
+}
+.legend .hint { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.legend .hint > span { color: var(--legend-ink); font-weight: 600; }
+.legend .hint .glyph { width: 22px; height: 22px; }
+.legend .spacer { flex: 1; }
+.legend .ver { color: var(--mute); font-size: 12px; letter-spacing: .08em; }
+.glyph { display: inline-block; vertical-align: middle; width: 20px; height: 20px; }
+.glyph circle.ring { fill: rgba(255, 255, 255, .04); stroke: currentColor; stroke-width: 1.5; }
+.glyph .in { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.glyph.cross .in { stroke: var(--acc2); }
+.glyph.circle .in { stroke: var(--bad); }
+.glyph.square .in { stroke: #ff8ad8; }
+.glyph.triangle .in { stroke: var(--good); }
+.glyph.shoulder rect { fill: rgba(255, 255, 255, .04); stroke: currentColor; stroke-width: 1.5; }
+.glyph.shoulder text { fill: currentColor; font-size: 9px; font-weight: 800; font-family: var(--font); }
+
+/* ---------- Phone tab bar (shown by 50-phone.css) ---------- */
+.phonebar { display: none; }
+
+/* ---------- Generic helpers ---------- */
+.row { display: flex; align-items: center; gap: 10px; }
+/* Any inline icon dropped straight into a row (notices, panels) gets the standard 18 px stroke look. */
+.row > svg { width: 18px; height: 18px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; color: var(--gold); }
+.grow { flex: 1 1 auto; min-width: 0; }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.clamp3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.dim { color: var(--dim); }
+.mute { color: var(--mute); }
+.gold { color: var(--gold); }
+.good { color: var(--good); }
+.bad { color: var(--bad); }
+.warn { color: var(--warn); }
+.mono { font-family: var(--mono); font-size: .92em; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.kicker { font-size: 12px; font-weight: 800; letter-spacing: .22em; color: var(--gold); text-transform: uppercase; }
+.section-title { font-size: 20px; font-weight: 800; letter-spacing: -.02em; display: flex; align-items: baseline; gap: 10px; }
+.section-title .count { font-size: 13px; font-weight: 700; color: var(--legend-ink); letter-spacing: .02em; }
+.section-head { display: flex; align-items: center; gap: 12px; margin: 28px 0 12px; }
+.section-head .spacer { flex: 1; }
+.section-head .btn.sm { height: 32px; padding: 0 14px; border-radius: 999px; background: rgba(255, 255, 255, .05); border-color: var(--hl2); color: var(--dim); box-shadow: inset 0 1px 0 var(--hl); }
+.section-head .btn.sm:hover, .section-head .btn.sm:focus { color: var(--txt); background: rgba(255, 255, 255, .1); }
+.pad-top { padding-top: 24px; }
+.empty {
+  padding: 40px 24px; text-align: center; color: var(--dim); border: 1px dashed var(--line); border-radius: var(--radius-l);
+  background: rgba(255, 255, 255, .02);
+}
+.empty h3 { font-size: 18px; color: var(--txt); margin-bottom: 6px; }
+.empty .actions { margin-top: 16px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.fade-in { animation: fade-in var(--dur-slow) var(--ease) both; }
+.stagger > * { animation: fade-in var(--dur-slow) var(--ease) both; }
+.stagger > *:nth-child(2) { animation-delay: 40ms; }
+.stagger > *:nth-child(3) { animation-delay: 80ms; }
+.stagger > *:nth-child(4) { animation-delay: 120ms; }
+.stagger > *:nth-child(5) { animation-delay: 160ms; }
+.stagger > *:nth-child(n+6) { animation-delay: 200ms; }
+html[data-motion="reduce"] .fade-in, html[data-motion="reduce"] .stagger > * { animation: none; }

@@ -1,0 +1,5 @@
+{"schemaVersion": 1, "revision": 47, "releases": [
+  {"id": "ppsa01342-exfat", "titleId": "PPSA01342", "sizeBytes": 61000000000, "provider": "Vikingfile", "format": "exFAT", "version": "01.02",
+   "filename": "ASTRO BOT.exfat", "url": "https://vikingfile.com/f/new-astro", "browserUrl": "https://vikingfile.com/f/new-astro",
+   "sourceId": "vikingfile", "gameId": "astro-bot", "title": "ASTRO BOT", "genre": "Platformer", "pickOrder": 1}
+]}

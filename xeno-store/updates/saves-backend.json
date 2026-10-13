@@ -1,0 +1,16 @@
+{
+  "kind": "github",
+  "indexUrl": "https://raw.githubusercontent.com/XENOKING123/XENOKING/main/xeno-store/updates/saves.json",
+  "submit": "github-issue",
+  "issueUrl": "https://github.com/XENOKING123/XENOKING/issues/new?template=save-submission.md",
+  "uploadHost": "pixeldrain",
+  "note": "Zero-infrastructure default: consoles read the published updates/saves.json index and submit new saves through a prefilled GitHub issue (SPEC §17.22.5). Switch to the Supabase backend by replacing this object with the '_example' below (minus the leading underscore keys) or by filling Settings → Saves → Backend on the console; both backends can be active at once and the lists are merged.",
+  "_example": {
+    "kind": "supabase",
+    "url": "https://YOUR-PROJECT-REF.supabase.co",
+    "anonKey": "YOUR-PUBLIC-ANON-KEY",
+    "bucket": "ps5-saves",
+    "garlicFunction": "garlic-savedb",
+    "_about": "The anon key is public by design (row-level security limits what it can do). Deploy the schema and the edge functions from xeno-store/backend/supabase/ first; the console lists rows from public.ps5_save_collection, downloads through signed URLs or the garlic-savedb function and uploads to the bucket."
+  }
+}

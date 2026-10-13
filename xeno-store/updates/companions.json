@@ -1,0 +1,90 @@
+{
+  "name": "XENO STORE companions",
+  "author": "XENOKING",
+  "updatedAt": "2026-10-13T00:00:00Z",
+  "_notes": [
+    "Owner-curated catalog of scene payloads that make XENO STORE one-click (SPEC §17.16). XENO STORE downloads the file to /data/xeno-store/payloads/<id>.elf, checks the sha256 and sends the bytes to the local ELF loader on 127.0.0.1:9021. It never loads code in-process.",
+    "Every sha256 below is FILLED-BY-OWNER: a payload whose hash is still a placeholder refuses to install (sha256 mismatch) until the owner replaces it with the hash of the exact file at 'url'. Fill it with: sha256sum <file>.",
+    "Entries under releases/download/companions/ are mirrored copies the owner uploads to the 'companions' release of this repo after verifying them on hardware, so a vanished upstream asset never breaks the console. 'homepage' always points at the original project.",
+    "'kind' is matched by the readiness checklist (shadowmount → Launch ShadowMountPlus now, dpi → package installer fallback, np-signin/np-signout → Accounts screen, dumper → Library 'Back up this game to a dump', saves → Garlic tier of the save engine)."
+  ],
+  "payloads": [
+    {
+      "id": "shadowmount-plus",
+      "name": "ShadowMountPlus",
+      "kind": "shadowmount",
+      "version": "1.03",
+      "filename": "ShadowMountPlus.elf",
+      "url": "https://github.com/XENOKING123/XENOKING/releases/download/companions/ShadowMountPlus.elf",
+      "sha256": "FILLED-BY-OWNER",
+      "homepage": "https://github.com/LightningMods",
+      "notes": "Mounts exFAT / FFPFSC / FFPKG dumps from <drive>/homebrew/ and shows them on the home screen. XENO STORE saves image dumps there and triggers its scan on 127.0.0.1:10101 after every download. Needed for image formats; PKG installs work without it."
+    },
+    {
+      "id": "ezremote-dpi",
+      "name": "Package installer daemon (DPI)",
+      "kind": "dpi",
+      "version": "1.0",
+      "filename": "ezremote-dpi.elf",
+      "url": "https://github.com/XENOKING123/XENOKING/releases/download/companions/ezremote-dpi.elf",
+      "sha256": "FILLED-BY-OWNER",
+      "homepage": "https://github.com/XENOKING123/XENOKING/tree/main/payload/dpi",
+      "notes": "etaHEN-compatible direct package installer on 127.0.0.1:9040 (the same daemon XENO TOOL uses). XENO STORE installs PKGs natively first and falls back to this daemon when the native call is refused on your firmware."
+    },
+    {
+      "id": "kstuff",
+      "name": "kstuff",
+      "kind": "kernel",
+      "version": "latest",
+      "filename": "kstuff.elf",
+      "url": "https://github.com/XENOKING123/XENOKING/releases/download/companions/kstuff.elf",
+      "sha256": "FILLED-BY-OWNER",
+      "homepage": "https://github.com/sleirsgoevy/ps5-kstuff",
+      "notes": "Kernel patches that let fake packages (FPKG) run and let the save engine mount saves natively. Load it once per boot before installing or launching FPKG titles. Firmware support follows the upstream project — read its README for your firmware."
+    },
+    {
+      "id": "np-fake-signin",
+      "name": "NP fake sign-in",
+      "kind": "np-signin",
+      "version": "1.0",
+      "filename": "np-fake-signin.elf",
+      "url": "https://github.com/earthonion/np-fake-signin/releases/latest/download/np-fake-signin.elf",
+      "sha256": "FILLED-BY-OWNER",
+      "homepage": "https://github.com/earthonion/np-fake-signin",
+      "notes": "Makes the console believe PSN is signed in so trophies and some online checks work offline. Activate the profile first (Settings → Accounts), then send this payload. Reverse it with NP fake sign-out."
+    },
+    {
+      "id": "np-fake-signout",
+      "name": "NP fake sign-out",
+      "kind": "np-signout",
+      "version": "1.0",
+      "filename": "np-fake-signout.elf",
+      "url": "https://github.com/earthonion/np-fake-signin/releases/latest/download/np-fake-signout.elf",
+      "sha256": "FILLED-BY-OWNER",
+      "homepage": "https://github.com/earthonion/np-fake-signin",
+      "notes": "Reverts NP fake sign-in. Send it before signing in to the real PlayStation Network again."
+    },
+    {
+      "id": "ps5-app-dumper",
+      "name": "App dumper",
+      "kind": "dumper",
+      "version": "latest",
+      "filename": "ps5-app-dumper.elf",
+      "url": "https://github.com/XENOKING123/XENOKING/releases/download/companions/ps5-app-dumper.elf",
+      "sha256": "FILLED-BY-OWNER",
+      "homepage": "https://github.com/XENOKING123/XENOKING/tree/main/xeno-store/docs/GUIDE.md",
+      "notes": "Dumps an installed game to an image on a USB / M.2 drive so you can keep your own backup. Library → 'Back up this game to a dump' launches it and shows the steps. Dumping large games takes a long time; keep the console awake."
+    },
+    {
+      "id": "garlic-save-manager",
+      "name": "Garlic Save Manager",
+      "kind": "saves",
+      "version": "latest",
+      "filename": "garlic-save-manager.elf",
+      "url": "https://github.com/XENOKING123/XENOKING/releases/download/companions/garlic-save-manager.elf",
+      "sha256": "FILLED-BY-OWNER",
+      "homepage": "https://garlicsaves.com",
+      "notes": "Save re-signing worker on 127.0.0.1:8082 (ELF Arsenal). When it answers, the Save Data Store imports community saves 'via Garlic' and the game page shows 'Open in Garlic'. Optional: the native tier (kstuff) and the same-console raw tier work without it."
+    }
+  ]
+}

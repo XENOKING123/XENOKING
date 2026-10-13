@@ -1,0 +1,35 @@
+{
+  "applicationCategoryType": 33554432,
+  "titleId": "XENO00002",
+  "contentId": "IV0000-XENO00002_00-XENOKINGSTORE001",
+  "contentVersion": "01.00",
+  "masterVersion": "01.00",
+  "localizedParameters": {
+    "defaultLanguage": "en-US",
+    "en-US": {
+      "titleName": "XENO STORE"
+    },
+    "ar-AE": { "titleName": "XENO STORE" },
+    "de-DE": { "titleName": "XENO STORE" },
+    "es-ES": { "titleName": "XENO STORE" },
+    "fr-FR": { "titleName": "XENO STORE" },
+    "it-IT": { "titleName": "XENO STORE" },
+    "ja-JP": { "titleName": "XENO STORE" },
+    "ko-KR": { "titleName": "XENO STORE" },
+    "nl-NL": { "titleName": "XENO STORE" },
+    "pl-PL": { "titleName": "XENO STORE" },
+    "pt-BR": { "titleName": "XENO STORE" },
+    "ru-RU": { "titleName": "XENO STORE" },
+    "tr-TR": { "titleName": "XENO STORE" },
+    "zh-Hans": { "titleName": "XENO STORE" }
+  },
+  "kernelDigest": "ASSET",
+  "pubtoolInfo": {
+    "creationDate": "2026-10-13"
+  },
+  "applicationDrmType": "free",
+  "attribute": 0,
+  "downloadDataSize": 0,
+  "parentalLevel": 0,
+  "sdkVersion": "7.59.0.0"
+}

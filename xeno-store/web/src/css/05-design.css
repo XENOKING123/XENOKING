@@ -1,0 +1,75 @@
+/* XENO Glass depth layer (SPEC §18): aurora canvas, film grain, keyframe library, sliding tab indicator,
+   shared "bubble" helpers and the reduce-motion gate. Only transform/opacity are animated. */
+
+/* ---------- Aurora: two slow radial blobs under everything (hidden under reduce-motion / safe mode) ---------- */
+.aurora { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.aurora i { position: absolute; display: block; border-radius: 50%; will-change: transform; }
+.aurora .a1 { width: 1500px; height: 1100px; left: -420px; top: -560px; opacity: .5; background: radial-gradient(closest-side, var(--aurora-1) 0%, rgba(0, 0, 0, 0) 100%); animation: aurora-a 40s ease-in-out infinite alternate; }
+.aurora .a2 { width: 1300px; height: 1000px; right: -480px; top: -300px; opacity: .34; background: radial-gradient(closest-side, var(--aurora-2) 0%, rgba(0, 0, 0, 0) 100%); animation: aurora-b 52s ease-in-out infinite alternate; }
+@keyframes aurora-a { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(220px, 140px, 0); } }
+@keyframes aurora-b { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(-260px, 180px, 0); } }
+
+/* ---------- Keyframe library ---------- */
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes pop { from { transform: scale(.96); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes shimmer { from { transform: translateX(-180%); } to { transform: translateX(280%); } }
+@keyframes sweep { from { transform: translateX(-140%) skewX(-12deg); opacity: 1; } to { transform: translateX(160%) skewX(-12deg); opacity: 1; } }
+@keyframes sheen { from { transform: translateX(-120%); } to { transform: translateX(360%); } }
+@keyframes kenburns { from { transform: scale(1); } to { transform: scale(1.06); } }
+@keyframes pager-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes ping { 0% { transform: scale(1); opacity: .75; } 100% { transform: scale(1.4); opacity: 0; } }
+@keyframes glow-pulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+@keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(2px); } }
+@keyframes blink { 50% { opacity: .2; } }
+@keyframes stripes { to { transform: translateX(22.6px); } }
+@keyframes slide-in { from { transform: translateX(48px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes slide-in-rtl { from { transform: translateX(-48px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes toast-in { from { transform: translateY(18px) scale(.98); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes sheet-up { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* ---------- Sliding gold tab indicator (positioned by 33-design.js, transform only) ---------- */
+.tab-ind {
+  position: absolute; left: 0; top: 0; width: 100px; height: 38px; border-radius: 999px; z-index: 0; pointer-events: none;
+  transform-origin: 0 0; opacity: 0;
+  background: var(--gold-grad);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .5), 0 6px 18px var(--gold-glow);
+  transition: transform var(--dur-slow) var(--ease), opacity var(--dur);
+}
+.tab-ind.on { opacity: 1; }
+.topbar.has-ind .tab.active::after { display: none; }
+.topbar.has-ind .tab.active { color: var(--gold-ink); }
+.topbar.has-ind .tab.active:focus { box-shadow: 0 0 0 2px var(--bg0), 0 0 0 4px var(--gold); }
+.tab { z-index: 1; }
+
+/* ---------- Bubble helpers ---------- */
+.bubble { display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: var(--bubble); border: 1px solid var(--bubble-line); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14), 0 2px 8px rgba(0, 0, 0, .4); }
+
+/* ---------- Reduce-motion gate: Reduce-motion setting (data-motion) or OS preference (html.prm, set by 33-design.js) ---------- */
+html[data-motion="reduce"] .aurora, html.prm .aurora, html[data-safe-mode="1"] .aurora { display: none; }
+html[data-motion="reduce"] .hero .art .cover img, html.prm .hero .art .cover img { animation: none; transform: none; }
+html[data-motion="reduce"] .hero .art.prev, html.prm .hero .art.prev { display: none; }
+html[data-motion="reduce"] .hero .dots i.on::after, html.prm .hero .dots i.on::after { animation: none; transform: none; }
+html[data-motion="reduce"] .card:focus .cf, html.prm .card:focus .cf,
+html[data-motion="reduce"] .hb-card:focus > .cover, html.prm .hb-card:focus > .cover,
+html[data-motion="reduce"] .save-card:focus > .cover, html.prm .save-card:focus > .cover { transform: none; }
+html[data-motion="reduce"] .cf::after, html.prm .cf::after,
+html[data-motion="reduce"] .btn.primary::before, html.prm .btn.primary::before,
+html[data-motion="reduce"] .cover::before, html.prm .cover::before,
+html[data-motion="reduce"] .skel::before, html.prm .skel::before,
+html[data-motion="reduce"] .bar > i::after, html.prm .bar > i::after,
+html[data-motion="reduce"] .bar .seg > b::after, html.prm .bar .seg > b::after,
+html[data-motion="reduce"] .schip.speed::before, html.prm .schip.speed::before,
+html[data-motion="reduce"] .schip.speed svg, html.prm .schip.speed svg,
+html[data-motion="reduce"] .brand-badge::before, html.prm .brand-badge::before,
+html[data-motion="reduce"] .tab .badge::after, html.prm .tab .badge::after,
+html[data-motion="reduce"] .state-pill .dot, html.prm .state-pill .dot { animation: none; }
+html[data-motion="reduce"] .card:focus .cover img, html.prm .card:focus .cover img,
+html[data-motion="reduce"] .card:hover .cover img, html.prm .card:hover .cover img { transform: none; }
+html[data-motion="reduce"] .tab-ind, html.prm .tab-ind { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .aurora { display: none; }
+  .hero .art .cover img { animation: none; transform: none; }
+}

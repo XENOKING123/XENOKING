@@ -1,0 +1,6 @@
+{"schema": 1, "generatedUtc": "2026-06-11T17:12:22Z", "entries": [
+  {"id": "CUSA00207", "version": "01.00", "title": "Bloodborne", "cheatsTotal": 3, "formats": {"json": {"hasFile": true, "cheatsCount": 3, "cheats": ["Godmode", "Infinite Vials", "Max Echoes"]}, "shn": {"hasFile": false, "cheatsCount": 0, "cheats": []}}},
+  {"id": "CUSA00207", "version": "01.09", "title": "Bloodborne", "cheatsTotal": 2, "formats": {"json": {"hasFile": true, "cheatsCount": 2, "cheats": ["Godmode", "One Hit Kill"]}}},
+  {"id": "CUSA00299", "version": "01.09", "title": "Bloodborne", "cheatsTotal": 1, "formats": {"mc4": {"hasFile": true, "cheatsCount": 1, "cheats": ["godmode"]}}},
+  {"id": "CUSA00002", "version": "01.81", "title": "Killzone", "cheatsTotal": 2, "formats": {}}
+]}

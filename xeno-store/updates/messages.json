@@ -1,0 +1,21 @@
+{
+  "messages": [
+    {
+      "id": "welcome-1.0.0",
+      "ts": 1760313600,
+      "url": "https://github.com/XENOKING123/XENOKING/tree/main/xeno-store",
+      "texts": {
+        "en": "Welcome to XENO STORE 1.0 — browse 1,900+ games, download with up to 16 connections, auto-install packages and back up your saves. Settings → Setup shows what your console still needs.",
+        "ar": "مرحبًا بك في XENO STORE 1.0 — تصفح أكثر من 1,900 لعبة، حمّل بما يصل إلى 16 اتصالًا، ثبّت الحزم تلقائيًا واحفظ نسخًا احتياطية من بياناتك. الإعدادات ← الإعداد تعرض ما يحتاجه جهازك.",
+        "de": "Willkommen bei XENO STORE 1.0 — über 1.900 Spiele, Downloads mit bis zu 16 Verbindungen, automatische Paketinstallation und Spielstand-Backups. Einstellungen → Einrichtung zeigt, was deiner Konsole noch fehlt.",
+        "es": "Bienvenido a XENO STORE 1.0: explora más de 1.900 juegos, descarga con hasta 16 conexiones, instala paquetes automáticamente y haz copias de tus partidas. Ajustes → Configuración muestra lo que le falta a tu consola.",
+        "fr": "Bienvenue dans XENO STORE 1.0 : plus de 1 900 jeux, des téléchargements jusqu'à 16 connexions, l'installation automatique des paquets et la sauvegarde de vos parties. Réglages → Configuration indique ce qu'il manque à votre console.",
+        "it": "Benvenuto in XENO STORE 1.0: oltre 1.900 giochi, download fino a 16 connessioni, installazione automatica dei pacchetti e backup dei salvataggi. Impostazioni → Configurazione mostra cosa manca alla tua console.",
+        "ja": "XENO STORE 1.0 へようこそ。1,900 本以上のゲームを閲覧し、最大 16 接続でダウンロード、パッケージの自動インストール、セーブデータのバックアップができます。設定 → セットアップで本体に足りないものを確認できます。",
+        "pt-BR": "Bem-vindo ao XENO STORE 1.0: mais de 1.900 jogos, downloads com até 16 conexões, instalação automática de pacotes e backup dos seus saves. Configurações → Preparação mostra o que ainda falta no seu console.",
+        "ru": "Добро пожаловать в XENO STORE 1.0: более 1 900 игр, загрузка до 16 соединениями, автоустановка пакетов и резервные копии сохранений. Настройки → Подготовка покажет, чего не хватает вашей консоли.",
+        "zh-CN": "欢迎使用 XENO STORE 1.0：浏览 1,900 多款游戏，最多 16 线程下载，自动安装程序包并备份存档。设置 → 准备 会显示主机还缺什么。"
+      }
+    }
+  ]
+}

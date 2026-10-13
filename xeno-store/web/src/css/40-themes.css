@@ -1,0 +1,168 @@
+/* Themes: token overrides only (SPEC §11.4, §18.6). xeno-gold is the :root default in 00-tokens.css.
+   Each theme redefines the accent set (--gold*, --rim, --gold-grad/glow/soft/line, --legend-ink), the canvas (--glow-spot,
+   --canvas, --aurora-*) and, where the material changes (OLED flat, Ice light glass), the elevation tokens. */
+html[data-theme="midnight"] {
+  --gold: #4aa3ff; --gold2: #8fcaff; --gold-ink: #04101f;
+  --gold-grad: linear-gradient(180deg, #8fcaff 0%, #2f8df5 100%); --gold-grad-hover: linear-gradient(180deg, #b6dcff 0%, #4aa3ff 100%);
+  --gold-glow: rgba(74, 163, 255, .38); --gold-soft: rgba(74, 163, 255, .12); --gold-line: rgba(74, 163, 255, .45);
+  --rim: conic-gradient(from 160deg, #4aa3ff 0%, #ffffff 32%, #8fcaff 52%, #c3e3ff 74%, #4aa3ff 100%);
+  --legend-ink: #8fb9ea;
+  --focus-ring: 0 0 0 3px var(--gold), 0 0 24px rgba(74, 163, 255, .55);
+  --glow-spot: #10265a; --aurora-1: #1b3fa0; --aurora-2: #0e5f9a; --aurora-3: #2a2a8a;
+}
+html[data-theme="oled"] {
+  --bg0: #000000; --bg1: #07070a; --card: #101014; --card2: #17171c; --line: #26262c; --line2: #3a3a44;
+  --dim: #b4b8c6; --mute: #7b7f8e; --glow-spot: #0c0c12; --glass: rgba(0, 0, 0, .78); --glass-strong: rgba(0, 0, 0, .92);
+  --canvas: radial-gradient(900px 500px at 30% -10%, #0c0c14 0%, #000 60%);
+  --aurora-1: #121a3a; --aurora-2: #221a3a; --aurora-3: #0e2630;
+  /* flat elevation: opaque surfaces, no glass blur */
+  --el-1: #0f0f14; --el-1-hover: #16161d; --el-2: #0b0b10; --el-3: #0e0e14;
+  --glass-blur: none; --glass-blur-sm: none; --glass-top: rgba(0, 0, 0, .92); --scrim: rgba(0, 0, 0, .78);
+  --hl: rgba(255, 255, 255, .07); --hl2: rgba(255, 255, 255, .12); --line-soft: rgba(255, 255, 255, .1);
+  --grain: .025;
+}
+html[data-theme="oled"] .hero .chip, html[data-theme="oled"] .hero .actions .btn:not(.primary), html[data-theme="oled"] .toast, html[data-theme="oled"] .layer .backdrop, html[data-theme="oled"] .search-layer { -webkit-backdrop-filter: none; backdrop-filter: none; }
+html[data-theme="oled"] .hero .art::after { background: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, .86) 28%, rgba(0, 0, 0, .35) 58%, rgba(0, 0, 0, 0) 100%), linear-gradient(0deg, #000 0%, rgba(0, 0, 0, .45) 34%, rgba(0, 0, 0, 0) 70%); }
+html[data-theme="crimson"] {
+  --bg0: #140608; --bg1: #1f0a0e; --card: #2a0f15; --card2: #38151c; --line: #5a2430; --line2: #7a3242;
+  --dim: #e6b4bd; --mute: #a87a86; --gold: #ff5c6c; --gold2: #ff9aa5; --gold-ink: #1f0407; --acc: #ff8a5c; --acc2: #ffb08a;
+  --gold-grad: linear-gradient(180deg, #ff9aa5 0%, #f23a4e 100%); --gold-grad-hover: linear-gradient(180deg, #ffc0c7 0%, #ff5c6c 100%);
+  --gold-glow: rgba(255, 92, 108, .38); --gold-soft: rgba(255, 92, 108, .12); --gold-line: rgba(255, 92, 108, .45);
+  --rim: conic-gradient(from 160deg, #ff5c6c 0%, #ffb08a 32%, #ff9aa5 52%, #ffd0a0 74%, #ff5c6c 100%);
+  --legend-ink: #e39aa3;
+  --focus-ring: 0 0 0 3px var(--gold), 0 0 24px rgba(255, 92, 108, .55); --glow-spot: #4a1220;
+  --el-1: rgba(60, 18, 28, .72); --el-1-hover: rgba(78, 24, 36, .8); --el-2: rgba(34, 10, 16, .8); --el-3: rgba(30, 8, 14, .92);
+  --glass-top: rgba(20, 6, 8, .66); --scrim: rgba(20, 6, 8, .7);
+  --btn2-bg: rgba(255, 138, 92, .14); --btn2-bg-hover: rgba(255, 138, 92, .24); --btn2-line: rgba(255, 176, 138, .26);
+  --canvas: radial-gradient(1200px 700px at 30% -10%, var(--glow-spot) 0%, var(--bg0) 60%);
+  --aurora-1: #7a1a2e; --aurora-2: #5a1a5a; --aurora-3: #7a3a10;
+}
+html[data-theme="crimson"] .hero .art::after { background: linear-gradient(90deg, #140608 0%, rgba(20, 6, 8, .86) 28%, rgba(20, 6, 8, .35) 58%, rgba(20, 6, 8, 0) 100%), linear-gradient(0deg, #140608 0%, rgba(20, 6, 8, .45) 34%, rgba(20, 6, 8, 0) 70%); }
+html[data-theme="emerald"] {
+  --bg0: #04120e; --bg1: #071c16; --card: #0c2a21; --card2: #11382c; --line: #1e5a47; --line2: #2a7a60;
+  --dim: #a9e4cf; --mute: #6fa892; --gold: #4affa6; --gold2: #9affd0; --gold-ink: #03170f; --acc: #4ad7ff; --acc2: #8ae6ff;
+  --gold-grad: linear-gradient(180deg, #9affd0 0%, #1fe08a 100%); --gold-grad-hover: linear-gradient(180deg, #c6ffe4 0%, #4affa6 100%);
+  --gold-glow: rgba(74, 255, 166, .35); --gold-soft: rgba(74, 255, 166, .12); --gold-line: rgba(74, 255, 166, .45);
+  --rim: conic-gradient(from 160deg, #4affa6 0%, #4ad7ff 32%, #9affd0 52%, #8ae6ff 74%, #4affa6 100%);
+  --legend-ink: #8fd9bd;
+  --focus-ring: 0 0 0 3px var(--gold), 0 0 24px rgba(74, 255, 166, .5); --glow-spot: #0e3d2e;
+  --el-1: rgba(14, 48, 38, .72); --el-1-hover: rgba(18, 62, 48, .8); --el-2: rgba(8, 30, 24, .8); --el-3: rgba(6, 26, 20, .92);
+  --glass-top: rgba(4, 18, 14, .66); --scrim: rgba(4, 18, 14, .7);
+  --btn2-bg: rgba(74, 215, 255, .12); --btn2-bg-hover: rgba(74, 215, 255, .22); --btn2-line: rgba(138, 230, 255, .26);
+  --canvas: radial-gradient(1200px 700px at 30% -10%, var(--glow-spot) 0%, var(--bg0) 60%);
+  --aurora-1: #0f6a4a; --aurora-2: #0b4a6a; --aurora-3: #1a6a2a;
+}
+html[data-theme="emerald"] .hero .art::after { background: linear-gradient(90deg, #04120e 0%, rgba(4, 18, 14, .86) 28%, rgba(4, 18, 14, .35) 58%, rgba(4, 18, 14, 0) 100%), linear-gradient(0deg, #04120e 0%, rgba(4, 18, 14, .45) 34%, rgba(4, 18, 14, 0) 70%); }
+html[data-theme="royal"] {
+  --bg0: #0c0618; --bg1: #140a28; --card: #1e1040; --card2: #291656; --line: #44277e; --line2: #5d37a8;
+  --dim: #c9b8f0; --mute: #8f7cc0; --gold: #c99bff; --gold2: #e2c8ff; --gold-ink: #16062c; --acc: #ff7ad9; --acc2: #ffa8e8;
+  --gold-grad: linear-gradient(180deg, #e2c8ff 0%, #a86dff 100%); --gold-grad-hover: linear-gradient(180deg, #f0e0ff 0%, #c99bff 100%);
+  --gold-glow: rgba(201, 155, 255, .38); --gold-soft: rgba(201, 155, 255, .12); --gold-line: rgba(201, 155, 255, .45);
+  --rim: conic-gradient(from 160deg, #c99bff 0%, #ff7ad9 32%, #e2c8ff 52%, #ffa8e8 74%, #c99bff 100%);
+  --legend-ink: #b9a0e6;
+  --focus-ring: 0 0 0 3px var(--gold), 0 0 24px rgba(201, 155, 255, .55); --glow-spot: #2d1460;
+  --el-1: rgba(36, 20, 76, .72); --el-1-hover: rgba(48, 26, 98, .8); --el-2: rgba(20, 10, 44, .8); --el-3: rgba(16, 8, 36, .92);
+  --glass-top: rgba(12, 6, 24, .66); --scrim: rgba(12, 6, 24, .7);
+  --btn2-bg: rgba(255, 122, 217, .12); --btn2-bg-hover: rgba(255, 122, 217, .22); --btn2-line: rgba(255, 168, 232, .26);
+  --canvas: radial-gradient(1200px 700px at 30% -10%, var(--glow-spot) 0%, var(--bg0) 60%);
+  --aurora-1: #4a1a9a; --aurora-2: #8a1a7a; --aurora-3: #1a2a9a;
+}
+html[data-theme="royal"] .hero .art::after { background: linear-gradient(90deg, #0c0618 0%, rgba(12, 6, 24, .86) 28%, rgba(12, 6, 24, .35) 58%, rgba(12, 6, 24, 0) 100%), linear-gradient(0deg, #0c0618 0%, rgba(12, 6, 24, .45) 34%, rgba(12, 6, 24, 0) 70%); }
+html[data-theme="ice"] {
+  --bg0: #eef3fb; --bg1: #ffffff; --card: #ffffff; --card2: #f1f5fd; --line: #d5dff2; --line2: #b5c6ea;
+  --txt: #0d1a3a; --dim: #4a5a85; --mute: #7d8bb0; --gold: #d99a00; --gold2: #b57f00; --gold-ink: #1a1200;
+  --gold-grad: linear-gradient(180deg, #ffd66b 0%, #f0b324 100%); --gold-grad-hover: linear-gradient(180deg, #ffe49a 0%, #ffc63a 100%);
+  --gold-glow: rgba(217, 154, 0, .3); --gold-soft: rgba(217, 154, 0, .12); --gold-line: rgba(217, 154, 0, .45);
+  --rim: conic-gradient(from 160deg, #d99a00 0%, #2b6fe0 32%, #f0b324 52%, #4d8cf5 74%, #d99a00 100%);
+  --legend-ink: #9a7210;
+  --acc: #2b6fe0; --acc2: #4d8cf5; --ps4: #5d6a8f; --glow-spot: #dbe6ff;
+  --focus-ring: 0 0 0 3px var(--gold), 0 0 24px rgba(217, 154, 0, .35);
+  --focus-lift: 0 0 0 3px var(--gold), 0 18px 48px rgba(217, 154, 0, .3);
+  /* light glass: white surfaces, dark text, soft blue shadows */
+  --el-1: rgba(255, 255, 255, .74); --el-1-hover: rgba(255, 255, 255, .92); --el-2: rgba(255, 255, 255, .82); --el-3: rgba(255, 255, 255, .94);
+  --hl: rgba(255, 255, 255, .9); --hl2: rgba(255, 255, 255, 1); --hl3: rgba(13, 26, 58, .18); --line-soft: rgba(13, 26, 58, .1);
+  --shadow-1: 0 1px 0 rgba(255, 255, 255, .9) inset, 0 10px 30px rgba(13, 26, 58, .14), 0 2px 6px rgba(13, 26, 58, .08);
+  --shadow-2: 0 1px 0 rgba(255, 255, 255, .9) inset, 0 24px 60px rgba(13, 26, 58, .18), 0 4px 12px rgba(13, 26, 58, .1);
+  --shadow-3: 0 1px 0 rgba(255, 255, 255, 1) inset, 0 30px 80px rgba(13, 26, 58, .22), 0 6px 16px rgba(13, 26, 58, .12);
+  --shadow-card: var(--shadow-1); --shadow-sheet: -24px 0 60px rgba(13, 26, 58, .2);
+  --glass-top: rgba(255, 255, 255, .72); --scrim: rgba(13, 26, 58, .45); --ink-shadow: none;
+  --glass: rgba(255, 255, 255, .85); --glass-strong: rgba(255, 255, 255, .9); --overlay: rgba(13, 26, 58, .45);
+  --chip-bg: rgba(13, 26, 58, .05); --chip-line: rgba(13, 26, 58, .1);
+  --bubble: rgba(13, 26, 58, .72); --bubble-line: rgba(255, 255, 255, .25);
+  --btn2-bg: rgba(43, 111, 224, .1); --btn2-bg-hover: rgba(43, 111, 224, .18); --btn2-line: rgba(43, 111, 224, .25);
+  --canvas: radial-gradient(1200px 700px at 30% -10%, var(--glow-spot) 0%, var(--bg0) 60%);
+  --aurora-1: #bcd3ff; --aurora-2: #d9c8ff; --aurora-3: #bfeaf5; --grain: .02;
+}
+html[data-theme="ice"] .aurora .a1 { opacity: .9; }
+html[data-theme="ice"] .aurora .a2 { opacity: .7; }
+
+html[data-theme="ice"] .tabs { background: rgba(13, 26, 58, .05); border-color: rgba(13, 26, 58, .08); }
+html[data-theme="ice"] .tab:hover, html[data-theme="ice"] .tab:focus, html[data-theme="ice"] .iconbtn, html[data-theme="ice"] .iconbtn:hover, html[data-theme="ice"] .iconbtn:focus { background: rgba(13, 26, 58, .06); border-color: rgba(13, 26, 58, .08); }
+html[data-theme="ice"] .tab.active:hover, html[data-theme="ice"] .tab.active:focus { background: transparent; }
+html[data-theme="ice"] .hero .art::after { background: linear-gradient(90deg, rgba(13, 26, 58, .92) 0%, rgba(13, 26, 58, .72) 28%, rgba(13, 26, 58, .25) 58%, transparent 100%), linear-gradient(0deg, rgba(13, 26, 58, .9) 0%, rgba(13, 26, 58, .3) 34%, transparent 70%); }
+html[data-theme="ice"] .hero .body, html[data-theme="ice"] .hero .body h1, html[data-theme="ice"] .hero .tagline { color: #fff; }
+html[data-theme="ice"] .hero .body h1 { text-shadow: 0 4px 24px rgba(0, 0, 0, .5); }
+html[data-theme="ice"] .hero .kicker { color: #ffd66b; }
+/* The hero sits on dark artwork even in the light theme: chips and the secondary button stay light-on-dark there. */
+html[data-theme="ice"] .hero .chip { color: #fff; background: rgba(255, 255, 255, .16); border-color: rgba(255, 255, 255, .3); }
+html[data-theme="ice"] .hero .chip.gold { color: #ffd66b; }
+html[data-theme="ice"] .hero .chip.ps5 { background: var(--ps5); }
+html[data-theme="ice"] .hero .actions .btn:not(.primary) { color: #fff; background: rgba(255, 255, 255, .16); border-color: rgba(255, 255, 255, .35); }
+html[data-theme="ice"] .schip.speed { color: #8a5d00; border-color: rgba(217, 154, 0, .5); }
+html[data-theme="ice"] .tab.active::after { box-shadow: none; }
+html[data-theme="ice"] .gp-backdrop::after { background: linear-gradient(180deg, rgba(238, 243, 251, .3) 0%, rgba(238, 243, 251, .85) 55%, var(--bg0) 100%); }
+html[data-theme="ice"] .gp-info h1 { text-shadow: none; }
+html[data-theme="ice"] .gp-actions .btn:not(.primary) { background: rgba(43, 111, 224, .1); border-color: rgba(43, 111, 224, .25); }
+html[data-theme="ice"] .input, html[data-theme="ice"] .logbox { background: rgba(13, 26, 58, .04); box-shadow: none; }
+html[data-theme="ice"] .search-top .input { background: rgba(255, 255, 255, .9); border-color: var(--line); }
+html[data-theme="ice"] .cover .ph { color: #fff; }
+html[data-theme="ice"] .card .size, html[data-theme="ice"] .card .vtick, html[data-theme="ice"] .card .cheats, html[data-theme="ice"] .card .fav-dot { background: rgba(13, 26, 58, .78); }
+html[data-theme="ice"] .stepper .sb, html[data-theme="ice"] .seg-ctl, html[data-theme="ice"] .toggle, html[data-theme="ice"] .lrow .ic, html[data-theme="ice"] .toast .ic, html[data-theme="ice"] .pager .pg { background: rgba(13, 26, 58, .08); box-shadow: none; }
+html[data-theme="ice"] .toggle.on { background: var(--gold-grad); }
+html[data-theme="ice"] .bar { background: rgba(13, 26, 58, .1); box-shadow: none; }
+html[data-theme="ice"] .sheet-foot { background: rgba(13, 26, 58, .04); }
+html[data-theme="ice"] .tile .gi { color: #0d1a3a; background: rgba(255, 255, 255, .7); border-color: rgba(255, 255, 255, .9); }
+html[data-theme="ice"] .tile .wash { opacity: .35; }
+html[data-theme="ice"] .legend .hint > span { color: #7a5a0c; }
+html[data-theme="ice"] .glyph circle.ring, html[data-theme="ice"] .glyph.shoulder rect { fill: rgba(13, 26, 58, .04); }
+html[data-theme="ice"] .state-pill { background: rgba(13, 26, 58, .08); box-shadow: none; }
+html[data-theme="ice"] .tab-ind { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .6), 0 6px 18px rgba(217, 154, 0, .25); }
+html[data-theme="ice"] .chip.ps4 { color: #fff; background: linear-gradient(180deg, #7d8bb0, #5d6a8f); }
+html[data-theme="ice"] .card .plat.ps4 { color: #fff; background: linear-gradient(180deg, #7d8bb0, #5d6a8f); }
+
+/* ---------- High contrast + Large text hooks for the new chrome (tokens live in 41-themes-b.css) ---------- */
+html[data-contrast="high"] .tab-ind { background: #fff; box-shadow: 0 0 0 1px var(--gold); }
+html[data-contrast="high"] .topbar.has-ind .tab.active { color: #000; }
+html[data-contrast="high"] .card, html[data-contrast="high"] .hb-card, html[data-contrast="high"] .save-card { border-color: var(--line); }
+html[data-contrast="high"] .card .cheats, html[data-contrast="high"] .card .fav-dot { background: #000; outline: 1px solid rgba(255, 255, 255, .5); }
+html[data-contrast="high"] .legend .hint > span { color: var(--gold2); }
+html[data-contrast="high"] .aurora { display: none; }
+html[data-theme="ice"][data-contrast="high"] .tab-ind { background: #000; }
+html[data-theme="ice"][data-contrast="high"] .topbar.has-ind .tab.active { color: #fff; }
+html[data-large-text="1"] .card .title { font-size: 16.5px; }
+html[data-large-text="1"] .hero .body h1 { font-size: 60px; }
+
+/* ---------- Cross-component overrides: other builders' cards/rows (35/36-screens-*.css load after 30-screens.css,
+   so these live here to win the cascade). Tokens only + the shared bubble treatment. ---------- */
+/* cards: lift, rim, ring, cover scale (lift, rim, ring, cover scale) ---------- */
+.hb-card, .save-card { background: var(--el-1); border-color: var(--line-soft); box-shadow: inset 0 1px 0 var(--hl), 0 2px 6px rgba(0, 0, 0, .25); }
+.hb-card:hover, .hb-card:focus, .save-card:hover, .save-card:focus { transform: translateY(-8px); background: var(--el-1-hover); border-color: transparent; box-shadow: var(--shadow-1); }
+.hb-card:focus, .save-card:focus { box-shadow: var(--focus-lift), var(--shadow-1); }
+.hb-card > .cover, .save-card > .cover { transition: transform var(--dur) var(--ease); }
+.hb-card:focus > .cover, .save-card:focus > .cover { transform: perspective(900px) rotateX(var(--rx, 2deg)) rotateY(var(--ry, -2deg)); }
+.hb-card:hover .cover img, .hb-card:focus .cover img, .save-card:hover .cover img, .save-card:focus .cover img { transform: scale(1.04); }
+.hb-card .t, .save-card .t { font-weight: 600; font-size: 15px; }
+.hb-card .hb-state { border-radius: 999px; background: var(--bubble); border: 1px solid var(--bubble-line); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14), 0 2px 8px rgba(0, 0, 0, .4); }
+.gal-thumb { background: var(--el-1); border-color: var(--line-soft); box-shadow: inset 0 1px 0 var(--hl), 0 2px 6px rgba(0, 0, 0, .25); }
+.gal-thumb:hover, .gal-thumb:focus { border-color: transparent; }
+.gal-thumb:focus { box-shadow: var(--focus-lift), var(--shadow-1); }
+.gal-thumb:hover .cover img, .gal-thumb:focus .cover img { transform: scale(1.04); }
+.lib-tile, .usage-card, .jobgroup .ghead, .gp-twin, .save-row, .best-card, .setup-summary, .fopt { box-shadow: inset 0 1px 0 var(--hl); }
+.lib-tile:focus, .usage-card:focus, .gp-twin:focus { box-shadow: var(--focus-ring), inset 0 1px 0 var(--hl2); }
+.gp-twin, .save-row, .usage-card, .jobgroup .ghead { background: var(--el-1); border-color: var(--line-soft); }
+.fopt { background: var(--el-1); }
+.fopt:hover, .fopt:focus { background: var(--el-1-hover); }
+.fopt.on { border-color: var(--gold-line); background: linear-gradient(90deg, var(--gold-soft), rgba(0, 0, 0, 0) 70%), var(--el-1); }
+.palette { background: var(--el-2); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); border-color: var(--hl2); box-shadow: var(--shadow-3); }
+.mc { box-shadow: inset 0 1px 0 var(--hl2); }
+.why-btn, .chip.cheats { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .1); }
