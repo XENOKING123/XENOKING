@@ -127,7 +127,7 @@ const put = (path, body) => api(path, { method: 'PUT', headers: { 'Content-Type'
     /* failed tab: paused install set + Retry */
     await page.click('[data-nav-id="dltab-failed"]');
     await page.waitForSelector('#scr-downloads .jobgroup.gs-paused', { timeout: 6000 });
-    await expect(async () => page.evaluate(() => /Install set paused at: update/.test(document.querySelector('#scr-downloads .jobgroup.gs-paused').textContent)), '"Install set paused at: update…" missing');
+    await expect(async () => page.evaluate(() => /Install set paused at: update/i.test(document.querySelector('#scr-downloads .jobgroup.gs-paused').textContent)), '"Install set paused at: update…" missing');
     await expect(async () => !!(await page.$('#scr-downloads .jobgroup.gs-paused [data-nav-id^="group-"][data-nav-id$="-retry"]')), 'paused set should offer Retry');
     await waitCovers(page, 3);
     await sleep(300);
@@ -179,7 +179,7 @@ const put = (path, body) => api(path, { method: 'PUT', headers: { 'Content-Type'
     await waitToast(page, 'uninstalled');
     await expect(async () => (await api('/api/library')).installed.length === instCount - 1, 'uninstall should remove the title from /api/library.installed');
     /* copy to another drive */
-    await page.click('#scr-library .files .frow');
+    await page.evaluate(() => { const row = Array.from(document.querySelectorAll('#scr-library .files .frow')).find((r) => !/Partial/.test(r.textContent)); if (row) row.click(); });
     await clickMenuItem(page, 'Copy to another drive');
     await page.waitForSelector('.sheet [data-nav-id="tr-start"]');
     await page.click('.sheet [data-nav-id="tr-root-0"]');

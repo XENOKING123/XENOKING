@@ -59,7 +59,11 @@
     "startNowToast": "{title} starts now, outside the schedule",
     "startNowSub": "Ignore the {time} window for this download",
     "peak": "peak {speed}",
-    "state": { "extracting": "Extracting", "extracted": "Extracted", "scheduled": "Scheduled" }
+    "state": {
+      "extracting": "Extracting",
+      "extracted": "Extracted",
+      "scheduled": "Scheduled"
+    }
   },
   "lib2": {
     "justNow": "just now",
@@ -82,7 +86,15 @@
     "analyzing": "Measuring what uses space on each drive…",
     "analyzeFailed": "The drives could not be analyzed.",
     "analyzedAt": "measured {when}",
-    "cat": { "games": "Installed games", "dumps": "Dumps (images)", "packages": "Packages", "files": "Archives & files", "saves": "Save backups", "partials": "Partial downloads", "other": "Other" },
+    "cat": {
+      "games": "Installed games",
+      "dumps": "Dumps (images)",
+      "packages": "Packages",
+      "files": "Archives & files",
+      "saves": "Save backups",
+      "partials": "Partial downloads",
+      "other": "Other"
+    },
     "partialsOn": "{n, plural, one{# partial download} other{# partial downloads}} · {size}",
     "cleanPartials": "Clean up partials",
     "noPartials": "No partial downloads on this drive",
@@ -199,7 +211,13 @@
     "transferred": "{title} transferred to {name}"
   },
   "settings2": {
-    "group": { "debrid": "Debrid", "saves": "Saves", "accounts": "Accounts", "setup": "Setup", "uninstall": "Uninstall" },
+    "group": {
+      "debrid": "Debrid",
+      "saves": "Saves",
+      "accounts": "Accounts",
+      "setup": "Setup",
+      "uninstall": "Uninstall"
+    },
     "preferFormat": "Preferred format",
     "preferFormatHint": "Download best picks this format when the game offers it",
     "preferAuto": "Automatic",
@@ -523,7 +541,24 @@
     "pauseAll": "Pause all downloads",
     "resumeAll": "Resume all downloads",
     "surprise": "Surprise me",
-    "kind": { "screen": "Screen", "setting": "Setting", "action": "Action", "recent": "Recent", "game": "Game" },
-    "screen": { "saves": "Community Saves", "updates": "Updates center", "saveshub": "Saves hub", "setup": "Setup" }
+    "kind": {
+      "screen": "Screen",
+      "setting": "Setting",
+      "action": "Action",
+      "recent": "Recent",
+      "game": "Game"
+    },
+    "screen": {
+      "saves": "Community Saves",
+      "updates": "Updates center",
+      "saveshub": "Saves hub",
+      "setup": "Setup"
+    }
+  },
+  "dl": {
+    "state": {
+      "extracting": "Extracting",
+      "extracted": "Extracted"
+    }
   }
 }

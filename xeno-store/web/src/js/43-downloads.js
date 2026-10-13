@@ -257,7 +257,7 @@
     var row = h('div.job.st-' + j.state + (grouped ? '.member' : ''), { nav: 'job:' + j.id, data: { job: j.id, hints: 'jobmenu' } });
     row._grouped = !!grouped;
     row.appendChild(ui.cover(j.cover, '', j.title));
-    row.appendChild(h('div.ttl', [h('h4', { text: j.title }), ui.statePill(j)]));
+    row.appendChild(h('div.ttl', [h('h4', { text: j.title }), statePill(j)]));
     row.appendChild(h('div.meta'));
     row.appendChild(ui.progressBar(j));
     var side = h('div.side', [h('div.pct'), h('div.acts')]);
