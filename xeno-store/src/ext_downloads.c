@@ -147,9 +147,11 @@ static void best_visit(jv g, void *user) {
   jw_value(w, rel);
   /* reasons */
   jw_key(w, "reasons"); jw_arr_begin(w);
+  /* "newest"/"smallest" are judged among the usable releases of the same
+   * kind: compatible with the console firmware and not a web page. */
   int same_kind = 0, newest = best->version[0] != 0, smallest = best->size > 0;
   for (int i = 0; i < m; i++) {
-    if (strcmp(cs[i].kind, best->kind) != 0) continue;
+    if (strcmp(cs[i].kind, best->kind) != 0 || cs[i].compatRank != 0 || util_strieq(cs[i].format, "PAGE")) continue;
     same_kind++;
     if (cs[i].version[0] && util_semver_cmp(cs[i].version, best->version) > 0) newest = 0;
     if (cs[i].size > 0 && cs[i].size < best->size) smallest = 0;

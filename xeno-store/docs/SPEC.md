@@ -963,3 +963,58 @@ game/title ID/author; "Compatible with my games" quick filter (installed titles)
 - UI: store cards show cover (icon0 from the zip, else catalog art), game, title ID, category chip (from `category`, else inferred from notes keywords: "100%/platinum" →
   platinum, "start/ng+/max" → starter, "trophy/boss" → checkpoint, "mod/glitch" → modded), description, shared_by, date, size, downloads, compatibility badge. Upload dialog
   mirrors the owner's "Add PS5 save" form (title ID auto-filled, game, your name, description ≤ 300 chars, category, optional picture) but the zip comes from the engine export.
+
+---
+
+## 18. Premium visual language ("XENO Glass") — required for 1.0
+
+The store must look and feel premium from a couch at 3 m and on a phone: depth, light and motion, never clutter. All of it must stay
+PS5-WebKit-safe and 60 fps: animate only `transform`/`opacity`, keep `-webkit-backdrop-filter` to small surfaces (header, sheets, chips),
+one 3D-transformed element at a time (the focused card), no filters on scrolling grids, `prefers-reduced-motion` and the Reduce-motion
+setting turn every non-essential animation off.
+
+### 18.1 Depth system (tokens in `00-tokens.css`)
+- Canvas: layered navy with a slow-moving aurora (two large radial gradients, `transform: translate` keyframes over 40 s, hidden under Reduce motion)
+  and a 2 % film-grain noise overlay (inline SVG `feTurbulence` data URI, `pointer-events:none`).
+- Surfaces come in four elevations: `--el-0` (canvas), `--el-1` cards (`rgba(16,30,70,.72)` + 1 px `rgba(255,255,255,.06)` inner highlight on top edge),
+  `--el-2` raised (sheets/menus: glass `rgba(10,20,50,.78)` + `-webkit-backdrop-filter: blur(18px) saturate(140%)`), `--el-3` floating (toasts, dialogs).
+  Shadows are layered: `0 1px 0 rgba(255,255,255,.04) inset, 0 10px 30px rgba(0,0,0,.45), 0 2px 6px rgba(0,0,0,.35)`.
+- Gradient rims: focused/hovered cards get a 1.5 px conic gradient border (gold → blue → gold) drawn with a `::before` pseudo-element and
+  `mask`/`-webkit-mask` so it costs nothing when idle.
+
+### 18.2 Cards ("bubble 3D")
+- Cover cards: `border-radius: 18px`, cover with a subtle top-light gradient overlay, platform bubble top-left (pill with soft inner glow),
+  size bubble bottom-right, verified tick in gold, cheats chip; title under the cover in 15 px / 600.
+- Focus/hover: lift 8 px, `perspective(900px) rotateX(2deg) rotateY(-2deg)` on the card frame (tilt toward the pointer/stick direction on
+  desktop via mousemove; fixed gentle tilt on TV), gold ring + outer glow `0 0 0 3px var(--gold), 0 18px 48px rgba(255,206,74,.35)`,
+  the cover scales 1.04 inside its clipped frame, a soft reflection strip (`::after` linear-gradient white → transparent at 8 % opacity) sweeps once
+  (300 ms) on focus. Neighbours do not move.
+- Skeleton shimmer while art loads; tinted placeholder with the title set in a bold condensed style when art fails.
+
+### 18.3 Hero & rails
+- Hero: cinematic 21:9 art with a left-to-right navy gradient + bottom fade, a slow Ken-Burns zoom (1.0 → 1.06 over 12 s, reduce-motion off),
+  gold "DISCOVER" kicker, 56 px title with a soft text shadow, chips as glass bubbles, primary gold button with a one-time shimmer sweep,
+  pager dots as a thin gold progress bar, crossfade between slides (opacity only).
+- Rails: section title + count in dim gold, "See all" bubble, horizontal snap scroll with edge fades (mask-image), focused card kept at 1/3.
+- Genre tiles: glass bubbles with an emoji/icon and a gradient wash unique per genre (hash).
+
+### 18.4 Chrome
+- Header: glass bar (`-webkit-backdrop-filter`), XENO badge with a rotating conic gold ring on hover/focus, tabs as a pill group with a sliding
+  gold indicator (transform-based), status bubbles (speed, free space, IP) with live micro-animations (speed bubble pulses while downloading).
+- Legend: glass strip, PlayStation glyphs drawn crisp (inline SVG, 1.5 px strokes), dim gold labels.
+- Sheets: slide from the right with a 70 % navy scrim + blur; menus pop with scale 0.96 → 1 and opacity; toasts slide up with the cover thumbnail.
+- Buttons: primary = gold gradient (`#ffd978 → #f5b300`) with a 1 px inner highlight and dark text; secondary = glass blue; destructive = soft red.
+- Progress: downloads use a dual-layer bar (segments in blue, done in gold with a moving sheen while active); sparkline in gold with a fill gradient.
+
+### 18.5 Typography & iconography
+- Inter stack, headings 800 with tight tracking, numbers tabular (`font-variant-numeric: tabular-nums`), 15/13 px body/caption on TV.
+- A consistent inline-SVG icon set (24 px grid, 1.75 px strokes) for every action; no emoji in chrome (emoji allowed only in genre tiles).
+
+### 18.6 Themes
+`xeno-gold` (default), `midnight`, `oled`, `crimson`, `emerald`, `royal`, `ice` plus High contrast and Large text overlays; every theme redefines
+only tokens; the depth system adapts (OLED removes glass blur in favour of flat elevation; Ice uses dark text with light glass).
+
+### 18.7 Acceptance
+Screenshots at 1920×1080 of Discover, Browse, Game, Download sheet, Downloads, Library, Settings, Homebrew, Community Saves, and phone Discover/Game
+must read as one premium system; a reviewer compares them against the Orbit/BlackBox/Overdrive screenshots in `${scratch}/ext/orbit/assets` and must
+prefer XENO STORE on depth, clarity and consistency. Performance: Chromium trace of a rail scroll + focus walk shows no long frames > 32 ms.

@@ -26,6 +26,7 @@
 #define MAX_HOSTS 400
 #define HOST_LEN 64
 #define HOSTS_TTL_S (24 * 3600)
+#define RETRY_AFTER_FAIL_S (10 * 60)
 #define TICK_EVERY_S 60
 #define API_TIMEOUT_MS 15000
 #define TORBOX_POLL_MS 3000
@@ -48,6 +49,7 @@ typedef struct svc_cache {
   int nhosts;
   int hostsKnown;         /* a list was fetched at least once */
   time_t fetchedAt;
+  time_t lastTry;         /* last refresh attempt (failed ones back off 10 min) */
   volatile int refreshing;
 } svc_cache;
 
@@ -379,8 +381,8 @@ void dlx_debrid_tick(void) {
     get_key(i, key, sizeof key);
     if (!key[0]) continue;
     pthread_mutex_lock(&mu);
-    int stale = !C[i].refreshing && (now - C[i].fetchedAt >= HOSTS_TTL_S);
-    if (stale) C[i].refreshing = 1;
+    int stale = !C[i].refreshing && (now - C[i].fetchedAt >= HOSTS_TTL_S) && (now - C[i].lastTry >= RETRY_AFTER_FAIL_S);
+    if (stale) { C[i].refreshing = 1; C[i].lastTry = now; }
     pthread_mutex_unlock(&mu);
     if (!stale) continue;
     refresh_arg *ra = calloc(1, sizeof *ra);

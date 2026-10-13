@@ -1309,6 +1309,7 @@ static int finish_job(dl_job *j) {
   if (want_scan && in_group) want_scan = 0;   /* the group scans once, after its last file */
   int64_t total = j->total;
   double secs = (double)j->transfer_ms / 1000.0, peak = j->peakSpeed;
+  if (secs > 0 && (double)total / secs > peak) peak = (double)total / secs;   /* transfers shorter than one sample */
   char provider[64];
   xstrlcpy(provider, j->viaLabel[0] ? j->viaLabel : j->provider, sizeof provider);
   pthread_mutex_unlock(&queue_mu);
@@ -1928,7 +1929,7 @@ static void group_status_locked(const char *gid, dl_group_status *st) {
   else if (st->total - cancelled == 0) xstrlcpy(st->status, "cancelled", sizeof st->status);
   else if (st->downloaded < st->total - cancelled) xstrlcpy(st->status, "downloading", sizeof st->status);
   else if (installing || st->pending) xstrlcpy(st->status, "installing", sizeof st->status);
-  else xstrlcpy(st->status, "installed", sizeof st->status);
+  else xstrlcpy(st->status, st->installed ? "installed" : "complete", sizeof st->status);   /* complete = nothing to install (images, archives) */
 }
 
 int dl_group_statuses(dl_group_status *out, int max) {
@@ -1985,7 +1986,7 @@ static int group_tick_locked(const settings_t *s, dl_job **to_install, int max_i
       for (int k = 0; k < n_jobs; k++) if (strcmp(jobs[k]->group, gid) == 0 && jobs[k]->state == DL_INSTALLING) already = 1;
       if (next && !already && n_inst < max_install) to_install[n_inst++] = next;
     }
-    if (strcmp(st.status, "installed") == 0 && s->shadowMountScan && !group_scanned_locked(gid, 0)) {
+    if ((strcmp(st.status, "installed") == 0 || strcmp(st.status, "complete") == 0) && s->shadowMountScan && !group_scanned_locked(gid, 0)) {
       int has_image = 0;
       for (int k = 0; k < n_jobs; k++) {
         dl_job *j = jobs[k];
@@ -2448,6 +2449,12 @@ int dl_add(const dl_add_req *r, char *job_id, size_t idcap, char *code, size_t c
   if (j->connections < 1) j->connections = 1;
   if (j->connections > DL_MAX_SEGMENTS) j->connections = DL_MAX_SEGMENTS;
   int verify_hash = r->verify == 1 || (r->verify == -1 && s.verifyHashes);
+  /* The UI sends verify as a word ("sha256" | "size" | "none" | "auto"); honor it. */
+  jv body_verify = jv_get(jv_ok(r->body) ? r->body : (r->mirrors.d ? json_root(r->mirrors.d) : r->mirrors), "verify");
+  if (jv_type(body_verify) == JV_STR) {
+    const char *vs = jv_str(body_verify, "");
+    verify_hash = util_strieq(vs, "sha256") || util_strieq(vs, "true") || util_strieq(vs, "1") ? 1 : util_strieq(vs, "auto") ? s.verifyHashes : 0;
+  }
   xstrlcpy(j->verify, (j->sha256Expected[0] && verify_hash) ? "sha256" : j->total > 0 ? "size" : "none", sizeof j->verify);
   j->autoInstall = r->autoInstall == 1 || (r->autoInstall == -1 && s.autoInstallPkg);
   j->resumable = 1;
@@ -2605,7 +2612,12 @@ int dl_add_copy_job(const char *src, const char *toRoot, int move, int overwrite
     size_t l = strlen(roots[i].path);
     if (strncmp(src, roots[i].path, l) == 0 && src[l] == '/' && (!src_root || l > strlen(src_root->path))) src_root = &roots[i];
   }
-  if ((src_root && strcmp(src_root->path, root.path) == 0) || dlx_copy_same_drive(src, root.path)) {
+  int same = src_root && strcmp(src_root->path, root.path) == 0;
+#ifndef XENO_HOST
+  /* On the console every root is its own device; the host test roots share one filesystem. */
+  if (!same && dlx_copy_same_drive(src, root.path)) same = 1;
+#endif
+  if (same) {
     xstrlcpy(code, "same_drive", ccap);
     xsnprintf(msg, mcap, "The file is already on %s", root.label);
     return -1;

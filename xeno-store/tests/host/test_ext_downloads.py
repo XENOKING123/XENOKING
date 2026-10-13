@@ -397,8 +397,8 @@ class ExtDownloadTests(unittest.TestCase):
             proc.kill()                                   # every socket dies, like a console going to rest mode
             st, r = self.srv.api("POST", "/api/downloads/rest-mode/simulate")
             self.assertEqual(st, 200, r)
-            j = self.srv.wait_job(jid, None, timeout=20, until=lambda x: x["state"] == "connecting" and x["restResuming"])
-            self.assertIn("network", j["message"].lower())
+            j = self.srv.wait_job(jid, None, timeout=20,
+                                  until=lambda x: x["state"] == "connecting" and x["restResuming"] and "network" in x["message"].lower())
             self.assertGreater(j["written"], 0, "the checkpointed bytes stay")
             st, q = self.srv.api("GET", "/api/queue")
             self.assertEqual(q["summary"]["restMode"]["resuming"], 1)
@@ -419,6 +419,9 @@ class ExtDownloadTests(unittest.TestCase):
             self.assertIn("resuming with", text)
         finally:
             proc.kill()
+            j = self.srv.job(jid)
+            if j and j["state"] not in ("done", "failed", "cancelled"):
+                self.srv.action(jid, "cancel", {"deleteFiles": True})
 
     # --------------------------------------------------------------- copy/move
     def test_09_copy_and_move_between_drives(self):
@@ -451,7 +454,7 @@ class ExtDownloadTests(unittest.TestCase):
         self.assertEqual(st, 409)
         # move: a scanned file (library allowlist) is moved and the source unlinked
         pkg = self.srv.add(url=f"{self.rs}/ok/tiny.pkg", filename="move-me.pkg", format="PKG", autoInstall=False, overwrite=True)
-        pj = self.srv.wait_job(pkg["id"], "done", timeout=60)
+        pj = self.srv.wait_job(pkg["id"], {"done", "installed"}, timeout=60)   # settings.autoInstallPkg may install it
         st, lib = self.srv.api("GET", "/api/library?scan=1")
         self.assertIn(pj["path"], [f["path"] for f in lib["files"]])
         st, r = self.srv.api("POST", "/api/library/transfer", {"path": pj["path"], "toRoot": self.usb, "move": True})
@@ -506,13 +509,23 @@ class ExtDownloadTests(unittest.TestCase):
         self.assertEqual(j["extract"]["state"], "idle")
         self.assertTrue(os.path.exists(j["path"]))
         self.assert_clean_final(j, self.sha["single.zip"])
+        # the image from the previous job is still there → the extraction refuses to overwrite it and says so
+        st, b = self.srv.action(job["id"], "extract")
+        self.assertEqual(st, 200, b)
+        j = self.srv.wait_job(job["id"], None, timeout=60, until=lambda x: x["extract"]["state"] in ("extracted", "failed"))
+        self.assertEqual(j["state"], "done")
+        self.assertEqual(j["extract"]["state"], "failed")
+        self.assertEqual(j["errorCode"], "exists")
+        self.assertTrue(os.path.exists(j["path"]), "archive kept after a refused extraction")
+        self.assertEqual(os.path.getsize(img), 4 * MiB, "the existing image is untouched")
+        os.remove(img)
         st, b = self.srv.action(job["id"], "extract")
         self.assertEqual(st, 200, b)
         j = self.srv.wait_job(job["id"], "extracted", timeout=60)
+        self.assertEqual(j["extract"]["dir"], img)
         self.assertFalse(j["extract"]["archiveDeleted"])
         self.assertTrue(os.path.exists(j["path"]), "archive kept when deleteArchiveAfterExtract is off")
-        # the single image already exists from the previous job → the second extraction reports it honestly
-        self.assertEqual(j["extract"]["dir"], img) if j["state"] == "extracted" else None
+        self.assertEqual(os.path.getsize(img), 4 * MiB)
         st, b = self.srv.action(job["id"], "install")
         self.assertEqual(st, 400)
 
