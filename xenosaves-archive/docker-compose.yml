@@ -1,0 +1,90 @@
+# Single-server deployment: Postgres + ClamAV + API/dashboard + download worker + nightly DB backups.
+# Archives go to Cloudflare R2 (S3 API). Nothing here is exposed publicly except the API port —
+# put it behind a TLS reverse proxy (Caddy/Cloudflare Tunnel) before opening it to the internet.
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: xsa
+      POSTGRES_USER: xsa
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xsa -d xsa"]
+      interval: 10s
+      retries: 10
+
+  clamd:
+    image: clamav/clamav:stable
+    restart: unless-stopped
+    volumes: [clamdb:/var/lib/clamav]
+
+  migrate:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://xsa:${POSTGRES_PASSWORD}@db:5432/xsa
+    command: ["migrate"]
+    depends_on:
+      db: { condition: service_healthy }
+
+  seed:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://xsa:${POSTGRES_PASSWORD}@db:5432/xsa
+    command: ["seed-sources"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://xsa:${POSTGRES_PASSWORD}@db:5432/xsa
+      TRUST_PROXY: "true"
+    command: ["serve"]
+    ports: ["127.0.0.1:8787:8787"]
+    volumes: ["./imports:/app/imports:ro"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://xsa:${POSTGRES_PASSWORD}@db:5432/xsa
+      CLAMD_HOST: clamd
+      CLAMD_PORT: "3310"
+    command: ["work"]
+    volumes: [workdata:/data, "./imports:/app/imports:ro"]
+    stop_grace_period: 60s
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      clamd: { condition: service_started }
+
+  backup:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes: [./backups:/backups]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          f=/backups/xsa-$$(date -u +%Y%m%dT%H%M%SZ).dump
+          pg_dump -h db -U xsa -d xsa -Fc -f "$$f" && echo "backup $$f"
+          find /backups -name 'xsa-*.dump' -mtime +14 -delete
+          sleep 86400
+        done
+    depends_on:
+      db: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  clamdb:
+  workdata:

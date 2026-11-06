@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+data/
+exports/
+*.part
+coverage/
+imports/*
+!imports/README.md

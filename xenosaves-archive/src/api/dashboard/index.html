@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>XenoSaves Archive — Collection Control</title>
+<style>
+  :root { --bg:#0b0e14; --panel:#131824; --line:#232b3b; --text:#e6e9ef; --muted:#8b95a7; --accent:#5aa9ff; --ok:#3fb950; --warn:#d29922; --bad:#f85149; --purple:#a371f7; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text); }
+  header { display:flex; align-items:center; gap:16px; padding:14px 22px; border-bottom:1px solid var(--line); background:#0e1320; position:sticky; top:0; z-index:5; }
+  header h1 { font-size:16px; margin:0; letter-spacing:.3px; }
+  header .state { margin-left:auto; display:flex; gap:8px; align-items:center; }
+  main { padding:18px 22px 60px; max-width:1500px; margin:0 auto; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:12px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 14px; }
+  .card .k { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.5px; }
+  .card .v { font-size:24px; font-weight:650; margin-top:4px; font-variant-numeric: tabular-nums; }
+  .card .s { color:var(--muted); font-size:12px; }
+  h2 { font-size:14px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); margin:26px 0 10px; }
+  table { width:100%; border-collapse:collapse; background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  th, td { padding:7px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+  th { color:var(--muted); font-weight:600; font-size:12px; background:#101522; }
+  tr:last-child td { border-bottom:none; }
+  td.num { text-align:right; font-variant-numeric: tabular-nums; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:999px; font-size:11px; font-weight:600; border:1px solid var(--line); white-space:nowrap; }
+  .p-MIRROR_ALLOWED, .p-STORED, .p-running, .p-ok { color:var(--ok); border-color:#2a5b33; }
+  .p-PERMISSION_REQUIRED, .p-PERMISSION_PENDING, .p-paused, .p-QUEUED { color:var(--warn); border-color:#5b4a1f; }
+  .p-EXTERNAL_ONLY, .p-RESTRICTED { color:var(--purple); border-color:#43306b; }
+  .p-BLOCKED, .p-FAILED, .p-QUARANTINED, .p-stopped, .p-error { color:var(--bad); border-color:#6b2a2a; }
+  .p-DOWNLOADING, .p-VERIFYING { color:var(--accent); border-color:#24476b; }
+  button { background:#1b2333; color:var(--text); border:1px solid var(--line); border-radius:7px; padding:5px 10px; cursor:pointer; font-size:12px; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:#1f6feb; border-color:#1f6feb; }
+  button.danger { border-color:#6b2a2a; color:#ffb4ae; }
+  input, select { background:#0e1320; color:var(--text); border:1px solid var(--line); border-radius:7px; padding:6px 8px; font-size:13px; }
+  .bar { height:8px; background:#0e1320; border-radius:6px; overflow:hidden; border:1px solid var(--line); }
+  .bar > div { height:100%; background:linear-gradient(90deg,#1f6feb,#3fb950); }
+  .muted { color:var(--muted); }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .two { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+  @media (max-width: 1000px) { .two { grid-template-columns: 1fr; } }
+  .log { font:12px ui-monospace, SFMono-Regular, Menlo, monospace; max-height:420px; overflow:auto; }
+  .lvl-warn { color:var(--warn); } .lvl-error { color:var(--bad); }
+  #login { max-width:420px; margin:120px auto; }
+  .hidden { display:none !important; }
+  a { color:var(--accent); text-decoration:none; }
+  .trunc { max-width:360px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #toast { position:fixed; bottom:18px; right:18px; background:#1f6feb; padding:10px 14px; border-radius:8px; display:none; }
+</style>
+</head>
+<body>
+<div id="login" class="card">
+  <h1 style="margin-top:0">XenoSaves Archive</h1>
+  <p class="muted">Owner access. The admin token is kept only in this browser tab's session storage.</p>
+  <div class="row"><input id="token" type="password" placeholder="ADMIN_TOKEN" style="flex:1" /><button class="primary" id="loginBtn">Sign in</button></div>
+  <p id="loginErr" class="lvl-error"></p>
+</div>
+
+<div id="app" class="hidden">
+  <header>
+    <h1>XenoSaves Archive · Collection Control</h1>
+    <span class="muted" id="updated"></span>
+    <div class="state">
+      <span>Collection:</span><span id="stateTag" class="pill"></span>
+      <button id="btnRun">Start / Resume</button>
+      <button id="btnPause">Pause</button>
+      <button id="btnStop" class="danger">Safe stop</button>
+      <button id="btnLogout">Sign out</button>
+    </div>
+  </header>
+  <main>
+    <div class="grid" id="cards"></div>
+
+    <h2>Storage</h2>
+    <div class="card">
+      <div class="row" style="justify-content:space-between"><span id="storageText"></span><span class="muted" id="limitText"></span></div>
+      <div class="bar" style="margin-top:8px"><div id="storageBar" style="width:0%"></div></div>
+      <div class="row" style="margin-top:10px">
+        <label class="muted">Concurrency <input id="conc" type="number" min="1" max="64" style="width:70px" /></label>
+        <label class="muted">Soft limit (GiB) <input id="soft" type="number" min="1" style="width:90px" /></label>
+        <label class="muted">Hard limit (GiB) <input id="hard" type="number" min="1" style="width:90px" /></label>
+        <button id="saveSettings">Save settings</button>
+      </div>
+    </div>
+
+    <h2>Sources</h2>
+    <table id="sources"><thead><tr><th>Source</th><th>Policy</th><th>Discovery</th><th class="num">Stored</th><th class="num">Queued</th><th class="num">Pending permission</th><th class="num">Failed</th><th class="num">Restricted</th><th class="num">GB</th><th>Actions</th></tr></thead><tbody></tbody></table>
+
+    <div class="two">
+      <div>
+        <h2>In progress</h2>
+        <table id="inprogress"><thead><tr><th>ID</th><th>Item</th><th>Status</th><th>Progress</th></tr></thead><tbody></tbody></table>
+        <h2>Recent imports</h2>
+        <table id="recent"><thead><tr><th>ID</th><th>Game</th><th>Title ID</th><th>Category</th><th class="num">Size</th><th>Verified</th></tr></thead><tbody></tbody></table>
+        <h2>Workers</h2>
+        <table id="workers"><thead><tr><th>Worker</th><th>Health</th><th>Last seen</th><th>In flight</th><th>Disk free</th></tr></thead><tbody></tbody></table>
+      </div>
+      <div>
+        <h2>Activity log</h2>
+        <div class="card log" id="events"></div>
+      </div>
+    </div>
+
+    <h2>Records</h2>
+    <div class="row" style="margin-bottom:8px">
+      <select id="fStatus"><option value="">All statuses</option></select>
+      <select id="fSource"><option value="">All sources</option></select>
+      <input id="fQ" placeholder="Search game / title ID / description" style="min-width:260px" />
+      <button id="fGo">Filter</button>
+      <button id="retryFailed">Retry all failed (permitted only)</button>
+      <a id="csv" href="#">Download catalog.csv</a>
+    </div>
+    <table id="records"><thead><tr><th>ID</th><th>Source</th><th>Game / item</th><th>Status</th><th>Reason / error</th><th class="num">Size</th><th>Actions</th></tr></thead><tbody></tbody></table>
+    <div class="row" style="margin-top:8px"><button id="prev">‹ Prev</button><span id="pageInfo" class="muted"></span><button id="next">Next ›</button></div>
+
+    <h2>Duplicates</h2>
+    <div class="card" id="dups">Loading…</div>
+  </main>
+</div>
+<div id="toast"></div>
+<script src="/admin/app.js"></script>
+</body>
+</html>
