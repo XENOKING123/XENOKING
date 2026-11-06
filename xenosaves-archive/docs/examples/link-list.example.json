@@ -1,0 +1,27 @@
+[
+  {
+    "id": "post-12345-file-1",
+    "page_url": "https://forum.example.com/threads/like-a-dragon-gaiden-platinum.12345/",
+    "download_url": "https://www.mediafire.com/file/abc123xyz/LADG_Platinum.zip/file",
+    "game": "Like a Dragon Gaiden",
+    "title_id": "CUSA43228",
+    "platform": "PS4",
+    "region": "JP",
+    "category": "Platinum",
+    "description": "Save intended for trophy progression",
+    "author": "OriginalCreatorName",
+    "uploader": "ForumPosterName",
+    "filename": "LADG_Platinum.zip"
+  },
+  {
+    "Title": "Elden Ring",
+    "Post URL": "https://forum.example.com/threads/elden-ring-max-runes.777/",
+    "links": [
+      "https://mega.nz/file/AbCdEf#decryption-key",
+      "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQ/view"
+    ],
+    "CUSA": "CUSA18617",
+    "Description": "Max runes, NG+7",
+    "Credits": "SomeModder"
+  }
+]
