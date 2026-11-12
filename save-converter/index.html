@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Save Converter — Monster Hunter Wilds (PS5 ⇄ PC)</title>
+<style>
+  :root {
+    --bg: #0b0f17; --panel: #121826; --panel2: #0e1420; --border: #223049;
+    --text: #e8eef9; --muted: #8aa0c0; --accent: #46a6ff; --accent2: #7c5cff;
+    --good: #37d39b; --good-bg: #0f2a22; --warn: #ffbf47; --warn-bg: #2a2410;
+    --bad: #ff6b6b; --bad-bg: #2a1414; --chip: #1b2638;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: radial-gradient(120% 90% at 50% -10%, #16213a 0%, var(--bg) 55%);
+    color: var(--text); font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    min-height: 100vh; padding: 32px 18px 80px;
+  }
+  .wrap { max-width: 780px; margin: 0 auto; }
+  header { text-align: center; margin-bottom: 26px; }
+  h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: .3px; }
+  h1 .arrows { color: var(--accent); }
+  .sub { color: var(--muted); font-size: 14px; }
+  .panel { background: linear-gradient(180deg, var(--panel), var(--panel2)); border: 1px solid var(--border);
+           border-radius: 14px; padding: 18px 18px; margin: 14px 0; }
+  .step-h { display: flex; align-items: center; gap: 10px; font-weight: 650; margin: 0 0 10px; }
+  .num { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; background: var(--accent);
+         color: #04121f; font-size: 13px; font-weight: 800; align-items: center; justify-content: center; }
+  label { display: block; }
+  select, input[type=text] {
+    width: 100%; background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 12px; font-size: 15px; outline: none;
+  }
+  input[type=text]:focus, select:focus { border-color: var(--accent); }
+  .dir { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px; }
+  .dir button {
+    background: var(--panel2); color: var(--muted); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px; font-size: 15px; font-weight: 700; cursor: pointer; transition: .12s;
+  }
+  .dir button .big { font-size: 16px; }
+  .dir button.on { border-color: var(--accent); background: #10233b; color: var(--text); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .drop {
+    border: 1.5px dashed var(--border); border-radius: 12px; padding: 26px 16px; text-align: center;
+    color: var(--muted); cursor: pointer; transition: .12s; background: var(--panel2);
+  }
+  .drop.hover { border-color: var(--accent); background: #10233b; color: var(--text); }
+  .drop strong { color: var(--text); }
+  .files { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+  .frow { display: flex; align-items: center; gap: 10px; background: var(--panel2); border: 1px solid var(--border);
+          border-radius: 9px; padding: 8px 11px; font-size: 13.5px; }
+  .frow .ic { width: 16px; text-align: center; }
+  .frow .nm { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .frow .tag { margin-left: auto; color: var(--muted); font-size: 12px; }
+  .frow.ok .ic { color: var(--good); } .frow.skip { opacity: .55; } .frow.skip .ic { color: var(--muted); }
+  .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+  .hint code { background: var(--chip); padding: 1px 6px; border-radius: 5px; font-size: 12px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  button.btn {
+    background: var(--accent); color: #04121f; border: 0; border-radius: 10px; padding: 11px 18px;
+    font-size: 15px; font-weight: 750; cursor: pointer;
+  }
+  button.btn.secondary { background: var(--panel2); color: var(--text); border: 1px solid var(--border); font-weight: 650; }
+  button.btn:disabled { opacity: .5; cursor: not-allowed; }
+  button.btn.big { width: 100%; padding: 14px; font-size: 16px; }
+  .msg { border-radius: 10px; padding: 11px 13px; font-size: 14px; margin-top: 10px; }
+  .msg.good { background: var(--good-bg); border: 1px solid #1d5f49; color: #bff3df; }
+  .msg.warn { background: var(--warn-bg); border: 1px solid #5f5120; color: #f6e3b0; }
+  .msg.bad { background: var(--bad-bg); border: 1px solid #5f2525; color: #f6c2c2; }
+  .msg ul { margin: 6px 0 0; padding-left: 18px; } .msg li { margin: 2px 0; }
+  .dl { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+  .dl a { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text);
+          background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 11px 13px; }
+  .dl a:hover { border-color: var(--accent); }
+  .dl .nm { font-family: ui-monospace, monospace; } .dl .sz { margin-left: auto; color: var(--muted); font-size: 12px; }
+  .dl .go { color: var(--accent); font-weight: 700; }
+  .bar { height: 8px; background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-top: 8px; }
+  .bar > i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .2s; }
+  .muted { color: var(--muted); }
+  .foot { text-align: center; color: var(--muted); font-size: 12.5px; margin-top: 26px; line-height: 1.7; }
+  .hidden { display: none !important; }
+  .warnbox { background: var(--warn-bg); border: 1px solid #5f5120; color: #f6e3b0; border-radius: 10px; padding: 9px 12px; font-size: 13px; margin-top: 10px; }
+  a.link { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Save Converter <span class="arrows">PS5 ⇄ PC</span></h1>
+    <div class="sub">Convert your game saves between PlayStation 5 and PC. Runs entirely on your computer — nothing is uploaded.</div>
+  </header>
+
+  <div id="unsupported" class="msg bad hidden"></div>
+
+  <!-- 1 — game -->
+  <div class="panel">
+    <div class="step-h"><span class="num">1</span> Game</div>
+    <label><select id="game"></select></label>
+    <div class="hint" id="gameMeta"></div>
+  </div>
+
+  <!-- 2 — direction -->
+  <div class="panel">
+    <div class="step-h"><span class="num">2</span> Direction</div>
+    <div class="dir">
+      <button id="dirP2C" data-dir="0" class="on"><span class="big">PS5 → PC</span><br/><span class="muted">decrypted PS5 save → Steam save</span></button>
+      <button id="dirC2P" data-dir="1"><span class="big">PC → PS5</span><br/><span class="muted">Steam save → decrypted PS5 save</span></button>
+    </div>
+    <div class="hint" id="dirHint"></div>
+  </div>
+
+  <!-- 3 — files -->
+  <div class="panel">
+    <div class="step-h"><span class="num">3</span> Your save files</div>
+    <div class="drop" id="drop">
+      <div><strong>Drop your save files here</strong>, or click to choose.</div>
+      <div class="hint" id="dropHint"></div>
+    </div>
+    <input type="file" id="file" multiple class="hidden" />
+    <div class="files" id="fileList"></div>
+  </div>
+
+  <!-- 4 — steam id -->
+  <div class="panel" id="idPanel">
+    <div class="step-h"><span class="num">4</span> <span id="idTitle">Steam account</span></div>
+    <label><input type="text" id="steamId" inputmode="numeric" placeholder="7656119… (17 digits)" autocomplete="off" spellcheck="false" /></label>
+    <div class="hint" id="idHint"></div>
+    <div class="row" id="detectRow" style="margin-top:10px">
+      <button class="btn secondary" id="detectBtn">Find it from the save automatically</button>
+      <span class="muted" id="detectStatus"></span>
+    </div>
+    <div class="bar hidden" id="detectBar"><i></i></div>
+    <div id="idMsg"></div>
+  </div>
+
+  <!-- convert -->
+  <button class="btn big" id="convertBtn" disabled>Convert</button>
+  <div id="result"></div>
+
+  <div class="foot">
+    100% local &amp; offline — your saves never leave this computer. &nbsp;·&nbsp; Keep a backup of any save you replace.<br/>
+    Save-format research credit: ree-save-editor (kvasszn) and MandarinJuice (mi5hmash).
+  </div>
+</div>
+
+<script id="wasm-b64" type="application/octet-stream">__WASM_B64__</script>
+<script>
+"use strict";
+(function () {
+  // ── load the WebAssembly engine (inlined as base64, so this works offline) ──
+  function b64ToBytes(b64) {
+    const bin = atob(b64.trim());
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  const WASM_BYTES = b64ToBytes(document.getElementById("wasm-b64").textContent);
+
+  function makeEngine(instance) {
+    const x = instance.exports;
+    const u8 = () => new Uint8Array(x.memory.buffer);
+    const dv = () => new DataView(x.memory.buffer);
+    function put(bytes) { const p = x.xeno_alloc(bytes.length); u8().set(bytes, p); return p; }
+    function take(ptr) {
+      const d = dv();
+      const status = d.getInt32(ptr, true);
+      const len = d.getUint32(ptr + 4, true);
+      const value = d.getBigUint64(ptr + 8, true);
+      const payload = u8().slice(ptr + 16, ptr + 16 + len);
+      x.xeno_result_free(ptr);
+      return { status, value, payload };
+    }
+    const enc = new TextEncoder();
+    function onBytes(bytes, fn) { const p = put(bytes); try { return fn(p, bytes.length); } finally { x.xeno_free(p, bytes.length); } }
+    function withGame(id, fn) { const g = enc.encode(id); const p = put(g); try { return fn(p, g.length); } finally { x.xeno_free(p, g.length); } }
+    return {
+      peekFlags: (file) => onBytes(file, (p, n) => take(x.xeno_peek_flags(p, n))),
+      accountFromPhoto: (file) => onBytes(file, (p, n) => take(x.xeno_account_from_photo(p, n))),
+      findAccount: (game, file, start, count) =>
+        withGame(game, (gp, gl) => onBytes(file, (p, n) => take(x.xeno_find_account(gp, gl, p, n, BigInt(start), BigInt(count))))),
+      convert: (game, dir, id, file) =>
+        withGame(game, (gp, gl) => onBytes(file, (p, n) => take(x.xeno_convert(gp, gl, dir, BigInt(id), p, n)))),
+      errorText: (payload) => new TextDecoder().decode(payload),
+    };
+  }
+
+  let ENGINE = null;
+  WebAssembly.instantiate(WASM_BYTES, {}).then((r) => { ENGINE = makeEngine(r.instance); boot(); })
+    .catch((e) => { show("unsupported", "This browser couldn't start the converter engine: " + e + ". Try a recent Chrome, Edge or Firefox."); });
+
+  // ── game database (mirrors the engine's games.rs for the UI) ──
+  const GAMES = [{
+    id: "monster-hunter-wilds", name: "Monster Hunter Wilds", steamApp: 2246340,
+    files: [
+      { name: "data001Slot.bin", label: "Character data (your hunters)", required: true },
+      { name: "data00-1.bin", label: "System data (settings)", required: false },
+    ],
+    // the in-game-photo file carries the Steam account id on PC
+    photo: "SS1_data001Slot.bin",
+    notes: "Only the character save carries your hunters. The online hunter id is reset on conversion so the game issues a new one — friends/followers from the old account won't carry over.",
+  }];
+  const STEAM_BASE = 0x0110000100000000n;
+  const ACCOUNT_COUNT = 0x100000000n;
+
+  // ── state ──
+  const S = { game: GAMES[0], dir: 0, files: [], photoId: null, detectedId: null, detecting: false };
+  const $ = (id) => document.getElementById(id);
+  function show(id, html) { const el = $(id); el.innerHTML = html; el.classList.remove("hidden"); }
+
+  function boot() {
+    const sel = $("game");
+    GAMES.forEach((g, i) => { const o = document.createElement("option"); o.value = g.id; o.textContent = g.name; sel.appendChild(o); });
+    sel.onchange = () => { S.game = GAMES.find((g) => g.id === sel.value); resetFiles(); render(); };
+    $("dirP2C").onclick = () => setDir(0);
+    $("dirC2P").onclick = () => setDir(1);
+    const drop = $("drop"), file = $("file");
+    drop.onclick = () => file.click();
+    drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("hover"); };
+    drop.ondragleave = () => drop.classList.remove("hover");
+    drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("hover"); addFiles(e.dataTransfer.files); };
+    file.onchange = () => addFiles(file.files);
+    $("steamId").oninput = () => { S.detectedId = null; render(); };
+    $("detectBtn").onclick = detect;
+    $("convertBtn").onclick = doConvert;
+    render();
+  }
+
+  function setDir(d) { if (S.dir === d) return; S.dir = d; resetResult(); render(); }
+  function resetFiles() { S.files = []; S.photoId = null; resetResult(); }
+  function resetResult() { $("result").innerHTML = ""; }
+
+  async function addFiles(fileList) {
+    resetResult();
+    for (const f of fileList) {
+      if (S.files.some((x) => x.name === f.name)) continue;
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      S.files.push({ name: f.name, bytes });
+    }
+    // Read the Steam id from an in-game-photo file if one was included (PC saves only).
+    S.photoId = null;
+    for (const f of S.files) {
+      if (f.name === S.game.photo) {
+        const r = ENGINE.accountFromPhoto(f.bytes);
+        if (r.status === 0) S.photoId = r.value;
+      }
+    }
+    if (S.photoId && S.dir === 1 && !$("steamId").value.trim()) {
+      $("steamId").value = S.photoId.toString();
+      S.detectedId = S.photoId;
+    }
+    render();
+  }
+
+  // classify a loaded file against the current game
+  function classify(name) {
+    const spec = S.game.files.find((f) => f.name.toLowerCase() === name.toLowerCase());
+    if (spec) return { kind: "save", spec };
+    if (name.toLowerCase() === S.game.photo.toLowerCase()) return { kind: "photo" };
+    return { kind: "other" };
+  }
+  function saveFiles() { return S.files.filter((f) => classify(f.name).kind === "save"); }
+  function needsId() { return true; } // both directions need an account (target for P2C, source for C2P)
+
+  function render() {
+    const g = S.game;
+    $("gameMeta").innerHTML = `Steam app ${g.steamApp} · files: ` + g.files.map((f) => `<code>${f.name}</code>`).join(" ");
+    $("dirP2C").classList.toggle("on", S.dir === 0);
+    $("dirC2P").classList.toggle("on", S.dir === 1);
+
+    const p2c = S.dir === 0;
+    $("dirHint").innerHTML = p2c
+      ? "Takes your <b>decrypted PS5 save</b> and makes a <b>Steam save</b> for the PC account you choose. (Export the PS5 save with an on-console save manager first.)"
+      : "Takes your <b>Steam save</b> and makes a <b>decrypted PS5 save</b>, ready to re-sign &amp; re-encrypt with an on-console save manager.";
+    $("dropHint").innerHTML = "Recognized: " + g.files.map((f) => `<code>${f.name}</code>`).join(", ")
+      + (p2c ? "" : ` — you can also include <code>${g.photo}</code> to fill your Steam ID in automatically, or drop the whole <code>win64_save</code> folder.`);
+
+    // file list
+    const fl = $("fileList"); fl.innerHTML = "";
+    for (const f of S.files) {
+      const c = classify(f.name);
+      const row = document.createElement("div");
+      if (c.kind === "save") { row.className = "frow ok"; row.innerHTML = `<span class="ic">✓</span><span class="nm">${f.name}</span><span class="tag">${c.spec.label}</span>`; }
+      else if (c.kind === "photo") { row.className = "frow ok"; row.innerHTML = `<span class="ic">📷</span><span class="nm">${f.name}</span><span class="tag">${S.photoId ? "Steam ID read from this" : "photo"}</span>`; }
+      else { row.className = "frow skip"; row.innerHTML = `<span class="ic">–</span><span class="nm">${f.name}</span><span class="tag">not part of the save — ignored</span>`; }
+      fl.appendChild(row);
+    }
+    // missing required
+    const have = new Set(saveFiles().map((f) => f.name.toLowerCase()));
+    for (const spec of g.files) {
+      if (spec.required && !have.has(spec.name.toLowerCase())) {
+        const row = document.createElement("div");
+        row.className = "frow"; row.innerHTML = `<span class="ic" style="color:var(--bad)">✗</span><span class="nm">${spec.name}</span><span class="tag" style="color:var(--bad)">required — not added yet</span>`;
+        fl.appendChild(row);
+      }
+    }
+
+    // id panel
+    $("idTitle").textContent = p2c ? "SteamID64 of the account that will PLAY this save" : "SteamID64 of the account that MADE this save";
+    $("idHint").innerHTML = p2c
+      ? `The 17-digit id of the PC/Steam account that will load the converted save. Find it on your profile or <a class="link" href="https://steamdb.info/calculator/" target="_blank" rel="noopener">steamdb.info/calculator</a>.`
+      : `The 17-digit id of the Steam account that created this save. If you added the <code>${g.photo}</code> photo file it's filled in for you; otherwise type it or detect it below.`;
+    $("detectRow").classList.toggle("hidden", p2c || saveFiles().length === 0);
+    if (S.detectedId && $("steamId").value.trim() === S.detectedId.toString()) {
+      show("idMsg", `<div class="msg good">✓ Steam ID ${S.detectedId} — ${S.photoId === S.detectedId ? "read from the photo file" : "found from the save"}.</div>`);
+    } else { $("idMsg").innerHTML = ""; }
+
+    // convert button
+    const err = validation();
+    $("convertBtn").disabled = !!err;
+    $("convertBtn").textContent = p2c ? "Convert to PC (Steam)" : "Convert to PS5";
+    $("convertBtn").title = err || "";
+  }
+
+  function steamIdValue() {
+    const v = $("steamId").value.trim();
+    if (!/^\d{17}$/.test(v)) return null;
+    const n = BigInt(v);
+    if (n <= STEAM_BASE || n > STEAM_BASE + 0xffffffffn) return null;
+    return n;
+  }
+  function validation() {
+    if (saveFiles().length === 0) return "Add your save file(s) first.";
+    const have = new Set(saveFiles().map((f) => f.name.toLowerCase()));
+    for (const spec of S.game.files) if (spec.required && !have.has(spec.name.toLowerCase())) return "The required file " + spec.name + " is missing.";
+    if (!steamIdValue()) return "Enter a valid 17-digit SteamID64.";
+    return null;
+  }
+
+  // ── brute-force the Steam account across Web Workers ──
+  function workerSource() {
+    return `
+      let E=null;
+      function mk(inst){const x=inst.exports,u8=()=>new Uint8Array(x.memory.buffer),dv=()=>new DataView(x.memory.buffer);
+        function put(b){const p=x.xeno_alloc(b.length);u8().set(b,p);return p;}
+        function take(p){const d=dv(),v=d.getBigUint64(p+8,true),st=d.getInt32(p,true);x.xeno_result_free(p);return {st,v};}
+        const enc=new TextEncoder();
+        return {find:(game,file,start,count)=>{const g=enc.encode(game),gp=put(g),fp=put(file);
+          const r=take(x.xeno_find_account(gp,g.length,fp,file.length,BigInt(start),BigInt(count)));
+          x.xeno_free(gp,g.length);x.xeno_free(fp,file.length);return r;}};}
+      onmessage=async(e)=>{
+        const m=e.data;
+        if(m.wasm){E=mk((await WebAssembly.instantiate(m.wasm,{})).instance);postMessage({ready:true});return;}
+        const {game,file,start,end,chunk}=m; let i=start;
+        while(i<end){ const n=Math.min(chunk, end-i); const r=E.find(game,file,i,n);
+          if(r.st===0){ postMessage({found:r.v.toString()}); return; }
+          i+=n; postMessage({progress:n});
+          await new Promise(r=>setTimeout(r,0)); // stay cancellable
+        }
+        postMessage({done:true});
+      };`;
+  }
+
+  async function detect() {
+    if (S.detecting) return;
+    const files = saveFiles();
+    if (!files.length) return;
+    S.detecting = true;
+    $("detectBtn").disabled = true;
+    $("detectBar").classList.remove("hidden");
+    const bar = $("detectBar").firstElementChild;
+    const file = files[0].bytes; // any encrypted save names the same account
+    const total = Number(ACCOUNT_COUNT);
+    let scanned = 0, found = null, cancelled = false, startedAt = Date.now();
+
+    const N = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4)));
+    let workers = [];
+    try {
+      const blob = new Blob([workerSource()], { type: "text/javascript" });
+      const url = URL.createObjectURL(blob);
+      const per = Math.ceil(total / N);
+      await new Promise((resolve) => {
+        let ready = 0, doneCount = 0;
+        for (let k = 0; k < N; k++) {
+          const w = new Worker(url); workers.push(w);
+          w.onmessage = (e) => {
+            const d = e.data;
+            if (d.ready) { ready++; if (ready === N) { for (let j = 0; j < N; j++) workers[j].postMessage({ game: S.game.id, file, start: j * per, end: Math.min(total, (j + 1) * per), chunk: 1 << 20 }); } return; }
+            if (d.found) { found = BigInt(d.found); cancelled = true; cleanup(); resolve(); return; }
+            if (d.progress) { scanned += d.progress; const pct = Math.min(100, (scanned / total) * 100); bar.style.width = pct.toFixed(1) + "%";
+              const rate = scanned / Math.max(0.001, (Date.now() - startedAt) / 1000);
+              $("detectStatus").textContent = `searching… ${pct.toFixed(1)}% (${(rate / 1e6).toFixed(0)}M/s)`; return; }
+            if (d.done) { doneCount++; if (doneCount === N && !found) { cleanup(); resolve(); } }
+          };
+          w.postMessage({ wasm: WASM_BYTES });
+        }
+        function cleanup() { workers.forEach((w) => w.terminate()); URL.revokeObjectURL(url); }
+      });
+    } catch (e) {
+      // workers blocked (rare on file://): fall back to single-threaded.
+      found = await detectSingle(file, (pct, rate) => { bar.style.width = pct.toFixed(1) + "%"; $("detectStatus").textContent = `searching… ${pct.toFixed(1)}% (${(rate / 1e6).toFixed(0)}M/s)`; });
+    }
+
+    S.detecting = false;
+    $("detectBtn").disabled = false;
+    $("detectBar").classList.add("hidden");
+    if (found) {
+      $("steamId").value = found.toString();
+      S.detectedId = found;
+      $("detectStatus").textContent = `found in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`;
+    } else {
+      $("detectStatus").textContent = "couldn't find it — type the SteamID64 instead.";
+    }
+    render();
+  }
+
+  async function detectSingle(file, onProgress) {
+    const total = Number(ACCOUNT_COUNT), chunk = 1 << 20; let i = 0, started = Date.now();
+    while (i < total) {
+      const n = Math.min(chunk, total - i);
+      const r = ENGINE.findAccount(S.game.id, file, i, n);
+      if (r.status === 0) return r.value;
+      i += n; onProgress((i / total) * 100, i / Math.max(0.001, (Date.now() - started) / 1000));
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    return null;
+  }
+
+  // ── convert ──
+  function doConvert() {
+    const err = validation(); if (err) { show("result", `<div class="msg bad">${err}</div>`); return; }
+    const id = steamIdValue();
+    const outputs = []; let resetTotal = 0; const errors = [];
+    for (const f of saveFiles()) {
+      const r = ENGINE.convert(S.game.id, S.dir, id, f.bytes);
+      if (r.status < 0) { errors.push(`${f.name}: ${ENGINE.errorText(r.payload)}`); continue; }
+      resetTotal += Number(r.value);
+      outputs.push({ name: f.name, bytes: r.payload });
+    }
+    renderResult(outputs, resetTotal, errors);
+  }
+
+  function human(n) { return n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : (n / 1048576).toFixed(2) + " MB"; }
+
+  function renderResult(outputs, resetTotal, errors) {
+    const el = $("result"); el.innerHTML = "";
+    if (errors.length) {
+      const d = document.createElement("div"); d.className = "msg bad";
+      d.innerHTML = `Couldn't convert:<ul>${errors.map((e) => `<li>${e}</li>`).join("")}</ul>`; el.appendChild(d);
+    }
+    if (!outputs.length) return;
+    const p2c = S.dir === 0;
+    const good = document.createElement("div"); good.className = "msg good";
+    good.innerHTML = `✓ Converted ${outputs.length} file${outputs.length === 1 ? "" : "s"} to ${p2c ? "PC (Steam)" : "PS5"}.`;
+    el.appendChild(good);
+
+    const dl = document.createElement("div"); dl.className = "dl";
+    for (const o of outputs) {
+      const blob = new Blob([o.bytes], { type: "application/octet-stream" });
+      const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = o.name;
+      a.innerHTML = `<span>💾</span><span class="nm">${o.name}</span><span class="sz">${human(o.bytes.length)}</span><span class="go">Download →</span>`;
+      dl.appendChild(a);
+    }
+    el.appendChild(dl);
+
+    if (resetTotal > 0) {
+      const w = document.createElement("div"); w.className = "warnbox";
+      w.innerHTML = `⚠ The online hunter identity was reset so the game issues a new one. Online friends, followers and squads tied to the old account won't carry over.`;
+      el.appendChild(w);
+    }
+    const steps = document.createElement("div"); steps.className = "msg warn";
+    steps.innerHTML = p2c
+      ? `<b>Next:</b><ul><li>Close the game and Steam, and back up your current <code>win64_save</code> folder.</li><li>Copy the file(s) into <code>…\\userdata\\&lt;id&gt;\\${S.game.steamApp}\\remote\\win64_save</code>, replacing what's there.</li><li>If Steam Cloud flags a conflict on launch, keep the local files.</li><li>Go online once so the game issues a new hunter id.</li></ul>`
+      : `<b>Next:</b><ul><li>These are <b>decrypted</b> PS5 files. Import them with an on-console save manager (e.g. Garlic SaveMgr / Apollo), which re-signs &amp; re-encrypts them for your console.</li><li>Keep a backup of the PS5 save you're replacing.</li><li>Go online once so the game issues a new hunter id.</li></ul>`;
+    el.appendChild(steps);
+  }
+})();
+</script>
+</body>
+</html>
