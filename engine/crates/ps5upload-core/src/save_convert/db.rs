@@ -406,6 +406,20 @@ mod tests {
         );
     }
 
+    /// The profile example in docs/save-converter.md is what people copy
+    /// when adding a game — keep it loadable.
+    #[test]
+    fn the_documented_example_profile_is_valid() {
+        let doc = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../docs/save-converter.md");
+        let text = std::fs::read_to_string(&doc).unwrap();
+        let start = text.find("```json\n").expect("docs have a json example") + "```json\n".len();
+        let end = start + text[start..].find("```").unwrap();
+        let game: GameProfile = serde_json::from_str(&text[start..end]).unwrap();
+        game.validate().unwrap();
+        assert_eq!(game.id, "example-game");
+    }
+
     #[test]
     fn a_well_formed_profile_validates() {
         profile(|_| {}).unwrap();
