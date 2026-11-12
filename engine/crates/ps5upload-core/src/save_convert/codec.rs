@@ -114,8 +114,9 @@ mod test_codecs {
     use super::*;
 
     /// Test-only codec: reverses the bytes (so tests can tell the codec
-    /// really ran), fails on a file whose content is `FAIL`, warns on an
-    /// empty file, and its source check refuses content starting `WRONG`.
+    /// really ran), fails on a file whose content is `FAIL`, panics on
+    /// `PANIC`, warns on an empty file, and its source check refuses
+    /// content starting `WRONG`.
     pub(super) struct Reverse;
 
     impl Codec for Reverse {
@@ -131,6 +132,7 @@ mod test_codecs {
             if input == b"FAIL" {
                 bail!("this save is corrupt");
             }
+            assert!(input != b"PANIC", "test codec asked to panic");
             let mut out = Converted::clean(input.iter().rev().copied().collect());
             if input.is_empty() {
                 out.warnings.push("file is empty".into());

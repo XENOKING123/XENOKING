@@ -262,6 +262,28 @@ impl GameProfile {
         if has_duplicates(self.files.iter().map(|f| f.pc.as_str())) {
             bail!("two files[] entries share the same pc path");
         }
+        // Entries must not be able to fight over a file, on either side:
+        // as a source that would make it arbitrary which entry converts
+        // it, as a destination two files could be written to one name.
+        for (index, a) in self.files.iter().enumerate() {
+            for b in &self.files[index + 1..] {
+                for (side, x, y) in [("ps5", &a.ps5, &b.ps5), ("pc", &a.pc, &b.pc)] {
+                    match pattern::clash(x, y) {
+                        pattern::Clash::None => {}
+                        // An exact name next to a wildcard that also
+                        // covers it is fine: the exact entry always wins.
+                        pattern::Clash::SameFile
+                            if pattern::has_wildcard(x) != pattern::has_wildcard(y) => {}
+                        pattern::Clash::SameFile => {
+                            bail!("{side} patterns {x:?} and {y:?} can match the same file")
+                        }
+                        pattern::Clash::FileAndFolder => {
+                            bail!("{side} paths {x:?} and {y:?} use one name as both a file and a folder")
+                        }
+                    }
+                }
+            }
+        }
 
         let codec =
             codec::by_id(&self.codec).ok_or_else(|| anyhow!("unknown codec {:?}", self.codec))?;
@@ -459,6 +481,24 @@ mod tests {
                 "duplicate destination",
                 Box::new(|v| v["files"][0]["pc"] = json!("SLOT_*.SAV")),
             ),
+            (
+                "two wildcards that can match one file",
+                Box::new(|v| {
+                    v["files"] = json!([
+                        { "ps5": "S*.DAT", "pc": "s_*.sav" },
+                        { "ps5": "SLOT*.DAT", "pc": "slot_*.sav" }
+                    ])
+                }),
+            ),
+            (
+                "a name used as both a file and a folder",
+                Box::new(|v| {
+                    v["files"] = json!([
+                        { "ps5": "DATA.BIN", "pc": "data" },
+                        { "ps5": "SLOT*.DAT", "pc": "data/slot_*.sav" }
+                    ])
+                }),
+            ),
             ("unknown codec", Box::new(|v| v["codec"] = json!("nope"))),
             (
                 "passthrough takes no params",
@@ -484,6 +524,17 @@ mod tests {
         for (what, patch) in cases {
             assert!(profile(patch).is_err(), "should be rejected: {what}");
         }
+    }
+
+    #[test]
+    fn an_exact_name_may_sit_next_to_a_wildcard_that_covers_it() {
+        profile(|v| {
+            v["files"] = json!([
+                { "ps5": "SYSTEM.DAT", "pc": "system.sav" },
+                { "ps5": "S*.DAT", "pc": "s*.sav", "required": false }
+            ])
+        })
+        .unwrap();
     }
 
     #[test]

@@ -19,10 +19,13 @@ share a save format share one codec.
 
 Guarantees the orchestration gives every game for free:
 
-- The source folder is read-only to us. Nothing in it is ever changed.
+- The source folder is read-only to us. Nothing in it is ever changed, and
+  the output folder may not be anywhere inside the folder being converted
+  from.
 - Output goes into a **new** folder (`<game-id>-pc-save`, `-2`, `-3`, …)
   inside the folder the user picks. Nothing existing is overwritten.
-- All-or-nothing: if any file fails to convert, the new folder is removed.
+- All-or-nothing: if any file fails to convert — or the codec crashes — the
+  new folder is removed, along with any parent folders created for it.
 - The preview (`inspect`) and the conversion share one planning step, so
   what the user sees listed is exactly what gets converted.
 - The user can pick the save folder itself or a folder above it; the save is
@@ -90,7 +93,7 @@ Payloads tab), convert, then import the result the same way.
 | `id` | Lowercase letters/digits with single dashes. Also the output folder prefix. |
 | `status` | `ready` — verified both ways against real saves. `experimental` — converts, not yet confirmed in-game both ways. `wip` — listed, conversion refused. |
 | `ps5.title_ids` | Every regional ID covered (`PPSA…`; `CUSA…` for a PS4 build). |
-| `files[].ps5` / `.pc` | Path relative to the save folder, `/`-separated. At most one `*` (one or more characters within a single path segment); whatever it matches on the source side is substituted on the destination side, so use it on both sides or neither. Matching is ASCII case-insensitive. |
+| `files[].ps5` / `.pc` | Path relative to the save folder, `/`-separated. At most one `*` (one or more characters within a single path segment); whatever it matches on the source side is substituted on the destination side, so use it on both sides or neither. Matching is ASCII case-insensitive. An entry without `*` always wins over a wildcard entry that would also match the file. Two wildcard entries that could match the same name, or a name used as a file by one entry and a folder by another, are rejected. |
 | `files[].required` | Default `true`. A missing required file blocks the conversion. For a `*` entry, "present" means at least one match. |
 | `codec` / `codec_params` | Codec id from `codec.rs` and its settings. Params are checked when the database loads. |
 | `options[]` | Values the user must type. `kind`: `steam_id64` (validated as a real individual-account id) or `text`. `directions` empty/omitted = both. `required` defaults to `true`. The same `key` may appear once per direction, to ask for the same value with different wording each way. |

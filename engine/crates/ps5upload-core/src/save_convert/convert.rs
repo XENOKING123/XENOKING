@@ -3,18 +3,20 @@
 //!
 //! Guarantees the rest of the app (and the user) can rely on:
 //!
-//!   * The input is opened read-only and never modified.
+//!   * The input is opened read-only and never modified — the output
+//!     folder may not be anywhere inside the folder being converted from.
 //!   * Output always goes into a brand-new folder created inside the
 //!     folder the user picked — nothing that already exists is touched.
 //!   * A conversion either fully succeeds or leaves nothing behind; a
-//!     failure part-way through removes the new folder.
+//!     failure (or a crash) part-way through removes the new folder and
+//!     any parent folders that were created for it.
 //!   * `inspect` and `convert` share one planning step, so what the
 //!     preview shows is exactly what gets converted.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -155,6 +157,11 @@ fn check_sources(game: &GameProfile, direction: Direction, plan: &mut Plan) {
     };
     let mut objections = Vec::new();
     for (index, (planned, &map_index)) in plan.files.iter().zip(&plan.map_indices).enumerate() {
+        // Already blocked as too large by the plan — don't read it just
+        // to say so again.
+        if planned.size > MAX_FILE_BYTES {
+            continue;
+        }
         let verdict = read_capped(&join_rel(&plan.save_root, &planned.source))
             .and_then(|input| codec.check_source(game, direction, &game.files[map_index], &input));
         if let Err(e) = verdict {
@@ -183,18 +190,37 @@ fn convert_with(game: &GameProfile, req: &ConvertRequest) -> Result<ConvertRepor
         bail!("Pick a folder to write the converted save into.");
     }
     let out_parent = PathBuf::from(&req.output_dir);
-    // The new folder must not land inside the source save: that folder
-    // often gets copied wholesale back to a console or into Steam, and a
-    // stray converted copy inside it would travel along. Checked before
-    // anything is created, so a refused request leaves the save untouched.
-    let save_real = fs::canonicalize(&plan.save_root)
-        .with_context(|| format!("can't open save folder {}", plan.save_root.display()))?;
-    if resolve_lenient(&out_parent).starts_with(&save_real) {
-        bail!("Pick an output folder that isn't inside the save you're converting.");
+    // A folder picker always hands over a full, already-resolved path.
+    // Anything else is refused rather than interpreted: a relative path
+    // would depend on where the app happened to be started, and `..`
+    // can't be resolved for folders that don't exist yet, which would let
+    // a path walk back into the save unnoticed.
+    if !out_parent.is_absolute() {
+        bail!("The output folder must be a full path.");
     }
+    if out_parent
+        .components()
+        .any(|part| matches!(part, Component::ParentDir))
+    {
+        bail!("The output folder path can't contain \"..\" — pick the folder itself.");
+    }
+    // The new folder must not land anywhere inside the folder being
+    // converted from. Inside the save itself it would travel along when
+    // that folder is copied back to a console or into Steam; elsewhere
+    // under the picked folder it would be found as a second save the next
+    // time that folder is converted. Checked before anything is created,
+    // so a refused request leaves the source untouched.
+    let input_real = fs::canonicalize(&req.input_dir)
+        .with_context(|| format!("can't open folder {}", req.input_dir))?;
+    if resolve_lenient(&out_parent).starts_with(&input_real) {
+        bail!("Pick an output folder that isn't inside the folder you're converting from.");
+    }
+
+    // From here on things get created; the guard takes them away again
+    // unless the conversion runs to completion.
+    let mut guard = OutputGuard::new(&out_parent);
     fs::create_dir_all(&out_parent)
         .with_context(|| format!("can't create output folder {}", out_parent.display()))?;
-
     let out_dir = create_fresh_dir(
         &out_parent,
         &format!(
@@ -203,26 +229,72 @@ fn convert_with(game: &GameProfile, req: &ConvertRequest) -> Result<ConvertRepor
             direction.target_name().to_ascii_lowercase()
         ),
     )?;
+    guard.fresh = Some(out_dir.clone());
+
     let ctx = CodecCtx {
         game,
         direction,
         options: &options,
     };
-    match write_all(&plan, codec, &ctx, &out_dir) {
-        Ok((files, warnings)) => Ok(ConvertReport {
-            game_id: game.id.clone(),
-            direction,
-            save_root: display(&plan.save_root),
-            output_dir: display(&out_dir),
-            files,
-            ignored_total: plan.ignored.len(),
-            warnings,
-        }),
-        Err(e) => {
-            // All-or-nothing: a half-converted folder looks like a save
-            // and would be the worst thing to hand back.
-            let _ = fs::remove_dir_all(&out_dir);
-            Err(e)
+    let (files, warnings) = write_all(&plan, codec, &ctx, &out_dir)?;
+    guard.keep();
+    Ok(ConvertReport {
+        game_id: game.id.clone(),
+        direction,
+        save_root: display(&plan.save_root),
+        output_dir: display(&out_dir),
+        files,
+        ignored_total: plan.ignored.len(),
+        warnings,
+    })
+}
+
+/// Undoes what a conversion created unless it finishes: the new output
+/// folder, and any parent folders that had to be created to hold it.
+/// All-or-nothing matters because a half-converted folder looks like a
+/// save. It is a `Drop` guard rather than an error branch so that a codec
+/// that panics is covered as well as one that returns an error.
+struct OutputGuard {
+    /// Folders that didn't exist before the conversion, deepest first.
+    created_parents: Vec<PathBuf>,
+    fresh: Option<PathBuf>,
+    keep: bool,
+}
+
+impl OutputGuard {
+    /// Call before creating `out_parent`, so the folders that are about
+    /// to be created can be told apart from the ones already there.
+    fn new(out_parent: &Path) -> Self {
+        let mut created_parents = Vec::new();
+        let mut probe = Some(out_parent);
+        while let Some(dir) = probe.filter(|d| !d.as_os_str().is_empty() && !d.exists()) {
+            created_parents.push(dir.to_path_buf());
+            probe = dir.parent();
+        }
+        OutputGuard {
+            created_parents,
+            fresh: None,
+            keep: false,
+        }
+    }
+
+    fn keep(&mut self) {
+        self.keep = true;
+    }
+}
+
+impl Drop for OutputGuard {
+    fn drop(&mut self) {
+        if self.keep {
+            return;
+        }
+        if let Some(fresh) = &self.fresh {
+            let _ = fs::remove_dir_all(fresh);
+        }
+        // `remove_dir` only removes an empty folder, so anything that
+        // turned up in there in the meantime is left alone.
+        for dir in &self.created_parents {
+            let _ = fs::remove_dir(dir);
         }
     }
 }
@@ -307,18 +379,27 @@ struct Plan {
     blockers: Vec<String>,
 }
 
+/// One scanned file recognised as part of a save.
+struct Hit {
+    /// Index into the scan results.
+    found: usize,
+    /// Index into `game.files`.
+    map: usize,
+    /// Path inside the save root it belongs to, `/`-separated.
+    source: String,
+    dest: String,
+}
+
 /// What a candidate save root (a folder at or below the picked one) holds.
-struct Candidate {
+struct Candidate<'a> {
     /// `""` for the picked folder itself, else its `/`-separated subpath.
-    prefix: String,
-    files: Vec<PlannedFile>,
-    map_indices: Vec<usize>,
-    ignored: Vec<String>,
+    prefix: &'a str,
+    hits: &'a [Hit],
     /// How many of the profile's required entries are present.
     required_present: usize,
 }
 
-impl Candidate {
+impl Candidate<'_> {
     fn depth(&self) -> usize {
         if self.prefix.is_empty() {
             0
@@ -340,49 +421,52 @@ impl Plan {
         let required_total = game.files.iter().filter(|f| f.required).count();
 
         // The user may have picked the save folder itself or something
-        // above it (an export folder, Steam's `remote`). Try the picked
-        // folder and every folder below it as the save root.
-        let mut prefixes = BTreeSet::from([String::new()]);
-        for file in &found {
-            let mut end = 0;
-            while let Some(slash) = file.rel[end..].find('/') {
-                end += slash;
-                prefixes.insert(file.rel[..end].to_string());
-                end += 1;
-            }
+        // above it (an export folder, Steam's `remote`). Every folder that
+        // holds at least one recognised file is a candidate save root, and
+        // so is the picked folder itself.
+        let hits_by_root = recognise(game, direction, &found);
+        let no_hits: Vec<Hit> = Vec::new();
+        let mut candidates: Vec<Candidate<'_>> = Vec::with_capacity(hits_by_root.len() + 1);
+        if !hits_by_root.contains_key("") {
+            candidates.push(Candidate {
+                prefix: "",
+                hits: &no_hits,
+                required_present: 0,
+            });
         }
-        let candidates: Vec<Candidate> = prefixes
-            .iter()
-            .map(|prefix| Candidate::evaluate(game, direction, &found, prefix))
-            .collect();
+        for (prefix, hits) in &hits_by_root {
+            let present: BTreeSet<usize> = hits.iter().map(|h| h.map).collect();
+            candidates.push(Candidate {
+                prefix,
+                hits,
+                required_present: present.iter().filter(|&&i| game.files[i].required).count(),
+            });
+        }
 
         // A "complete" candidate has every required file — or, for a
         // profile where nothing is mandatory, at least one recognised
         // file. A complete candidate nested inside another complete one
         // is a copy/backup kept inside the save folder, not a rival.
-        let complete: Vec<&Candidate> = candidates
+        let complete: Vec<&Candidate<'_>> = candidates
             .iter()
             .filter(|c| {
                 if required_total > 0 {
                     c.required_present == required_total
                 } else {
-                    !c.files.is_empty()
+                    !c.hits.is_empty()
                 }
             })
             .collect();
-        let outermost: Vec<&Candidate> = complete
+        let complete_roots: HashSet<&str> = complete.iter().map(|c| c.prefix).collect();
+        let outermost: Vec<&Candidate<'_>> = complete
             .iter()
             .copied()
-            .filter(|c| {
-                !complete
-                    .iter()
-                    .any(|other| is_inside(&c.prefix, &other.prefix))
-            })
+            .filter(|c| !has_ancestor_in(c.prefix, &complete_roots))
             .collect();
 
         let mut blockers = Vec::new();
         let source = direction.source_name();
-        let chosen: &Candidate = match outermost.as_slice() {
+        let chosen: &Candidate<'_> = match outermost.as_slice() {
             [only] => only,
             [] => {
                 // Nothing complete: report against the closest partial
@@ -393,7 +477,7 @@ impl Plan {
                     .max_by_key(|c| {
                         (
                             c.required_present,
-                            c.files.len(),
+                            c.hits.len(),
                             std::cmp::Reverse(c.depth()),
                         )
                     })
@@ -405,7 +489,7 @@ impl Plan {
                 best
             }
             several => {
-                let names: Vec<&str> = several.iter().take(5).map(|c| c.prefix.as_str()).collect();
+                let names: Vec<&str> = several.iter().take(5).map(|c| c.prefix).collect();
                 blockers.push(format!(
                     "Found more than one {} {source} save in this folder ({}). Pick the one you want to convert.",
                     game.name,
@@ -415,8 +499,32 @@ impl Plan {
             }
         };
 
+        let files: Vec<PlannedFile> = chosen
+            .hits
+            .iter()
+            .map(|hit| PlannedFile {
+                label: game.files[hit.map].label.clone(),
+                source: hit.source.clone(),
+                dest: hit.dest.clone(),
+                size: found[hit.found].size,
+                problem: None,
+            })
+            .collect();
+        let map_indices: Vec<usize> = chosen.hits.iter().map(|hit| hit.map).collect();
+
+        // Everything else under the chosen root is left out of the
+        // conversion, and reported as such.
+        let claimed: HashSet<usize> = chosen.hits.iter().map(|hit| hit.found).collect();
+        let ignored: Vec<String> = found
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !claimed.contains(index))
+            .filter_map(|(_, file)| inner_path(&file.rel, chosen.prefix))
+            .map(str::to_string)
+            .collect();
+
         let mut missing = Vec::new();
-        let present: BTreeSet<usize> = chosen.map_indices.iter().copied().collect();
+        let present: BTreeSet<usize> = map_indices.iter().copied().collect();
         for (index, file) in game.files.iter().enumerate() {
             if !present.contains(&index) {
                 missing.push(MissingFile {
@@ -430,7 +538,7 @@ impl Plan {
         // Two source files landing on one destination (only possible on a
         // case-sensitive disk, e.g. `Data.bin` next to `data.bin`).
         let mut dests = BTreeSet::new();
-        for file in &chosen.files {
+        for file in &files {
             if !dests.insert(file.dest.to_ascii_lowercase()) {
                 blockers.push(format!(
                     "More than one file would be written as {} — remove the duplicate from the save folder.",
@@ -456,78 +564,108 @@ impl Plan {
         }
 
         Ok(Plan {
-            save_root: join_rel(input_dir, &chosen.prefix),
-            files: chosen.files.clone(),
-            map_indices: chosen.map_indices.clone(),
+            save_root: join_rel(input_dir, chosen.prefix),
+            files,
+            map_indices,
             missing,
-            ignored: chosen.ignored.clone(),
+            ignored,
             blockers,
         })
     }
 }
 
-impl Candidate {
-    fn evaluate(game: &GameProfile, direction: Direction, found: &[Found], prefix: &str) -> Self {
-        let mut files = Vec::new();
-        let mut map_indices = Vec::new();
-        let mut ignored = Vec::new();
-        for file in found {
-            let inner = if prefix.is_empty() {
-                file.rel.as_str()
-            } else {
-                match file
-                    .rel
-                    .strip_prefix(prefix)
-                    .and_then(|rest| rest.strip_prefix('/'))
-                {
-                    Some(inner) => inner,
-                    None => continue, // not under this candidate
-                }
+/// Match every scanned file against the profile and file each match under
+/// the save root it implies: `a/b/data.bin` matching the pattern
+/// `b/data.bin` belongs to a save rooted at `a`. One pass over the files,
+/// rather than trying every folder as a root against every file.
+///
+/// Entries without a `*` are tried first, so a file named exactly like one
+/// entry is never swallowed by another entry's wildcard. Under any one
+/// root a file is claimed by at most one entry.
+fn recognise(
+    game: &GameProfile,
+    direction: Direction,
+    found: &[Found],
+) -> BTreeMap<String, Vec<Hit>> {
+    let mut order: Vec<usize> = (0..game.files.len()).collect();
+    order.sort_by_key(|&index| pattern::has_wildcard(game.files[index].source(direction)));
+
+    let mut by_root: BTreeMap<String, Vec<Hit>> = BTreeMap::new();
+    for (found_index, file) in found.iter().enumerate() {
+        // Where this file's in-root path starts, for each root it has
+        // already been claimed under.
+        let mut claimed: Vec<usize> = Vec::new();
+        for &map_index in &order {
+            let map = &game.files[map_index];
+            let source_pattern = map.source(direction);
+            let Some(start) = tail_start(&file.rel, source_pattern.split('/').count()) else {
+                continue;
             };
-            let hit = game.files.iter().enumerate().find_map(|(index, map)| {
-                pattern::capture(map.source(direction), inner).map(|cap| (index, map, cap))
-            });
-            match hit {
-                Some((index, map, captured)) => {
-                    files.push(PlannedFile {
-                        label: map.label.clone(),
-                        source: inner.to_string(),
-                        dest: pattern::fill(map.dest(direction), &captured),
-                        size: file.size,
-                        problem: None,
-                    });
-                    map_indices.push(index);
-                }
-                None => ignored.push(inner.to_string()),
+            if claimed.contains(&start) {
+                continue;
             }
+            let inner = &file.rel[start..];
+            let Some(captured) = pattern::capture(source_pattern, inner) else {
+                continue;
+            };
+            claimed.push(start);
+            let root = if start == 0 {
+                ""
+            } else {
+                &file.rel[..start - 1]
+            };
+            by_root.entry(root.to_string()).or_default().push(Hit {
+                found: found_index,
+                map: map_index,
+                source: inner.to_string(),
+                dest: pattern::fill(map.dest(direction), &captured),
+            });
         }
-        let present: BTreeSet<usize> = map_indices.iter().copied().collect();
-        let required_present = game
-            .files
-            .iter()
-            .enumerate()
-            .filter(|(index, map)| map.required && present.contains(index))
-            .count();
-        Candidate {
-            prefix: prefix.to_string(),
-            files,
-            map_indices,
-            ignored,
-            required_present,
+    }
+    by_root
+}
+
+/// Byte offset at which the last `segments` `/`-separated segments of
+/// `rel` begin, or `None` when `rel` has fewer segments than that.
+fn tail_start(rel: &str, segments: usize) -> Option<usize> {
+    // One past a virtual trailing separator.
+    let mut start = rel.len() + 1;
+    for _ in 0..segments {
+        if start == 0 {
+            return None;
         }
+        start = rel[..start - 1].rfind('/').map_or(0, |slash| slash + 1);
+    }
+    Some(start)
+}
+
+/// `rel` as seen from the folder `prefix` (`""` = the picked folder), or
+/// `None` when `rel` isn't under it.
+fn inner_path<'a>(rel: &'a str, prefix: &str) -> Option<&'a str> {
+    if prefix.is_empty() {
+        Some(rel)
+    } else {
+        rel.strip_prefix(prefix)?.strip_prefix('/')
     }
 }
 
-/// True when folder `inner` is strictly below folder `outer` (both are
-/// `/`-separated prefixes; `""` is the picked folder itself).
-fn is_inside(inner: &str, outer: &str) -> bool {
-    if inner == outer {
+/// True when a folder strictly above `prefix` is in `roots` (`""` is the
+/// picked folder itself, above every other).
+fn has_ancestor_in(prefix: &str, roots: &HashSet<&str>) -> bool {
+    if prefix.is_empty() {
         return false;
     }
-    outer.is_empty()
-        || inner
-            .strip_prefix(outer)
-            .is_some_and(|rest| rest.starts_with('/'))
+    if roots.contains("") {
+        return true;
+    }
+    let mut end = prefix.len();
+    while let Some(slash) = prefix[..end].rfind('/') {
+        end = slash;
+        if roots.contains(&prefix[..end]) {
+            return true;
+        }
+    }
+    false
 }
 
 /// List the regular files under `root` (bounded — see the constants).
@@ -920,7 +1058,7 @@ mod tests {
                 &request(Direction::Ps5ToPc, &tmp.path("ps5"), &tmp.path(out)),
             )
             .unwrap_err();
-            assert!(err.to_string().contains("isn't inside the save"), "{err}");
+            assert!(err.to_string().contains("isn't inside the folder"), "{err}");
         }
         // Nothing leaked into the save folder — not even the (refused)
         // output folder itself.
@@ -1073,10 +1211,11 @@ mod tests {
             "{err:#}"
         );
         assert!(format!("{err:#}").contains("SYSTEM.DAT"), "{err:#}");
-        assert_eq!(
-            fs::read_dir(tmp.path("out")).unwrap().count(),
-            0,
-            "the half-written folder must be removed"
+        // Both the half-written folder and the output folder that was
+        // created to hold it are gone.
+        assert!(
+            !tmp.path("out").exists(),
+            "nothing created for the conversion may remain"
         );
     }
 
@@ -1090,12 +1229,249 @@ mod tests {
     }
 
     #[test]
-    fn is_inside_only_accepts_strict_descendants() {
-        assert!(is_inside("a", ""));
-        assert!(is_inside("a/b", "a"));
-        assert!(!is_inside("a", "a"));
-        assert!(!is_inside("ab", "a"));
-        assert!(!is_inside("", "a"));
-        assert!(!is_inside("", ""));
+    fn tail_start_finds_where_the_last_segments_begin() {
+        assert_eq!(tail_start("c.bin", 1), Some(0));
+        assert_eq!(tail_start("c.bin", 2), None);
+        assert_eq!(tail_start("a/b/c.bin", 1), Some(4));
+        assert_eq!(tail_start("a/b/c.bin", 2), Some(2));
+        assert_eq!(tail_start("a/b/c.bin", 3), Some(0));
+        assert_eq!(tail_start("a/b/c.bin", 4), None);
+    }
+
+    #[test]
+    fn has_ancestor_in_only_counts_folders_strictly_above() {
+        let roots = |list: &[&'static str]| list.iter().copied().collect::<HashSet<&str>>();
+        assert!(has_ancestor_in("a/b", &roots(&["a"])));
+        assert!(has_ancestor_in("a/b/c", &roots(&["a"])));
+        assert!(has_ancestor_in("a", &roots(&[""])));
+        assert!(!has_ancestor_in("a", &roots(&["a"])));
+        assert!(!has_ancestor_in("ab/c", &roots(&["a"])));
+        assert!(!has_ancestor_in("", &roots(&["", "a"])));
+        assert!(!has_ancestor_in("a/b", &roots(&["a/b/c", "x"])));
+    }
+
+    #[test]
+    fn an_output_path_with_dot_dot_is_refused_before_anything_is_created() {
+        // `..` can't be resolved through folders that don't exist yet, so
+        // such a path could walk back into the save without being noticed.
+        for route in [
+            "nonexistent/../ps5/converted",
+            "nonexistent/sub/../../ps5/x/y",
+            "ps5/nonexistent/../converted",
+            "other/../ps5",
+            "other/../elsewhere",
+        ] {
+            let tmp = TempDir::new();
+            tmp.write("ps5/SYSTEM.DAT", b"system");
+            fs::create_dir_all(tmp.path("other")).unwrap();
+            let out = tmp.0.join(route);
+            let err = convert_with(
+                &game(),
+                &request(Direction::Ps5ToPc, &tmp.path("ps5"), &out),
+            )
+            .unwrap_err();
+            assert!(
+                err.to_string().contains("can't contain \"..\""),
+                "{route}: {err}"
+            );
+            assert_eq!(
+                fs::read_dir(tmp.path("ps5")).unwrap().count(),
+                1,
+                "{route}: the save folder must be untouched"
+            );
+            assert!(!tmp.path("nonexistent").exists(), "{route}");
+        }
+    }
+
+    #[test]
+    fn a_relative_output_path_is_refused() {
+        let tmp = TempDir::new();
+        tmp.write("ps5/SYSTEM.DAT", b"system");
+        let mut req = request(Direction::Ps5ToPc, &tmp.path("ps5"), Path::new("out"));
+        req.output_dir = "relative/out".into();
+        let err = convert_with(&game(), &req).unwrap_err();
+        assert!(err.to_string().contains("full path"), "{err}");
+    }
+
+    #[test]
+    fn output_inside_the_picked_folder_is_refused_even_outside_the_located_save() {
+        // The save sits two levels below the picked folder. Writing the
+        // result next to it would make the picked folder hold two "saves"
+        // the next time round.
+        let tmp = TempDir::new();
+        tmp.write("export/PPSA00001/savedata0/SYSTEM.DAT", b"system");
+        for out in ["export", "export/converted", "export/PPSA00001"] {
+            let err = convert_with(
+                &game(),
+                &request(Direction::Ps5ToPc, &tmp.path("export"), &tmp.path(out)),
+            )
+            .unwrap_err();
+            assert!(
+                err.to_string().contains("isn't inside the folder"),
+                "{out}: {err}"
+            );
+        }
+        assert!(!tmp.path("export/converted").exists());
+        assert!(!tmp.path("export/test-game-pc-save").exists());
+        // A sibling of the picked folder is fine, and converting again
+        // from the same picked folder still finds exactly one save.
+        let req = request(Direction::Ps5ToPc, &tmp.path("export"), &tmp.path("out"));
+        convert_with(&game(), &req).unwrap();
+        convert_with(&game(), &req).unwrap();
+    }
+
+    #[test]
+    fn a_failed_conversion_removes_the_folders_it_created_and_nothing_else() {
+        let tmp = TempDir::new();
+        tmp.write("ps5/SYSTEM.DAT", b"FAIL");
+        tmp.write("existing/keep.txt", b"mine");
+        let failing = game_with("test-reverse", "ready");
+
+        // The whole chain new/deep/out is created for the conversion and
+        // must be gone again after it fails.
+        convert_with(
+            &failing,
+            &request(
+                Direction::Ps5ToPc,
+                &tmp.path("ps5"),
+                &tmp.path("new/deep/out"),
+            ),
+        )
+        .unwrap_err();
+        assert!(!tmp.path("new").exists());
+
+        // A folder that already existed stays, with its contents; only
+        // the part below it that was created goes.
+        convert_with(
+            &failing,
+            &request(
+                Direction::Ps5ToPc,
+                &tmp.path("ps5"),
+                &tmp.path("existing/sub"),
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(fs::read(tmp.path("existing/keep.txt")).unwrap(), b"mine");
+        assert!(!tmp.path("existing/sub").exists());
+
+        // On success the created chain is kept.
+        tmp.write("ps5/SYSTEM.DAT", b"ok");
+        convert_with(
+            &failing,
+            &request(
+                Direction::Ps5ToPc,
+                &tmp.path("ps5"),
+                &tmp.path("new/deep/out"),
+            ),
+        )
+        .unwrap();
+        assert!(tmp
+            .path("new/deep/out/test-game-pc-save/remote/system.sav")
+            .exists());
+    }
+
+    #[test]
+    fn a_panicking_codec_leaves_no_partial_output_behind() {
+        let tmp = TempDir::new();
+        // SLOT1 converts and is written before SYSTEM makes the codec panic.
+        tmp.write("ps5/SLOT1.DAT", b"fine");
+        tmp.write("ps5/SYSTEM.DAT", b"PANIC");
+        let panicking = game_with("test-reverse", "ready");
+        let req = request(Direction::Ps5ToPc, &tmp.path("ps5"), &tmp.path("out"));
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            convert_with(&panicking, &req)
+        }));
+        assert!(outcome.is_err(), "the test codec should have panicked");
+        assert!(
+            !tmp.path("out").exists(),
+            "a crash mid-conversion must not leave a half-written save"
+        );
+    }
+
+    #[test]
+    fn an_exact_file_name_wins_over_another_entry_s_wildcard() {
+        // `SYSTEM.DAT` also matches `S*.DAT`. Whatever order the profile
+        // lists them in, the exact entry must claim it.
+        for wildcard_first in [true, false] {
+            let mut files = vec![
+                json!({ "ps5": "S*.DAT", "pc": "s_*.sav", "label": "Slot", "required": false }),
+                json!({ "ps5": "SYSTEM.DAT", "pc": "system.sav", "label": "System" }),
+            ];
+            if !wildcard_first {
+                files.reverse();
+            }
+            let overlapping: GameProfile = serde_json::from_value(json!({
+                "id": "test-game",
+                "name": "Test Game",
+                "status": "ready",
+                "ps5": {},
+                "pc": {},
+                "files": files,
+                "codec": "passthrough"
+            }))
+            .unwrap();
+            let tmp = TempDir::new();
+            tmp.write("ps5/SYSTEM.DAT", b"system");
+            tmp.write("ps5/S1.DAT", b"slot");
+            let report = inspect_with(&overlapping, Direction::Ps5ToPc, &tmp.path("ps5")).unwrap();
+            assert!(report.convertible, "{:?}", report.blockers);
+            let dests: Vec<(&str, &str)> = report
+                .files
+                .iter()
+                .map(|f| (f.source.as_str(), f.dest.as_str()))
+                .collect();
+            assert_eq!(dests, [("S1.DAT", "s_1.sav"), ("SYSTEM.DAT", "system.sav")]);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_oversized_file_is_reported_once_and_never_read() {
+        let tmp = TempDir::new();
+        tmp.write("ps5/SYSTEM.DAT", b"");
+        // Sparse: takes no disk space, and reading it would be slow enough
+        // to notice if the check ever regressed into reading it.
+        fs::File::options()
+            .write(true)
+            .open(tmp.path("ps5/SYSTEM.DAT"))
+            .unwrap()
+            .set_len(MAX_FILE_BYTES + 1)
+            .unwrap();
+        // "test-reverse" asks to see source files in the preview.
+        let report = inspect_with(
+            &game_with("test-reverse", "ready"),
+            Direction::Ps5ToPc,
+            &tmp.path("ps5"),
+        )
+        .unwrap();
+        assert_eq!(
+            report.blockers,
+            vec!["SYSTEM.DAT is too large to be a save file.".to_string()]
+        );
+    }
+
+    #[test]
+    fn many_separate_saves_under_one_folder_are_handled_quickly() {
+        // 3,000 one-file saves: every folder is a complete candidate.
+        // Planning used to compare every folder with every file.
+        let tmp = TempDir::new();
+        for i in 0..3000 {
+            tmp.write(&format!("saves/s{i:04}/SYSTEM.DAT"), b"x");
+        }
+        let started = std::time::Instant::now();
+        let report = inspect_with(&game(), Direction::Ps5ToPc, &tmp.path("saves")).unwrap();
+        assert!(!report.convertible);
+        assert!(
+            report.blockers[0].contains("more than one"),
+            "{:?}",
+            report.blockers
+        );
+        // Generous bound: it takes a few milliseconds; the old quadratic
+        // planning took seconds in a debug build.
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
     }
 }

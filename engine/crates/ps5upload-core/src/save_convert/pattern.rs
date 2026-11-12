@@ -67,6 +67,69 @@ pub(crate) fn capture(pattern: &str, name: &str) -> Option<String> {
     Some(middle.to_string())
 }
 
+/// How two patterns of one profile relate, for the checks that keep a
+/// profile unambiguous.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Clash {
+    /// No path can involve both.
+    None,
+    /// Some file name matches both patterns.
+    SameFile,
+    /// One pattern's file is a folder on the other pattern's path.
+    FileAndFolder,
+}
+
+/// Compare two (already validated) patterns.
+pub(crate) fn clash(a: &str, b: &str) -> Clash {
+    let (a, b): (Vec<&str>, Vec<&str>) = (a.split('/').collect(), b.split('/').collect());
+    let shared = a.len().min(b.len());
+    if !a[..shared]
+        .iter()
+        .zip(&b[..shared])
+        .all(|(x, y)| segments_overlap(x, y))
+    {
+        return Clash::None;
+    }
+    if a.len() == b.len() {
+        Clash::SameFile
+    } else {
+        Clash::FileAndFolder
+    }
+}
+
+/// True when some single path segment matches both `x` and `y`.
+fn segments_overlap(x: &str, y: &str) -> bool {
+    match (x.find('*'), y.find('*')) {
+        (None, None) => x.eq_ignore_ascii_case(y),
+        (Some(_), None) => capture(x, y).is_some(),
+        (None, Some(_)) => capture(y, x).is_some(),
+        (Some(i), Some(j)) => {
+            // Both wildcards: a common match exists exactly when one
+            // prefix continues the other and one suffix continues the
+            // other (the `*`s soak up the difference).
+            let (x_head, x_tail) = (&x[..i], &x[i + 1..]);
+            let (y_head, y_tail) = (&y[..j], &y[j + 1..]);
+            let heads =
+                starts_with_ignore_case(x_head, y_head) || starts_with_ignore_case(y_head, x_head);
+            let tails =
+                ends_with_ignore_case(x_tail, y_tail) || ends_with_ignore_case(y_tail, x_tail);
+            heads && tails
+        }
+    }
+}
+
+fn starts_with_ignore_case(text: &str, prefix: &str) -> bool {
+    text.get(..prefix.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+}
+
+fn ends_with_ignore_case(text: &str, suffix: &str) -> bool {
+    text.len() >= suffix.len()
+        && text
+            .get(text.len() - suffix.len()..)
+            .is_some_and(|tail| tail.eq_ignore_ascii_case(suffix))
+}
+
 /// Substitute `captured` for the `*` in `pattern` (no-op without one).
 pub(crate) fn fill(pattern: &str, captured: &str) -> String {
     pattern.replacen('*', captured, 1)
@@ -105,6 +168,39 @@ mod tests {
         assert_eq!(capture("ab*cd", "é"), None);
         assert_eq!(capture("*.sav", "héros.sav"), Some("héros".to_string()));
         assert_eq!(capture("data.bin", "dàta.bin"), None);
+    }
+
+    #[test]
+    fn clash_detects_patterns_that_can_collide() {
+        // Same file name reachable through both patterns.
+        for (a, b) in [
+            ("S*.DAT", "SLOT*.DAT"),
+            ("slot_*.sav", "SLOT_*.SAV"),
+            ("*.bin", "data*"),
+            ("save/*.sav", "save/slot*.sav"),
+            ("SYSTEM.DAT", "S*.DAT"),
+            ("a.bin", "A.BIN"),
+        ] {
+            assert_eq!(clash(a, b), Clash::SameFile, "{a} vs {b}");
+            assert_eq!(clash(b, a), Clash::SameFile, "{b} vs {a}");
+        }
+        // One pattern's file is the other's folder.
+        for (a, b) in [("data", "data/slot_*.sav"), ("slot_*", "slot_1/data.bin")] {
+            assert_eq!(clash(a, b), Clash::FileAndFolder, "{a} vs {b}");
+            assert_eq!(clash(b, a), Clash::FileAndFolder, "{b} vs {a}");
+        }
+        // Unrelated.
+        for (a, b) in [
+            ("SYSTEM.DAT", "SLOT*.DAT"),
+            ("slot_*.sav", "slot_*.bak"),
+            ("a/x.bin", "b/x.bin"),
+            ("data*.bin", "save*.bin"),
+            ("data", "database/x.bin"),
+            ("data00*Slot.bin", "data00-1.bin"),
+        ] {
+            assert_eq!(clash(a, b), Clash::None, "{a} vs {b}");
+            assert_eq!(clash(b, a), Clash::None, "{b} vs {a}");
+        }
     }
 
     #[test]
