@@ -135,8 +135,36 @@ unit-tested directly against captured samples. Rules of thumb:
 - Don't commit real saves. They carry account identifiers; keep test vectors
   synthetic or reduced to the bytes the test needs.
 
+## The RE Engine (DSSS) codec
+
+Monster Hunter Wilds — and, later, other RE Engine games that seal PC saves
+the same way — uses the `re-engine-dsss` codec, in `save_convert/re_engine/`.
+It is a self-contained, self-tested library for the "DSSS" save format:
+
+- `container` — the file: header, DEFLATE layer, murmur3 checksum. Reads PS5
+  (deflate only) and PC (per-account encrypted) saves and writes either.
+- `mandarin` — the PC encryption (keyed on the Steam ID), and
+  `find_steam_id64`, which recovers the account a PC save belongs to by
+  trying account ids against the file.
+- `stream` — the inner object stream, re-laid-out for the other platform's
+  alignment base (12 on PS5, 16 on PC), the one real difference between them.
+
+`codec_params`:
+
+| Field | Meaning |
+|:--|:--|
+| `enc_seed` | Per-game block-plan seed, hex string (too large for a JSON number). |
+| `rsa_seed` | Per-game trailer seed, hex string. |
+| `reset_identity_fields` | String fields holding a per-account online id; reset to the game's fresh-hunter value on the cross-account move so the game issues a new one. |
+
+The format was learned from ree-save-editor (kvasszn, GPL-3.0) and
+MandarinJuice (mi5hmash, MIT); the code is original. Tests tagged with the
+`XENO_SAVE_VECTORS` environment variable run against real game-written saves
+and third-party reference vectors kept outside the repository; they skip
+(with a note) when it is unset.
+
 ## Status
 
 | Game | Status |
 |:--|:--|
-| Monster Hunter Wilds | In progress — first game, awaiting sample saves |
+| Monster Hunter Wilds | Experimental — converts both ways; verified on real saves end to end (container, encryption, stream, account detection), not yet confirmed in-game |
