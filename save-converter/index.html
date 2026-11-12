@@ -220,7 +220,7 @@
     drop.ondragleave = () => drop.classList.remove("hover");
     drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("hover"); addFiles(e.dataTransfer.files); };
     file.onchange = () => addFiles(file.files);
-    $("steamId").oninput = () => { S.detectedId = null; render(); };
+    $("steamId").oninput = () => { S.detectedId = null; resetResult(); render(); };
     $("detectBtn").onclick = detect;
     $("convertBtn").onclick = doConvert;
     render();
@@ -228,7 +228,27 @@
 
   function setDir(d) { if (S.dir === d) return; S.dir = d; resetResult(); render(); }
   function resetFiles() { S.files = []; S.photoId = null; resetResult(); }
-  function resetResult() { $("result").innerHTML = ""; }
+  // Clearing the result: revoke the download object URLs it created, so the
+  // converted-save blobs aren't retained for the page's lifetime.
+  let resultUrls = [];
+  function resetResult() { resultUrls.forEach((u) => URL.revokeObjectURL(u)); resultUrls = []; $("result").innerHTML = ""; }
+
+  // The container flags that a save of each platform must have, so a file
+  // picked for the wrong direction (names are identical across platforms) is
+  // caught instead of silently mis-handled.
+  const EXPECT_FLAGS = { 0: 0x08, 1: 0x18 }; // source side: PS5→PC reads 0x08, PC→PS5 reads 0x18
+  function platformMismatch() {
+    const want = EXPECT_FLAGS[S.dir];
+    for (const f of saveFiles()) {
+      const r = ENGINE.peekFlags(f.bytes);
+      if (r.status === 0 && Number(r.value) !== want) {
+        return S.dir === 0
+          ? `${f.name} looks like a PC (Steam) save, but this direction expects a decrypted PS5 save. Switch to “PC → PS5”.`
+          : `${f.name} looks like a decrypted PS5 save, but this direction expects a PC (Steam) save. Switch to “PS5 → PC”.`;
+      }
+    }
+    return null;
+  }
 
   async function addFiles(fileList) {
     resetResult();
@@ -323,6 +343,8 @@
     if (saveFiles().length === 0) return "Add your save file(s) first.";
     const have = new Set(saveFiles().map((f) => f.name.toLowerCase()));
     for (const spec of S.game.files) if (spec.required && !have.has(spec.name.toLowerCase())) return "The required file " + spec.name + " is missing.";
+    const mism = platformMismatch();
+    if (mism) return mism;
     if (!steamIdValue()) return "Enter a valid 17-digit SteamID64.";
     return null;
   }
@@ -369,25 +391,36 @@
       const blob = new Blob([workerSource()], { type: "text/javascript" });
       const url = URL.createObjectURL(blob);
       const per = Math.ceil(total / N);
+      let workersFailed = false;
       await new Promise((resolve) => {
-        let ready = 0, doneCount = 0;
+        let ready = 0, doneCount = 0, settled = false;
+        const finish = () => { if (settled) return; settled = true; cleanup(); resolve(); };
+        // If the workers never even report ready (blocked/instantiation failure),
+        // give up on them and let the single-threaded fallback take over.
+        const readyTimer = setTimeout(() => { if (ready < N) { workersFailed = true; finish(); } }, 4000);
         for (let k = 0; k < N; k++) {
           const w = new Worker(url); workers.push(w);
+          w.onerror = () => { workersFailed = true; clearTimeout(readyTimer); finish(); };
           w.onmessage = (e) => {
             const d = e.data;
-            if (d.ready) { ready++; if (ready === N) { for (let j = 0; j < N; j++) workers[j].postMessage({ game: S.game.id, file, start: j * per, end: Math.min(total, (j + 1) * per), chunk: 1 << 20 }); } return; }
-            if (d.found) { found = BigInt(d.found); cancelled = true; cleanup(); resolve(); return; }
+            if (d.ready) { ready++; if (ready === N) { clearTimeout(readyTimer); for (let j = 0; j < N; j++) workers[j].postMessage({ game: S.game.id, file, start: j * per, end: Math.min(total, (j + 1) * per), chunk: 1 << 20 }); } return; }
+            if (d.found) { found = BigInt(d.found); cancelled = true; finish(); return; }
             if (d.progress) { scanned += d.progress; const pct = Math.min(100, (scanned / total) * 100); bar.style.width = pct.toFixed(1) + "%";
               const rate = scanned / Math.max(0.001, (Date.now() - startedAt) / 1000);
               $("detectStatus").textContent = `searching… ${pct.toFixed(1)}% (${(rate / 1e6).toFixed(0)}M/s)`; return; }
-            if (d.done) { doneCount++; if (doneCount === N && !found) { cleanup(); resolve(); } }
+            if (d.done) { doneCount++; if (doneCount === N && !found) finish(); }
           };
           w.postMessage({ wasm: WASM_BYTES });
         }
-        function cleanup() { workers.forEach((w) => w.terminate()); URL.revokeObjectURL(url); }
+        function cleanup() { clearTimeout(readyTimer); workers.forEach((w) => w.terminate()); URL.revokeObjectURL(url); }
       });
+      // Workers couldn't run (CSP/blob blocked, or instantiation failed): do it
+      // on the main thread instead so the feature still works.
+      if (!found && workersFailed) {
+        found = await detectSingle(file, (pct, rate) => { bar.style.width = pct.toFixed(1) + "%"; $("detectStatus").textContent = `searching… ${pct.toFixed(1)}% (${(rate / 1e6).toFixed(0)}M/s)`; });
+      }
     } catch (e) {
-      // workers blocked (rare on file://): fall back to single-threaded.
+      // Worker construction threw synchronously: single-threaded fallback.
       found = await detectSingle(file, (pct, rate) => { bar.style.width = pct.toFixed(1) + "%"; $("detectStatus").textContent = `searching… ${pct.toFixed(1)}% (${(rate / 1e6).toFixed(0)}M/s)`; });
     }
 
@@ -447,7 +480,8 @@
     const dl = document.createElement("div"); dl.className = "dl";
     for (const o of outputs) {
       const blob = new Blob([o.bytes], { type: "application/octet-stream" });
-      const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = o.name;
+      const url = URL.createObjectURL(blob); resultUrls.push(url);
+      const a = document.createElement("a"); a.href = url; a.download = o.name;
       a.innerHTML = `<span>💾</span><span class="nm">${o.name}</span><span class="sz">${human(o.bytes.length)}</span><span class="go">Download →</span>`;
       dl.appendChild(a);
     }
