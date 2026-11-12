@@ -304,6 +304,14 @@ pub fn run() {
             // backups are clean and cross-tool compatible.
             commands::save_archive_backup_finalize,
             commands::save_archive_restore_prepare,
+            // ── Save Converter (PS5 ⇄ PC) ───────────────────────────
+            // Local-disk only: reads a decrypted save folder, rewrites
+            // it for the other platform via the per-game profiles in
+            // ps5upload_core::save_convert, writes a fresh folder.
+            commands::save_converter_games,
+            commands::save_converter_inspect,
+            commands::save_converter_convert,
+            commands::save_converter_reveal,
             // Generic text read/write at a user-picked path — backs the
             // bug-report bundle + settings export/import + search/stats
             // exports, which can't use plugin-fs read/writeTextFile

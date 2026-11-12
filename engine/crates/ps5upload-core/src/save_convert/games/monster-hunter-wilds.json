@@ -1,0 +1,20 @@
+{
+  "id": "monster-hunter-wilds",
+  "name": "Monster Hunter Wilds",
+  "status": "wip",
+  "aliases": ["MHWilds", "MH Wilds", "MHWs"],
+  "ps5": {
+    "title_ids": []
+  },
+  "pc": {
+    "steam_app_id": 2246340,
+    "save_path": "<Steam folder>\\userdata\\<your Steam account id>\\2246340\\remote\\win64_save"
+  },
+  "files": [
+    { "ps5": "data000.bin", "pc": "data000.bin", "label": "System data" }
+  ],
+  "codec": "passthrough",
+  "notes": [
+    "First game in the database. The converter is being built against real PS5 and PC saves and will switch on once it's verified in both directions."
+  ]
+}
