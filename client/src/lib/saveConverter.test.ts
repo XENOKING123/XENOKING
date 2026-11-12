@@ -8,6 +8,7 @@ import {
   optionsFor,
   optionsReady,
   sourcePlatform,
+  steamId64FromPath,
   targetPlatform,
 } from "./saveConverter";
 
@@ -136,6 +137,61 @@ describe("per-direction options", () => {
       steam_id64: "76561198000000000",
     });
     expect(optionPayload(withOption, "pc_to_ps5", values)).toEqual({});
+  });
+});
+
+describe("steamId64FromPath", () => {
+  it("reads the account id out of a Steam userdata path", () => {
+    // 76561197960265728 + 1003123
+    expect(
+      steamId64FromPath(
+        "C:\\Program Files (x86)\\Steam\\userdata\\1003123\\2246340\\remote\\win64_save",
+      ),
+    ).toBe("76561197961268851");
+    expect(
+      steamId64FromPath("/home/me/.steam/steam/userdata/1003123/2246340/remote"),
+    ).toBe("76561197961268851");
+    // The account folder itself, with nothing after it.
+    expect(steamId64FromPath("D:\\Steam\\USERDATA\\1")).toBe(
+      "76561197960265729",
+    );
+  });
+
+  it("carries correctly across the 10-digit boundary", () => {
+    // Largest account id: 76561197960265728 + 4294967295.
+    expect(steamId64FromPath("/steam/userdata/4294967295/1/remote")).toBe(
+      "76561202255233023",
+    );
+    // 7960265728 + 2039734272 = 10000000000 exactly.
+    expect(steamId64FromPath("/steam/userdata/2039734272/1")).toBe(
+      "76561200000000000",
+    );
+    expect(steamId64FromPath("/steam/userdata/2039734271/1")).toBe(
+      "76561199999999999",
+    );
+  });
+
+  it("produces ids the option validator accepts", () => {
+    for (const account of ["1", "1003123", "2039734272", "4294967295"]) {
+      const id = steamId64FromPath(`/steam/userdata/${account}/2246340`);
+      expect(id).not.toBeNull();
+      expect(optionProblem(steamId, id ?? ""), account).toBeNull();
+    }
+  });
+
+  it("returns null for anything that isn't a Steam account folder", () => {
+    for (const path of [
+      "",
+      "C:\\Users\\me\\Desktop\\win64_save",
+      "/steam/userdata/",
+      "/steam/userdata/0/2246340", // account id 0 doesn't exist
+      "/steam/userdata/4294967296/2246340", // doesn't fit 32 bits
+      "/steam/userdata/12345678901/2246340", // too many digits
+      "/steam/userdata/abc/2246340",
+      "/steam/myuserdata/123/2246340",
+    ]) {
+      expect(steamId64FromPath(path), path).toBeNull();
+    }
   });
 });
 

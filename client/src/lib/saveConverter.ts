@@ -68,6 +68,27 @@ export function optionProblem(spec: OptionSpec, raw: string): string | null {
   return null;
 }
 
+/** The SteamID64 implied by a path inside Steam's per-account save
+ *  folder (`…/userdata/<account id>/<app id>/remote/…`), or null when the
+ *  path isn't one. The folder name is the 32-bit account id; the SteamID64
+ *  is that plus the individual-account base. Lets the screen fill the id in
+ *  for a PC save picked straight from Steam, where it's by definition the
+ *  account that made the save. */
+export function steamId64FromPath(path: string): string | null {
+  const match = /[\\/]userdata[\\/](\d{1,10})(?:[\\/]|$)/i.exec(path);
+  if (!match) return null;
+  const account = Number(match[1]);
+  if (!Number.isSafeInteger(account) || account < 1 || account > 4294967295) {
+    return null;
+  }
+  // 76561197960265728 + account, done in two halves because the sum
+  // doesn't fit a JS number: the base is 7656119 * 10^10 + 7960265728 and
+  // the low half plus any account id stays far below 2^53.
+  const low = 7960265728 + account;
+  const high = 7656119 + Math.floor(low / 1e10);
+  return `${high}${String(low % 1e10).padStart(10, "0")}`;
+}
+
 /** True when every option this direction needs has a usable value. */
 export function optionsReady(
   game: GameProfile,

@@ -93,7 +93,7 @@ Payloads tab), convert, then import the result the same way.
 | `files[].ps5` / `.pc` | Path relative to the save folder, `/`-separated. At most one `*` (one or more characters within a single path segment); whatever it matches on the source side is substituted on the destination side, so use it on both sides or neither. Matching is ASCII case-insensitive. |
 | `files[].required` | Default `true`. A missing required file blocks the conversion. For a `*` entry, "present" means at least one match. |
 | `codec` / `codec_params` | Codec id from `codec.rs` and its settings. Params are checked when the database loads. |
-| `options[]` | Values the user must type. `kind`: `steam_id64` (validated as a real individual-account id) or `text`. `directions` empty/omitted = both. `required` defaults to `true`. |
+| `options[]` | Values the user must type. `kind`: `steam_id64` (validated as a real individual-account id) or `text`. `directions` empty/omitted = both. `required` defaults to `true`. The same `key` may appear once per direction, to ask for the same value with different wording each way. |
 
 Unknown fields are rejected, so a typo fails the tests instead of being
 silently ignored.

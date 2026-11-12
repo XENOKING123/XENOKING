@@ -282,8 +282,19 @@ impl GameProfile {
                 bail!("option {:?} has no label", option.key);
             }
         }
-        if has_duplicates(self.options.iter().map(|o| o.key.as_str())) {
-            bail!("two options share the same key");
+        // A key may be declared once per direction, so the same value can be
+        // asked for with different wording each way ("the account that will
+        // load the save" vs "the account that made it"). Within a direction
+        // it must be unique, or the codec couldn't tell the values apart.
+        for direction in [Direction::Ps5ToPc, Direction::PcToPs5] {
+            let keys = self
+                .options
+                .iter()
+                .filter(|o| o.applies_to(direction))
+                .map(|o| o.key.as_str());
+            if has_duplicates(keys) {
+                bail!("two options that apply to the same direction share a key");
+            }
         }
         Ok(())
     }
@@ -459,11 +470,40 @@ mod tests {
                     v["options"] = json!([{ "key": "Steam ID", "label": "x", "kind": "text" }])
                 }),
             ),
+            (
+                "same option key twice in one direction",
+                Box::new(|v| {
+                    v["options"] = json!([
+                        { "key": "steam_id64", "label": "a", "kind": "steam_id64" },
+                        { "key": "steam_id64", "label": "b", "kind": "steam_id64", "directions": ["pc_to_ps5"] }
+                    ])
+                }),
+            ),
             ("unknown field", Box::new(|v| v["codek"] = json!("typo"))),
         ];
         for (what, patch) in cases {
             assert!(profile(patch).is_err(), "should be rejected: {what}");
         }
+    }
+
+    #[test]
+    fn an_option_key_may_be_declared_once_per_direction() {
+        let game = profile(|v| {
+            v["options"] = json!([
+                { "key": "steam_id64", "label": "Account that will load it", "kind": "steam_id64", "directions": ["ps5_to_pc"] },
+                { "key": "steam_id64", "label": "Account that made it", "kind": "steam_id64", "directions": ["pc_to_ps5"] }
+            ])
+        })
+        .unwrap();
+        let labels = |direction| -> Vec<&str> {
+            game.options
+                .iter()
+                .filter(|o| o.applies_to(direction))
+                .map(|o| o.label.as_str())
+                .collect()
+        };
+        assert_eq!(labels(Direction::Ps5ToPc), ["Account that will load it"]);
+        assert_eq!(labels(Direction::PcToPs5), ["Account that made it"]);
     }
 
     #[test]

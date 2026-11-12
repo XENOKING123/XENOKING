@@ -39,6 +39,7 @@ import {
   optionsFor,
   optionsReady,
   sourcePlatform,
+  steamId64FromPath,
   targetPlatform,
 } from "../../lib/saveConverter";
 import { useConnectionStore } from "../../state/connection";
@@ -74,6 +75,9 @@ export default function SaveConverterScreen() {
   const [inspecting, setInspecting] = useState(false);
 
   const [optionValues, setOptionValues] = useState<Record<string, string>>({});
+  // A SteamID64 the screen filled in itself (from the picked folder's
+  // path) rather than the user typing it — see chooseInput.
+  const [detectedSteamId, setDetectedSteamId] = useState<string | null>(null);
   const [outputDir, setOutputDir] = useState("");
 
   const [converting, setConverting] = useState(false);
@@ -108,6 +112,7 @@ export default function SaveConverterScreen() {
     setInspectError(null);
     setResult(null);
     setConvertError(null);
+    setDetectedSteamId(null);
   }
 
   function selectGame(id: string) {
@@ -161,6 +166,25 @@ export default function SaveConverterScreen() {
     setResult(null);
     setConvertError(null);
     setInputDir(picked);
+
+    // A PC save picked straight out of Steam's userdata folder names the
+    // account that made it, which is exactly the id needed to read it —
+    // fill it in rather than send the user off to look it up. Never over
+    // something they typed: only into an empty field, or over a value
+    // this same detection put there for a previously picked folder.
+    if (direction === "pc_to_ps5" && game) {
+      const spec = optionsFor(game, direction).find(
+        (o) => o.kind === "steam_id64",
+      );
+      const id = steamId64FromPath(picked);
+      if (spec && id) {
+        const current = (optionValues[spec.key] ?? "").trim();
+        if (current === "" || current === detectedSteamId) {
+          setOptionValues((prev) => ({ ...prev, [spec.key]: id }));
+          setDetectedSteamId(id);
+        }
+      }
+    }
   }
 
   async function chooseOutput() {
@@ -451,6 +475,16 @@ export default function SaveConverterScreen() {
                               {problem}
                             </span>
                           )}
+                          {spec.kind === "steam_id64" &&
+                            detectedSteamId !== null &&
+                            value.trim() === detectedSteamId && (
+                              <span className="mt-1 block text-xs text-[var(--color-good)]">
+                                {tr(
+                                  "save_converter_steam_id_detected",
+                                  "Filled in from the Steam folder you picked.",
+                                )}
+                              </span>
+                            )}
                           {spec.help && (
                             <span className="mt-1 block text-xs text-[var(--color-muted)]">
                               {spec.help}
