@@ -88,7 +88,7 @@
 <div class="wrap">
   <header>
     <h1>Save Converter <span class="arrows">PS5 ⇄ PC</span></h1>
-    <div class="sub">Convert your game saves between PlayStation 5 and PC. Runs entirely on your computer — nothing is uploaded.</div>
+    <div class="sub">Convert your game saves between PlayStation 5 and PC. Runs entirely on your computer — nothing is uploaded.<br/><span style="color:var(--warn)">Note: converted saves play <b>offline/local</b>. Cross-platform <b>online</b> is blocked by Capcom (EW_31512) and no tool can change that.</span></div>
   </header>
 
   <div id="unsupported" class="msg bad hidden"></div>
@@ -198,7 +198,7 @@
     ],
     // the in-game-photo file carries the Steam account id on PC
     photo: "SS1_data001Slot.bin",
-    notes: "Only the character save carries your hunters. The online hunter id is reset on conversion so the game issues a new one — friends/followers from the old account won't carry over.",
+    notes: "The converted save plays LOCALLY/OFFLINE. Going ONLINE on the other platform is blocked by Capcom (error EW_31512): a hunter's online identity lives on Capcom's servers, tied to the account that created it, and cannot be moved across platforms.",
   }];
   const STEAM_BASE = 0x0110000100000000n;
   const ACCOUNT_COUNT = 0x100000000n;
@@ -489,13 +489,13 @@
 
     if (resetTotal > 0) {
       const w = document.createElement("div"); w.className = "warnbox";
-      w.innerHTML = `⚠ The online hunter identity was reset so the game issues a new one. Online friends, followers and squads tied to the old account won't carry over.`;
+      w.innerHTML = `⚠ <b>Online won't work on the other platform.</b> The converted save plays locally/offline, but going online is blocked by Capcom (error <b>EW_31512</b>) — a hunter's online identity is held on Capcom's servers and tied to the account that created it, so it can't be carried across platforms. No save tool can change that. The hunter identity was reset, which is required but not sufficient for online.`;
       el.appendChild(w);
     }
     const steps = document.createElement("div"); steps.className = "msg warn";
     steps.innerHTML = p2c
-      ? `<b>Next:</b><ul><li>Close the game and Steam, and back up your current <code>win64_save</code> folder.</li><li>Copy the file(s) into <code>…\\userdata\\&lt;id&gt;\\${S.game.steamApp}\\remote\\win64_save</code>, replacing what's there.</li><li>If Steam Cloud flags a conflict on launch, keep the local files.</li><li>Go online once so the game issues a new hunter id.</li></ul>`
-      : `<b>Next:</b><ul><li>These are <b>decrypted</b> PS5 files. Import them with an on-console save manager (e.g. Garlic SaveMgr / Apollo), which re-signs &amp; re-encrypts them for your console.</li><li>Keep a backup of the PS5 save you're replacing.</li><li>Go online once so the game issues a new hunter id.</li></ul>`;
+      ? `<b>Next:</b><ul><li>Close the game and Steam, and back up your current <code>win64_save</code> folder.</li><li>Copy the file(s) into <code>…\\userdata\\&lt;id&gt;\\${S.game.steamApp}\\remote\\win64_save</code>, replacing what's there.</li><li>If Steam Cloud flags a conflict on launch, keep the local files.</li><li><b>Offline/local play only</b> — see the note above about online (EW_31512).</li></ul>`
+      : `<b>Next:</b><ul><li>These are <b>decrypted</b> PS5 files. Import them with an on-console save manager (e.g. Garlic SaveMgr / Apollo), which re-signs &amp; re-encrypts them for your console.</li><li>Keep a backup of the PS5 save you're replacing.</li><li><b>Offline/local play only</b> — see the note above about online (EW_31512).</li></ul>`;
     el.appendChild(steps);
   }
 })();
