@@ -54,6 +54,10 @@ export interface PlannedFile {
   /** Relative to the output folder. */
   dest: string;
   size: number;
+  /** Why this file can't be converted, if a look at its contents found a
+   *  reason (e.g. it's a save from the other platform). Also listed in
+   *  the report's `blockers`. */
+  problem: string | null;
 }
 
 export interface MissingFile {

@@ -51,6 +51,29 @@ pub trait Codec: Sync {
     /// Rewrite one file for the other platform. `file` is the profile
     /// entry the source file matched.
     fn convert_file(&self, ctx: &CodecCtx<'_>, file: &FileMap, input: &[u8]) -> Result<Converted>;
+
+    /// Whether `check_source` should be shown each source file during the
+    /// folder preview. Off by default, in which case the preview never
+    /// reads file contents at all.
+    fn checks_sources(&self) -> bool {
+        false
+    }
+
+    /// An early look at one source file, so a problem the bytes alone
+    /// reveal — "this is a PC save, not a PS5 one", "this file is damaged"
+    /// — shows up in the preview instead of after the user has filled in
+    /// the rest of the form. It runs before any option is known, so it
+    /// can't judge anything that needs one (e.g. whether an account id
+    /// matches). `Err` carries a plain-language reason.
+    fn check_source(
+        &self,
+        _game: &GameProfile,
+        _direction: Direction,
+        _file: &FileMap,
+        _input: &[u8],
+    ) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// Every codec the app knows. Add new ones here.
@@ -91,8 +114,8 @@ mod test_codecs {
     use super::*;
 
     /// Test-only codec: reverses the bytes (so tests can tell the codec
-    /// really ran), fails on a file whose content is `FAIL`, and warns on
-    /// an empty file.
+    /// really ran), fails on a file whose content is `FAIL`, warns on an
+    /// empty file, and its source check refuses content starting `WRONG`.
     pub(super) struct Reverse;
 
     impl Codec for Reverse {
@@ -113,6 +136,23 @@ mod test_codecs {
                 out.warnings.push("file is empty".into());
             }
             Ok(out)
+        }
+
+        fn checks_sources(&self) -> bool {
+            true
+        }
+
+        fn check_source(
+            &self,
+            _: &GameProfile,
+            direction: Direction,
+            _: &FileMap,
+            input: &[u8],
+        ) -> Result<()> {
+            if input.starts_with(b"WRONG") {
+                bail!("this isn't a {} save", direction.source_name());
+            }
+            Ok(())
         }
     }
 }

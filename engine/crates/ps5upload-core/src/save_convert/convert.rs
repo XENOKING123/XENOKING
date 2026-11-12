@@ -63,6 +63,9 @@ pub struct PlannedFile {
     /// Path relative to the output folder, `/`-separated.
     pub dest: String,
     pub size: u64,
+    /// Why this particular file can't be converted, when the codec's
+    /// early look at it found a reason. Also listed in `blockers`.
+    pub problem: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -128,7 +131,8 @@ fn inspect_with(
     direction: Direction,
     input_dir: &Path,
 ) -> Result<InspectReport> {
-    let plan = Plan::build(game, direction, input_dir)?;
+    let mut plan = Plan::build(game, direction, input_dir)?;
+    check_sources(game, direction, &mut plan);
     Ok(InspectReport {
         game_id: game.id.clone(),
         direction,
@@ -142,9 +146,32 @@ fn inspect_with(
     })
 }
 
+/// Let the codec look at each source file, if it wants to, and turn what
+/// it objects to into blockers — so "that's a PC save, not a PS5 one"
+/// appears in the preview, and ahead of any complaint about options.
+fn check_sources(game: &GameProfile, direction: Direction, plan: &mut Plan) {
+    let Some(codec) = codec::by_id(&game.codec).filter(|c| c.checks_sources()) else {
+        return;
+    };
+    let mut objections = Vec::new();
+    for (index, (planned, &map_index)) in plan.files.iter().zip(&plan.map_indices).enumerate() {
+        let verdict = read_capped(&join_rel(&plan.save_root, &planned.source))
+            .and_then(|input| codec.check_source(game, direction, &game.files[map_index], &input));
+        if let Err(e) = verdict {
+            objections.push((index, format!("{e:#}")));
+        }
+    }
+    for (index, reason) in objections {
+        let file = &mut plan.files[index];
+        plan.blockers.push(format!("{}: {reason}", file.source));
+        file.problem = Some(reason);
+    }
+}
+
 fn convert_with(game: &GameProfile, req: &ConvertRequest) -> Result<ConvertReport> {
     let direction = req.direction;
-    let plan = Plan::build(game, direction, Path::new(&req.input_dir))?;
+    let mut plan = Plan::build(game, direction, Path::new(&req.input_dir))?;
+    check_sources(game, direction, &mut plan);
     if !plan.blockers.is_empty() {
         bail!("{}", plan.blockers.join(" "));
     }
@@ -467,6 +494,7 @@ impl Candidate {
                         source: inner.to_string(),
                         dest: pattern::fill(map.dest(direction), &captured),
                         size: file.size,
+                        problem: None,
                     });
                     map_indices.push(index);
                 }
@@ -987,6 +1015,46 @@ mod tests {
             report.warnings,
             vec!["SLOT1.DAT: file is empty".to_string()]
         );
+    }
+
+    #[test]
+    fn a_codec_can_reject_a_source_file_in_the_preview() {
+        let tmp = TempDir::new();
+        tmp.write("ps5/SYSTEM.DAT", b"WRONG platform");
+        tmp.write("ps5/SLOT1.DAT", b"fine");
+        let checking = game_with("test-reverse", "ready");
+
+        let report = inspect_with(&checking, Direction::Ps5ToPc, &tmp.path("ps5")).unwrap();
+        assert!(!report.convertible);
+        assert_eq!(
+            report.blockers,
+            vec!["SYSTEM.DAT: this isn't a PS5 save".to_string()]
+        );
+        // The file is still listed — it was found, it just can't be used —
+        // and carries the reason; the other file is clean.
+        assert_eq!(report.files.len(), 2);
+        let problem = |name: &str| {
+            let file = report.files.iter().find(|f| f.source == name).unwrap();
+            file.problem.clone()
+        };
+        assert_eq!(
+            problem("SYSTEM.DAT").as_deref(),
+            Some("this isn't a PS5 save")
+        );
+        assert_eq!(problem("SLOT1.DAT"), None);
+
+        // Converting reports the same objection, ahead of the missing
+        // option, and writes nothing.
+        let mut req = request(Direction::Ps5ToPc, &tmp.path("ps5"), &tmp.path("out"));
+        req.options.clear();
+        let err = convert_with(&checking, &req).unwrap_err();
+        assert!(err.to_string().contains("this isn't a PS5 save"), "{err}");
+        assert!(!tmp.path("out").exists());
+
+        // A codec that doesn't ask to see sources (passthrough) accepts
+        // the same folder.
+        let report = inspect_with(&game(), Direction::Ps5ToPc, &tmp.path("ps5")).unwrap();
+        assert!(report.convertible, "{:?}", report.blockers);
     }
 
     #[test]

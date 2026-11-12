@@ -795,11 +795,19 @@ function InspectView({
               key={f.source}
               className="flex items-center gap-2 rounded-md bg-[var(--color-surface)] px-2.5 py-1.5 text-xs"
             >
-              <Check
-                size={13}
-                className="shrink-0 text-[var(--color-good)]"
-                aria-hidden
-              />
+              {f.problem ? (
+                <X
+                  size={13}
+                  className="shrink-0 text-[var(--color-bad)]"
+                  aria-hidden
+                />
+              ) : (
+                <Check
+                  size={13}
+                  className="shrink-0 text-[var(--color-good)]"
+                  aria-hidden
+                />
+              )}
               <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5">
                 <code className="break-all">{f.source}</code>
                 {f.dest !== f.source && (

@@ -115,6 +115,13 @@ impl Codec for MyFormat {
 }
 ```
 
+A codec can also take an early look at each source file while the user is
+still choosing folders — return `true` from `checks_sources` and implement
+`check_source`. It runs before any option is known, so it should judge only
+what the bytes alone reveal ("this is a PC save, not a PS5 one", "this file
+is damaged"). Whatever it rejects shows up in the folder preview and blocks
+the conversion.
+
 Codecs are pure functions over bytes — no file system access — so they are
 unit-tested directly against captured samples. Rules of thumb:
 
