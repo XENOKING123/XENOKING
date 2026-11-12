@@ -79,6 +79,7 @@ pub trait Codec: Sync {
 /// Every codec the app knows. Add new ones here.
 static CODECS: &[&dyn Codec] = &[
     &Passthrough,
+    &super::re_engine::ReEngineDsss,
     #[cfg(test)]
     &test_codecs::Reverse,
 ];

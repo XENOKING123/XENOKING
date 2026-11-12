@@ -24,9 +24,15 @@
 //! Adding a game: see `docs/save-converter.md`.
 
 pub mod codec;
+// A complete, self-contained RE Engine save-format library (container,
+// encryption, object stream), with its own unit tests. The Wilds codec uses
+// part of its surface; the rest is kept whole and exercised by tests rather
+// than trimmed to today's callers.
 mod convert;
 pub mod db;
 mod pattern;
+#[allow(dead_code)]
+mod re_engine;
 
 pub use convert::{
     convert, inspect, ConvertReport, ConvertRequest, ConvertedFile, InspectReport, InspectRequest,
