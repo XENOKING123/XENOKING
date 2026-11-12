@@ -156,18 +156,17 @@ fn convert_with(game: &GameProfile, req: &ConvertRequest) -> Result<ConvertRepor
         bail!("Pick a folder to write the converted save into.");
     }
     let out_parent = PathBuf::from(&req.output_dir);
-    fs::create_dir_all(&out_parent)
-        .with_context(|| format!("can't create output folder {}", out_parent.display()))?;
     // The new folder must not land inside the source save: that folder
     // often gets copied wholesale back to a console or into Steam, and a
-    // stray converted copy inside it would travel along.
-    let out_real = fs::canonicalize(&out_parent)
-        .with_context(|| format!("can't open output folder {}", out_parent.display()))?;
+    // stray converted copy inside it would travel along. Checked before
+    // anything is created, so a refused request leaves the save untouched.
     let save_real = fs::canonicalize(&plan.save_root)
         .with_context(|| format!("can't open save folder {}", plan.save_root.display()))?;
-    if out_real.starts_with(&save_real) {
+    if resolve_lenient(&out_parent).starts_with(&save_real) {
         bail!("Pick an output folder that isn't inside the save you're converting.");
     }
+    fs::create_dir_all(&out_parent)
+        .with_context(|| format!("can't create output folder {}", out_parent.display()))?;
 
     let out_dir = create_fresh_dir(
         &out_parent,
@@ -330,12 +329,19 @@ impl Plan {
             .map(|prefix| Candidate::evaluate(game, direction, &found, prefix))
             .collect();
 
-        // A "complete" candidate has every required file. A complete
-        // candidate nested inside another complete one is a copy/backup
-        // kept inside the save folder, not a rival.
+        // A "complete" candidate has every required file — or, for a
+        // profile where nothing is mandatory, at least one recognised
+        // file. A complete candidate nested inside another complete one
+        // is a copy/backup kept inside the save folder, not a rival.
         let complete: Vec<&Candidate> = candidates
             .iter()
-            .filter(|c| required_total > 0 && c.required_present == required_total)
+            .filter(|c| {
+                if required_total > 0 {
+                    c.required_present == required_total
+                } else {
+                    !c.files.is_empty()
+                }
+            })
             .collect();
         let outermost: Vec<&Candidate> = complete
             .iter()
@@ -559,6 +565,34 @@ fn read_capped(path: &Path) -> Result<Vec<u8>> {
         bail!("{} is too large to be a save file.", path.display());
     }
     Ok(data)
+}
+
+/// Canonicalize a path that may not exist yet: resolve the deepest
+/// ancestor that does exist and re-attach the rest unchanged. Lets a
+/// not-yet-created output folder be compared against the save folder
+/// without creating it first.
+fn resolve_lenient(path: &Path) -> PathBuf {
+    let mut missing = Vec::new();
+    let mut current = path;
+    loop {
+        let probe = if current.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            current
+        };
+        if let Ok(mut real) = fs::canonicalize(probe) {
+            real.extend(missing.iter().rev());
+            return real;
+        }
+        match (current.parent(), current.file_name()) {
+            (Some(parent), Some(name)) => {
+                missing.push(name.to_os_string());
+                current = parent;
+            }
+            // Nothing along the path resolves: compare it as given.
+            _ => return path.to_path_buf(),
+        }
+    }
 }
 
 /// Create `<parent>/<name>`, or `<name>-2`, `<name>-3`… if taken.
@@ -860,9 +894,38 @@ mod tests {
             .unwrap_err();
             assert!(err.to_string().contains("isn't inside the save"), "{err}");
         }
-        // Nothing converted leaked into the save folder.
+        // Nothing leaked into the save folder — not even the (refused)
+        // output folder itself.
         assert!(!tmp.path("ps5/test-game-pc-save").exists());
-        assert!(!tmp.path("ps5/converted/test-game-pc-save").exists());
+        assert!(!tmp.path("ps5/converted").exists());
+        assert_eq!(fs::read_dir(tmp.path("ps5")).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn a_profile_with_only_optional_files_needs_at_least_one_of_them() {
+        let mut optional = game();
+        for file in &mut optional.files {
+            file.required = false;
+        }
+        let tmp = TempDir::new();
+        tmp.write("empty/unrelated.bin", b"x");
+        tmp.write("ps5/SLOT1.DAT", b"slot one");
+
+        let report = inspect_with(&optional, Direction::Ps5ToPc, &tmp.path("empty")).unwrap();
+        assert!(!report.convertible);
+
+        let report = inspect_with(&optional, Direction::Ps5ToPc, &tmp.path("ps5")).unwrap();
+        assert!(report.convertible, "{:?}", report.blockers);
+        assert_eq!(report.files.len(), 1);
+        convert_with(
+            &optional,
+            &request(Direction::Ps5ToPc, &tmp.path("ps5"), &tmp.path("out")),
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(tmp.path("out/test-game-pc-save/remote/slot_1.sav")).unwrap(),
+            b"slot one"
+        );
     }
 
     #[test]
