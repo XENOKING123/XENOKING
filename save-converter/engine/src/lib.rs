@@ -216,3 +216,36 @@ pub unsafe extern "C" fn xeno_convert(
         Err(e) => fail(e),
     }
 }
+
+/// Merge: convert a PC save to PS5 while keeping a genuine PS5 hunter's online
+/// identity (from `ref`, a decrypted PS5 save registered online on the target
+/// account) instead of resetting it. `steam_id64` opens the PC input. On
+/// success the payload is the merged PS5 file and `value` is how many slots
+/// received a genuine identity.
+///
+/// # Safety
+/// The pointer pairs must name readable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn xeno_merge(
+    game_ptr: *const u8,
+    game_len: usize,
+    steam_id64: u64,
+    pc_ptr: *const u8,
+    pc_len: usize,
+    ref_ptr: *const u8,
+    ref_len: usize,
+) -> *mut u8 {
+    let game = match game_by_id(game_ptr, game_len) {
+        Ok(game) => game,
+        Err(e) => return fail(e),
+    };
+    match convert::merge_pc_to_ps5(
+        game,
+        steam_id64,
+        bytes(pc_ptr, pc_len),
+        bytes(ref_ptr, ref_len),
+    ) {
+        Ok(converted) => ok(u64::from(converted.identity_reset), &converted.data),
+        Err(e) => fail(e),
+    }
+}

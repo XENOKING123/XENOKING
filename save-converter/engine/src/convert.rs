@@ -111,6 +111,126 @@ pub fn convert(
     })
 }
 
+/// The class hash of `app.savedata.cUserSaveParam` — one hunter slot. The
+/// online identity fields are only grafted/reset inside this class, never on
+/// the `HunterId` of other players recorded elsewhere in the save.
+fn user_save_param_hash() -> u32 {
+    name_hash("app.savedata.cUserSaveParam")
+}
+
+/// The `HunterId` and `HunterShortId` of each hunter slot, in slot order, read
+/// out of a decoded save stream. Used to carry a genuine PS5 hunter's online
+/// identity onto a converted PC save (the "merge").
+pub struct SlotIdentities {
+    pub hunter_ids: Vec<Vec<u8>>,
+    pub short_ids: Vec<Vec<u8>>,
+}
+
+pub fn collect_slot_identities(stream: &[u8], base: usize) -> Result<SlotIdentities, DsssError> {
+    let slot = user_save_param_hash();
+    let hid = name_hash("HunterId");
+    let sid = name_hash("HunterShortId");
+    let mut ids = SlotIdentities {
+        hunter_ids: Vec::new(),
+        short_ids: Vec::new(),
+    };
+    // rebase_with to the same base is a read-only walk when the edit never
+    // substitutes; use it to observe every string field in order.
+    rebase_with(stream, base, base, &mut |f: &StringField<'_>| {
+        if f.class_hash == slot {
+            if f.name_hash == hid {
+                ids.hunter_ids.push(f.units.to_vec());
+            } else if f.name_hash == sid {
+                ids.short_ids.push(f.units.to_vec());
+            }
+        }
+        None
+    })
+    .map_err(|e| DsssError::corrupt(e.to_string()))?;
+    Ok(ids)
+}
+
+/// Merge: convert a PC save to PS5 **keeping a genuine PS5 hunter's online
+/// identity** instead of resetting it, so the result is accepted online on the
+/// PSN account that owns `ps5_reference`.
+///
+/// `pc_input` is the Steam save (opened with `pc_steam_id64`); `ps5_reference`
+/// is a decrypted PS5 save of a hunter already registered online on the target
+/// account. Each hunter slot of the output takes its progress from the PC save
+/// and its `HunterId`/`HunterShortId` from the matching slot of the reference.
+/// A PC slot with no genuine reference identity (the reference has fewer slots, or that
+/// reference slot is an empty `"--------"`) keeps the PC progress but its
+/// identity is reset, so it can't masquerade as a registered hunter.
+pub fn merge_pc_to_ps5(
+    game: &Game,
+    pc_steam_id64: u64,
+    pc_input: &[u8],
+    ps5_reference: &[u8],
+) -> Result<Converted, DsssError> {
+    // The genuine identities to graft in, slot by slot.
+    let ref_decoded = container::decode(ps5_reference, None)?;
+    let donor = collect_slot_identities(&ref_decoded.stream, ref_decoded.stream_base)?;
+
+    // The PC save's progress.
+    let key = key_for(game, pc_steam_id64);
+    let pc_decoded = container::decode(pc_input, Some(&key))?;
+    let to_base = container::stream_base(FLAG_DEFLATE);
+
+    let slot = user_save_param_hash();
+    let hid = name_hash("HunterId");
+    let sid = name_hash("HunterShortId");
+    let fresh: Vec<u8> = "--------"
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    let is_blank = |u: &[u8]| u == fresh.as_slice();
+
+    let (mut n_hid, mut n_sid, mut grafted) = (0usize, 0usize, 0u32);
+    let out_stream = {
+        let mut edit = |f: &StringField<'_>| -> Option<Vec<u8>> {
+            if f.class_hash != slot {
+                return None;
+            }
+            if f.name_hash == hid {
+                let i = n_hid;
+                n_hid += 1;
+                return match donor.hunter_ids.get(i) {
+                    Some(v) if !is_blank(v) => {
+                        grafted += 1;
+                        Some(v.clone())
+                    }
+                    // No genuine id for this slot: reset so it isn't a stale
+                    // PC id the server would reject.
+                    _ => Some(fresh.clone()),
+                };
+            }
+            if f.name_hash == sid {
+                let i = n_sid;
+                n_sid += 1;
+                return match donor.short_ids.get(i) {
+                    Some(v) if !is_blank(v) => Some(v.clone()),
+                    _ => Some(fresh.clone()),
+                };
+            }
+            None
+        };
+        rebase_with(
+            &pc_decoded.stream,
+            pc_decoded.stream_base,
+            to_base,
+            &mut edit,
+        )
+        .map_err(|e| DsssError::corrupt(e.to_string()))?
+    };
+
+    let data = container::encode(&out_stream, FLAG_DEFLATE, None)?;
+    Ok(Converted {
+        data,
+        // Report how many slots received a genuine identity.
+        identity_reset: grafted,
+    })
+}
+
 /// The SteamID64 stored in a Wilds in-game-photo file (`SS1_*`), or `None` when
 /// the bytes are not one. Those files carry the account id in clear, so the
 /// owner's Steam id can be read from them without decrypting anything.

@@ -4,7 +4,9 @@
 #![cfg(test)]
 
 use crate::container;
-use crate::convert::{convert, steam_id_from_photo, Direction};
+use crate::convert::{
+    collect_slot_identities, convert, merge_pc_to_ps5, steam_id_from_photo, Direction,
+};
 use crate::games;
 use crate::mandarin::{self, MandarinKey};
 use crate::stream::{rebase_with, StringField};
@@ -120,4 +122,63 @@ fn account_is_read_from_the_pc_photo_file() {
     // side never needs the source account.
     let ps5_ss1 = std::fs::read(root.join("samples/ps5/SS1_data001Slot.bin")).unwrap();
     assert_eq!(steam_id_from_photo(&ps5_ss1), None);
+}
+
+#[test]
+fn merge_grafts_the_reference_slot_identity_onto_pc_progress() {
+    let Some(root) = vectors() else { return };
+    let pc = std::fs::read(root.join("samples/pc_wilds/2246340/remote/win64_save/data001Slot.bin"))
+        .unwrap();
+    let (body, len) = container::encrypted_parts(&pc).unwrap();
+    let id = mandarin::find_steam_id64(body, len, wilds().enc_seed).unwrap();
+
+    // Use the PC save itself as the "genuine reference": its slot-0 hunter has
+    // a real id (not "--------"), slots 1-2 are empty. The merge must carry
+    // that slot-0 id onto the (PS5-format) output instead of wiping it, while
+    // empty reference slots fall back to a reset.
+    let merged = merge_pc_to_ps5(wilds(), id, &pc, &decode_ps5_ref(&pc, id)).unwrap();
+    assert_eq!(container::peek_flags(&merged.data).unwrap(), 0x08);
+    assert_eq!(
+        merged.identity_reset, 1,
+        "exactly one slot had a real id to graft"
+    );
+
+    // The output's slot-0 HunterId equals the PC original (grafted, not blank).
+    let want = collect_slot_identities(
+        &container::decode(&pc, Some(&wilds_key(id))).unwrap().stream,
+        16,
+    )
+    .unwrap();
+    let got = collect_slot_identities(&container::decode(&merged.data, None).unwrap().stream, 12)
+        .unwrap();
+    assert_eq!(got.hunter_ids[0], want.hunter_ids[0], "slot 0 id grafted");
+    assert_ne!(
+        got.hunter_ids[0],
+        "--------"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<u8>>(),
+        "slot 0 must not be the reset value"
+    );
+    // Empty reference slots stay reset.
+    let blank: Vec<u8> = "--------"
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    assert_eq!(got.hunter_ids[1], blank);
+}
+
+// Helper: the merge takes the reference as a *decrypted PS5* file. Make one
+// from the PC save (same hunter) so the test has a reference without a real
+// PS5 character file: convert PC->PS5 (which resets ids), then we can't reuse
+// its ids — so instead decode the PC save, re-encode as PS5 keeping ids.
+fn decode_ps5_ref(pc: &[u8], id: u64) -> Vec<u8> {
+    let d = container::decode(pc, Some(&wilds_key(id))).unwrap();
+    // Re-lay-out to PS5 base and encode, WITHOUT resetting identity, so the
+    // reference keeps the original hunter ids (stands in for a genuine PS5 save).
+    let ps5_stream = rebase_with(&d.stream, d.stream_base, 12, &mut |_: &StringField<'_>| {
+        None
+    })
+    .unwrap();
+    container::encode(&ps5_stream, container::FLAG_DEFLATE, None).unwrap()
 }
