@@ -32,6 +32,16 @@ sevenz-rust2 = { version = "0.21", default-features = false }
 # resize + DXT5/DDS encode (ported to match the PS5 reference byte-for-byte),
 # so only the decode + PNG re-encode sides of `image` are exercised.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "bmp", "gif"] }
+# Save Converter (save_convert/re_engine) — read/write Monster Hunter Wilds
+# DSSS save files. All pure-Rust, no C deps, so the Android cross-compile the
+# pins above protect stays clean:
+#   aes        — AES-128 block, driven in OFB mode by hand (no block-mode crate)
+#   num-bigint — the 253-bit modular arithmetic of the PC key wrap / trailer
+#   flate2 (rust_backend) — the DEFLATE layer, same miniz_oxide backend the
+#                           desktop shell already uses
+aes = { version = "0.9", default-features = false }
+num-bigint = { version = "0.4", default-features = false }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 # Read .rar game dumps (incl. multi-volume + AES password) — host-extract to a
 # temp dir, then stream via the directory transfer (transfer.rs `rar_support`).
 # UnRAR is the only thing that fully handles RAR5 + multi-volume + passwords;

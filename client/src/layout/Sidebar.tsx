@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { getVersion } from "@tauri-apps/api/app";
 import {
+  ArrowLeftRight,
   Cable,
   Upload,
   PackageOpen,
@@ -123,6 +124,13 @@ const items: NavItem[] = [
     key: "game_store",
     fallback: "Game Store",
     icon: ShoppingCart,
+    gold: true,
+  },
+  {
+    to: "/save-converter",
+    key: "save_converter",
+    fallback: "Save Converter",
+    icon: ArrowLeftRight,
     gold: true,
   },
   // Dashboard lives with Setup, not System: it's the "am I connected,
@@ -259,6 +267,7 @@ const EMOJI: Record<string, string> = {
   "/trainers": "🎯",
   "/title-search": "🔎",
   "/game-store": "🛒",
+  "/save-converter": "🔁",
   "/upload": "⬆️",
   "/install-package": "📦",
   "/saves": "💾",

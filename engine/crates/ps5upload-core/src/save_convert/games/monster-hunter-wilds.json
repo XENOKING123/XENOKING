@@ -1,0 +1,62 @@
+{
+  "id": "monster-hunter-wilds",
+  "name": "Monster Hunter Wilds",
+  "status": "experimental",
+  "aliases": ["MHWilds", "MH Wilds", "MHWs"],
+  "ps5": {
+    "title_ids": ["PPSA07862", "PPSA24191"],
+    "save_hint": "Export the decrypted save with an on-console save manager; the folder holds data001Slot.bin (and data00-1.bin)."
+  },
+  "pc": {
+    "steam_app_id": 2246340,
+    "save_path": "<Steam>\\userdata\\<account id>\\2246340\\remote\\win64_save"
+  },
+  "files": [
+    { "ps5": "data001Slot.bin", "pc": "data001Slot.bin", "label": "Character data" },
+    { "ps5": "data00-1.bin", "pc": "data00-1.bin", "label": "System data", "required": false }
+  ],
+  "codec": "re-engine-dsss",
+  "codec_params": {
+    "enc_seed": "0x7A36955255266CED",
+    "rsa_seed": "0xBFACF76C3F96",
+    "reset_identity_fields": ["HunterId", "HunterShortId"]
+  },
+  "options": [
+    {
+      "key": "steam_id64",
+      "label": "SteamID64 of the Steam account that will play this save",
+      "kind": "steam_id64",
+      "help": "The 17-digit id (starts with 7656) of the PC account that will load the converted save. Find it on your Steam profile or steamdb.info/calculator.",
+      "directions": ["ps5_to_pc"],
+      "required": true
+    },
+    {
+      "key": "steam_id64",
+      "label": "SteamID64 of the Steam account that made this save",
+      "kind": "steam_id64",
+      "help": "Leave blank to detect it from the save automatically. Only needed if detection fails.",
+      "directions": ["pc_to_ps5"],
+      "required": false
+    }
+  ],
+  "notes": [
+    "Only the character save (data001Slot.bin) carries your hunters; system settings stay per-platform and in-game photos don't transfer.",
+    "Converting to another platform means a new account, so the online hunter identity is reset and the game issues a fresh one when you next go online — friends, followers and squads from the old account won't carry over.",
+    "Keep a backup of the save you're replacing."
+  ],
+  "next_steps": {
+    "ps5_to_pc": [
+      "Close the game and Steam, and back up your current win64_save folder.",
+      "Copy the converted file(s) into win64_save, replacing what's there.",
+      "If Steam Cloud reports a conflict on launch, keep the local files.",
+      "Go online once so the game issues a new hunter id."
+    ],
+    "pc_to_ps5": [
+      "Import the converted file(s) with an on-console save manager, re-encrypting for your console.",
+      "Go online once so the game issues a new hunter id."
+    ]
+  },
+  "credits": [
+    "Save format research from ree-save-editor (kvasszn, GPL-3.0) and MandarinJuice (mi5hmash, MIT)."
+  ]
+}

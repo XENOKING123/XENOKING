@@ -57,6 +57,7 @@ const TrainersScreen = lazy(() => import("./screens/Trainers"));
 const TitleSearchScreen = lazy(() => import("./screens/TitleSearch"));
 const ChatScreen = lazy(() => import("./screens/Chat"));
 const PluginManagerScreen = lazy(() => import("./screens/PluginManager"));
+const SaveConverterScreen = lazy(() => import("./screens/SaveConverter"));
 
 /**
  * Suspense fallback. Deliberately minimal — a spinner would
@@ -250,6 +251,14 @@ export default function App() {
           element={
             <Suspense fallback={<ScreenLoader />}>
               <SavesScreen />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/save-converter"
+          element={
+            <Suspense fallback={<ScreenLoader />}>
+              <SaveConverterScreen />
             </Suspense>
           }
         />

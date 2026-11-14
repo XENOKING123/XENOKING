@@ -1,0 +1,25 @@
+[package]
+name = "xeno-save-converter"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Convert Monster Hunter Wilds (RE Engine) saves between PS5 and PC — the engine, compiled to WebAssembly."
+publish = false
+
+[lib]
+# cdylib for the wasm32 target (the local web page); rlib so the logic can also
+# be unit-tested natively with `cargo test`.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# All pure Rust, so the whole thing compiles to wasm32 with no C toolchain.
+aes = { version = "0.9", default-features = false }
+num-bigint = { version = "0.4", default-features = false }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+
+[profile.release]
+opt-level = "s"   # small wasm — the file is inlined into the page
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
